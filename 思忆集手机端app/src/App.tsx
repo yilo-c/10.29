@@ -133,6 +133,17 @@ export default function App() {
   useBadge()
   useFloatingBall()
 
+  /*
+   * 启动时恢复上次会话。
+   *
+   * 聊天历史存在 IndexedDB（不是 localStorage），因为多步任务的工具轨迹
+   * 会让单次对话体积很快超过 localStorage 的 5MB 上限，
+   * 写满后 persist 会静默失败，用户看到的就是"记录消失"。
+   */
+  useEffect(() => {
+    void useMobileStore.getState().restoreLastSession()
+  }, [])
+
   /**
    * 消费悬浮球发来的导航请求。
    * 悬浮球在 App 之外，无法直接改 App 的本地 state，

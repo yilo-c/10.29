@@ -36,7 +36,11 @@ vi.mock('../cloudAiClient', () => ({
 import { runAgent, looksLikeMultiStepTask } from '../agentLoop'
 import { ToolRegistry, ExecutionResult, type AiTool } from '../toolRegistry'
 
-function makeTool(id: string, exec: (p: Record<string, unknown>) => Promise<ReturnType<typeof ExecutionResult>>, risk: AiTool['riskLevel'] = 'R0_INFO'): AiTool {
+function makeTool(
+  id: string,
+  exec: (p: Record<string, unknown>) => Promise<{ success: boolean; data?: string; error?: string }>,
+  risk: AiTool['riskLevel'] = 'R0_INFO',
+): AiTool {
   return {
     id,
     description: `test tool ${id}`,

@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { Keyboard, KeyboardInfo } from '@capacitor/keyboard'
 import { useMobileStore } from '../../../store/mobileStore'
-import { IconSparkles } from '../../ui'
+import { IconSparkles, IconPlus } from '../../ui'
 import { haptic } from '../../../lib/haptic'
 import { tokenManager } from '../../../lib/tokenManager'
 import { ChatSocketManager, type ConnectionState } from '../../../lib/chatSocket'
@@ -74,6 +74,9 @@ function readFileBase64(file: File): Promise<string> {
 }
 
 export default function ChatView() {
+  /* 历史会话面板 */
+  const [showHistory, setShowHistory] = useState(false)
+  const [sessions, setSessions] = useState<Array<{ id: string; title: string; updatedAt: number; messages: unknown[] }>>([])
   const sendMessage = useMobileStore(s => s.sendMessage)
   const setConnection = useMobileStore(s => s.setConnection)
   const setStreaming = useMobileStore(s => s.setStreaming)
@@ -362,6 +365,35 @@ export default function ChatView() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 'var(--text-large-title)', fontWeight: 700, letterSpacing: -0.5 }}>
           <IconSparkles size={24} />
           AI 助手
+          {/* 历史会话 + 新建会话：会话持久化的入口，否则存了也看不到 */}
+          <button
+            onClick={async () => {
+              const list = await useMobileStore.getState().listChatSessions()
+              setSessions(list)
+              setShowHistory(true)
+            }}
+            aria-label="历史会话"
+            style={{
+              marginLeft: 'auto', width: 32, height: 32, border: 'none',
+              background: 'var(--bg-secondary)', borderRadius: 10,
+              color: 'var(--text-secondary)', cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 15,
+            }}
+          >🕘</button>
+          <button
+            onClick={() => {
+              useMobileStore.getState().startNewSession()
+              haptic.light()
+            }}
+            aria-label="新建会话"
+            style={{
+              width: 32, height: 32, border: 'none',
+              background: 'var(--bg-secondary)', borderRadius: 10,
+              color: 'var(--text-secondary)', cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}
+          ><IconPlus size={16} /></button>
           {messages.length > 0 && sessionId && connState === 'connected' && (
             <button
               onClick={handleIngestConversation}
@@ -627,6 +659,101 @@ export default function ChatView() {
               style={{ width: '100%', padding: '12px 0', borderRadius: 'var(--radius-sm)', border: 'none', background: 'var(--bg-tertiary)', color: 'var(--text-secondary)', fontSize: 'var(--text-body)', cursor: 'pointer' }}>
               取消
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* 历史会话面板 */}
+      {showHistory && (
+        <div
+          onClick={() => setShowHistory(false)}
+          style={{
+            position: 'fixed', inset: 0, zIndex: 80,
+            background: 'rgba(0,0,0,0.45)',
+            display: 'flex', alignItems: 'flex-end',
+          }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              width: '100%', maxHeight: '76vh',
+              background: 'var(--bg-primary)',
+              borderRadius: 'var(--radius-xl) var(--radius-xl) 0 0',
+              paddingBottom: 'var(--safe-bottom)',
+              display: 'flex', flexDirection: 'column',
+            }}
+          >
+            <div style={{
+              display: 'flex', alignItems: 'center',
+              padding: 'var(--space-4)',
+              borderBottom: '0.5px solid var(--border-subtle)',
+            }}>
+              <span style={{ fontSize: 'var(--text-headline)', fontWeight: 600, flex: 1 }}>
+                历史会话
+              </span>
+              <button
+                onClick={() => setShowHistory(false)}
+                aria-label="关闭"
+                style={{
+                  width: 32, height: 32, border: 'none', background: 'var(--bg-secondary)',
+                  borderRadius: '50%', color: 'var(--text-secondary)',
+                  fontSize: 15, cursor: 'pointer',
+                }}
+              >✕</button>
+            </div>
+
+            <div style={{ flex: 1, overflowY: 'auto', padding: 'var(--space-3)' }}>
+              {sessions.length === 0 ? (
+                <div style={{
+                  padding: 'var(--space-6)', textAlign: 'center',
+                  color: 'var(--text-tertiary)', fontSize: 'var(--text-footnote)',
+                }}>还没有历史会话</div>
+              ) : sessions.map(s => (
+                <div key={s.id} style={{
+                  display: 'flex', alignItems: 'center', gap: 8,
+                  padding: 'var(--space-3)',
+                  marginBottom: 6,
+                  background: 'var(--bg-secondary)',
+                  borderRadius: 'var(--radius-md)',
+                }}>
+                  <button
+                    onClick={async () => {
+                      await useMobileStore.getState().openChatSession(s.id)
+                      setShowHistory(false)
+                      haptic.light()
+                    }}
+                    style={{
+                      flex: 1, minWidth: 0, textAlign: 'left',
+                      border: 'none', background: 'none', padding: 0, cursor: 'pointer',
+                    }}
+                  >
+                    <div style={{
+                      fontSize: 'var(--text-footnote)', color: 'var(--text-primary)',
+                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                    }}>{s.title || '未命名会话'}</div>
+                    <div style={{
+                      fontSize: 'var(--text-caption-2)', color: 'var(--text-tertiary)',
+                      marginTop: 2,
+                    }}>
+                      {new Date(s.updatedAt).toLocaleString('zh-CN', {
+                        month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit',
+                      })} · {s.messages.length} 条
+                    </div>
+                  </button>
+                  <button
+                    onClick={async () => {
+                      await useMobileStore.getState().removeChatSession(s.id)
+                      setSessions(prev => prev.filter(x => x.id !== s.id))
+                    }}
+                    aria-label="删除会话"
+                    style={{
+                      width: 30, height: 30, border: 'none', background: 'none',
+                      color: 'var(--text-tertiary)', cursor: 'pointer', flexShrink: 0,
+                    }}
+                  >✕</button>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       )}

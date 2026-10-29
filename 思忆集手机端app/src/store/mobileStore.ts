@@ -8,6 +8,7 @@ import { CloudAiClient } from '../lib/cloudAiClient'
 import { ToolRegistry } from '../lib/toolRegistry'
 import { a11yTools } from '../lib/a11yTools'
 import { runAgent, looksLikeMultiStepTask } from '../lib/agentLoop'
+import { persistMessages, getCurrentSessionId, newSessionId, getSession, listSessions, deleteSession, type StoredSession } from '../lib/sessionStore'
 import { ChatOrchestrator } from '../lib/chatOrchestrator'
 import { OfflineAiFallback } from '../lib/offlineFallback'
 import { useStore, getHuangli } from '@desk-notes/shared'
@@ -71,6 +72,18 @@ interface MobileStore {
   clearMessages: () => void
   setSessionId: (id: string) => void
   setStreaming: (v: boolean) => void
+
+  /* 会话持久化（IndexedDB） */
+  /** 启动时恢复上次会话 */
+  restoreLastSession: () => Promise<void>
+  /** 列出所有历史会话 */
+  listChatSessions: () => Promise<StoredSession[]>
+  /** 打开指定会话 */
+  openChatSession: (id: string) => Promise<void>
+  /** 删除会话 */
+  removeChatSession: (id: string) => Promise<void>
+  /** 新建会话 */
+  startNewSession: () => void
 
   /* 跨组件导航请求（悬浮球等外部入口触发） */
   /**
@@ -558,8 +571,58 @@ export const useMobileStore = create<MobileStore>()(
         }
       },
 
-      clearMessages: () => set(s => ({ chat: { ...s.chat, messages: [], sessionId: null } })),
+      clearMessages: () => {
+        const sid = get().chat.sessionId
+        set(s => ({ chat: { ...s.chat, messages: [], sessionId: null } }))
+        // 清空即开启新会话，旧会话保留在历史里
+        void (sid ? deleteSession(sid) : Promise.resolve())
+      },
       setSessionId: (sessionId: string) => set(s => ({ chat: { ...s.chat, sessionId } })),
+
+      /* ── 会话持久化 ──
+       *
+       * 落盘时机：每次消息数组变化后防抖 800ms 保存。
+       * 不用 zustand persist 是因为聊天历史带工具轨迹后体积大，
+       * localStorage 5MB 容易写满并静默失败（表现为"记录消失"）。
+       */
+      restoreLastSession: async () => {
+        try {
+          const sid = getCurrentSessionId()
+          if (!sid) return
+          const sess = await getSession(sid)
+          if (!sess || sess.messages.length === 0) return
+          set(s => ({
+            chat: { ...s.chat, messages: sess.messages, sessionId: sess.id },
+          }))
+        } catch { /* 恢复失败不影响新对话 */ }
+      },
+
+      listChatSessions: async () => {
+        try { return await listSessions() } catch { return [] }
+      },
+
+      openChatSession: async (id: string) => {
+        try {
+          const sess = await getSession(id)
+          if (!sess) return
+          set(s => ({
+            chat: { ...s.chat, messages: sess.messages, sessionId: sess.id, streaming: false },
+          }))
+        } catch { /* ignore */ }
+      },
+
+      removeChatSession: async (id: string) => {
+        try {
+          await deleteSession(id)
+          if (get().chat.sessionId === id) {
+            set(s => ({ chat: { ...s.chat, messages: [], sessionId: null } }))
+          }
+        } catch { /* ignore */ }
+      },
+
+      startNewSession: () => {
+        set(s => ({ chat: { ...s.chat, messages: [], sessionId: null, streaming: false } }))
+      },
       setStreaming: (streaming: boolean) => set(s => ({ chat: { ...s.chat, streaming } })),
 
       /* ── 跨组件导航请求（悬浮球等外部入口） ── */
@@ -633,3 +696,33 @@ export const useMobileStore = create<MobileStore>()(
     }
   )
 )
+
+/*
+ * 自动落盘 / Auto-persist
+ *
+ * 订阅 chat.messages 变化，防抖 800ms 后写入 IndexedDB。
+ * 防抖是必要的：流式输出时每个 chunk 都会改 messages，
+ * 不防抖会导致每秒几十次写库。
+ *
+ * 不用 zustand persist 的理由：聊天带工具轨迹后体积大，
+ * localStorage 5MB 容易写满且静默失败（表现就是"记录消失"）。
+ */
+let persistTimer: ReturnType<typeof setTimeout> | null = null
+if (typeof window !== 'undefined') {
+  useMobileStore.subscribe((state, prev) => {
+    if (state.chat.messages === prev.chat.messages) return
+    if (state.chat.streaming) return   // 流式过程中不落盘，等结束
+
+    const msgs = state.chat.messages
+    if (msgs.length === 0) return
+
+    if (persistTimer) clearTimeout(persistTimer)
+    persistTimer = setTimeout(() => {
+      const sid = state.chat.sessionId ?? newSessionId()
+      if (!state.chat.sessionId) {
+        useMobileStore.setState(s => ({ chat: { ...s.chat, sessionId: sid } }))
+      }
+      void persistMessages(sid, msgs)
+    }, 800)
+  })
+}

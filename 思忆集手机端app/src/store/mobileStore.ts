@@ -511,6 +511,24 @@ export const useMobileStore = create<MobileStore>()(
           })
         }
 
+        /*
+         * 追加最终答案，保留已写入的工具轨迹。
+         *
+         * 为什么需要单独一个方法：Agent 循环执行时 onStep 会往气泡里追加
+         * 「⚙️ 思考中 / ✓ 工具名」，如果用 setStreamContent 整体替换，
+         * 这些轨迹会被抹掉，用户看不到 AI 到底做了什么。
+         */
+        const appendFinalContent = (content: string) => {
+          set(s => {
+            const msgs = (s.chat.messages || []).map(m =>
+              m.id === streamMsgId
+                ? { ...m, content: m.content ? `${m.content}\n${content}` : content }
+                : m
+            )
+            return { chat: { ...s.chat, messages: msgs, streaming: false } }
+          })
+        }
+
         try {
           const cloudConfigured = tokenManager.cloudAiEnabled
             && !!(tokenManager.cloudApiKey || useStore.getState().activeProfileId)
@@ -568,7 +586,7 @@ export const useMobileStore = create<MobileStore>()(
             })
 
             const finalText = agent.text || (agent.error ?? '任务未完成')
-            setStreamContent(finalText + (agent.usedTools.length > 0
+            appendFinalContent(finalText + (agent.usedTools.length > 0
               ? `\n\n—— 用到 ${agent.usedTools.length} 个工具 · ${agent.steps} 步`
               : ''))
             return

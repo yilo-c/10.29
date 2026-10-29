@@ -148,6 +148,19 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
+          # 额外：把关键错误以 ::error:: 注解输出。
+          # 原因：job log 与 artifact 下载都需要认证，而 Step Summary 页面是
+          # JS 渲染抓不到；只有 annotations 可以通过公开 REST 读取
+          # （/repos/{owner}/{repo}/check-runs/{id}/annotations）。
+          # 这样任何只能访问公开 API 的排查方都能看到真实报错。
+          ERR_TEXT=$(grep -A 12 "What went wrong" /tmp/gradle.log 2>/dev/null | head -20 || true)
+          if [ -z "$ERR_TEXT" ]; then
+            ERR_TEXT=$(tail -20 /tmp/gradle.log 2>/dev/null || echo "no log")
+          fi
+          # ::error:: 单条消息上限 4000 字符，且换行需转义为 %0A
+          MSG=$(printf '%s' "$ERR_TEXT" | tr '\n' '\r' | sed 's/\r/%0A/g' | cut -c1-3500)
+          echo "::error title=Gradle build failed::${MSG}"
+
       - name: Upload Gradle log on failure
         if: failure()
         uses: actions/upload-artifact@v4

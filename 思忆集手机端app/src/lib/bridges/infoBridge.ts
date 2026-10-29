@@ -305,10 +305,11 @@ export async function personalize(options: Record<string, unknown> = {}): Promis
   }
 }
 
-/* ── 采集与简报（InfoView 直接消费的接口） ── */
+/* ── 采集与网页代理（InfoView 直接消费的接口） ── */
 
 export interface InfoFetchResult {
   items?: InfoItem[]
+  source?: string
   brief?: string
   errors?: { source: string; error: string }[]
   cached?: boolean
@@ -316,75 +317,199 @@ export interface InfoFetchResult {
 }
 
 /**
- * 主动抓取最新条目（后端会并发拉取所有启用的信息源）。
- * InfoView 优先用它，失败后回退到本地采集。
+ * 抓取国内热榜（知乎 / 微博）。
+ *
+ * 后端真源 `_info_proxy.py:53`：
+ *   `info_fetch_proxy(source: str = "", url: str = "", **kwargs)`
+ *   source="all" | "zhihu" | "weibo" → `{ items: [...], source }`
+ *
+ * ⚠️ 注意：这里**没有** cache / brief 模式。缓存与 AI 简报由手机端自己
+ * （localStorage + mobileInfoCollector）负责，后端只提供抓取。
  */
-export async function fetchItems(): Promise<InfoFetchResult | null> {
+export async function fetchItems(source: 'all' | 'zhihu' | 'weibo' = 'all'): Promise<InfoFetchResult | null> {
   try {
-    return await callRpc<InfoFetchResult>('info.fetch_proxy', { mode: 'items' })
-  } catch {
-    return null
-  }
-}
-
-/** 只读缓存，不触发网络抓取 —— 首屏用它快速出内容。 */
-export async function fetchCachedItems(): Promise<InfoFetchResult | null> {
-  try {
-    return await callRpc<InfoFetchResult>('info.fetch_proxy', { mode: 'cache' })
-  } catch {
-    return null
-  }
-}
-
-/** 让后端生成今日 AI 简报（耗时较长，只在用户主动触发或后台刷新时调）。 */
-export async function fetchBrief(): Promise<{ brief?: string } | null> {
-  try {
-    return await callRpc<{ brief?: string }>('info.fetch_proxy', { mode: 'brief' })
+    return await callRpc<InfoFetchResult>('info.fetch_proxy', { source })
   } catch {
     return null
   }
 }
 
 /**
- * 通过后端代理解析网页标题/摘要 —— 绕过手机 WebView 的 CORS 限制。
- * 失败时 InfoView 会回退到本地 `mobileInfoCollector.fetchPageTitle`。
+ * 读取上次抓取的本地缓存。
+ *
+ * 后端不提供缓存读接口，因此这里**不发起 RPC**，直接从 localStorage 取。
+ * InfoView 调用它做首屏秒开，拿不到就返回 null 走实时抓取。
  */
-export async function fetchPageTitle(url: string): Promise<{ title?: string; summary?: string } | null> {
+export async function fetchCachedItems(): Promise<InfoFetchResult | null> {
   try {
-    return await callRpc<{ title?: string; summary?: string }>('info.fetch_proxy', {
-      mode: 'page_title',
-      url,
-    })
+    const raw = localStorage.getItem('siyi-info-cache')
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as { items?: InfoItem[]; time?: number }
+    if (!parsed?.items || !Array.isArray(parsed.items)) return null
+    return { items: parsed.items, cached: true }
   } catch {
     return null
   }
 }
 
-/** 读取资讯板块的关键词配置（板块名 → 关键词数组）。 */
+/** 写入本地缓存（InfoView 抓取成功后调用，便于下次秒开）。 */
+export function saveCachedItems(items: InfoItem[]): void {
+  try {
+    localStorage.setItem('siyi-info-cache', JSON.stringify({ items, time: Date.now() }))
+  } catch {
+    /* 存储满了就放弃缓存，不影响主流程 */
+  }
+}
+
+/**
+ * AI 简报：后端**没有**专门的简报 RPC。
+ *
+ * 简报由手机端 `mobileInfoCollector` + 云 AI 生成（见 InfoView 的 generateBrief）。
+ * 这里保留函数签名只为兼容既有调用，实际返回 null，让 InfoView 走本地生成分支。
+ */
+export async function fetchBrief(): Promise<{ brief?: string } | null> {
+  const raw = localStorage.getItem('siyi-brief')
+  if (!raw) return null
+  try {
+    const parsed = JSON.parse(raw) as { text?: string; time?: number }
+    if (parsed?.text) return { brief: parsed.text }
+  } catch {
+    /* ignore */
+  }
+  return null
+}
+
+/**
+ * 通过后端代理取网页 HTML —— 绕过手机 WebView 的 CORS 限制。
+ *
+ * 后端 `_info_proxy.py:62` 明确说明「手机端 fetchPageTitle 依赖此模式」：
+ *   `{ url }` → `{ content, url, status }`
+ * 注意返回的是 **HTML 原文**，标题需要在此解析后再交给调用方，
+ * 这样 InfoView 不用关心解析细节。
+ */
+export async function fetchPageTitle(url: string): Promise<{ title?: string; summary?: string } | null> {
+  try {
+    const res = await callRpc<{ content?: string; url?: string; status?: number }>(
+      'info.fetch_proxy',
+      { url },
+    )
+    const html = res?.content
+    if (!html) return null
+    return extractTitleAndSummary(html)
+  } catch {
+    return null
+  }
+}
+
+/** 从 HTML 里提取 <title> 与 meta description。 */
+function extractTitleAndSummary(html: string): { title?: string; summary?: string } {
+  let title: string | undefined
+  let summary: string | undefined
+
+  const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)
+  if (titleMatch) {
+    title = decodeEntities(titleMatch[1]).trim().slice(0, 200)
+  } else {
+    const ogTitle = html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']*)["']/i)
+    if (ogTitle) title = decodeEntities(ogTitle[1]).trim().slice(0, 200)
+  }
+
+  const descMatch =
+    html.match(/<meta[^>]+name=["']description["'][^>]+content=["']([^"']*)["']/i)
+    || html.match(/<meta[^>]+property=["']og:description["'][^>]+content=["']([^"']*)["']/i)
+  if (descMatch) summary = decodeEntities(descMatch[1]).trim().slice(0, 500)
+
+  return { title, summary }
+}
+
+/** 常见 HTML 实体的最小解码（够用于标题/摘要，不引第三方库）。 */
+function decodeEntities(s: string): string {
+  return s
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+}
+
+/**
+ * 读取资讯板块的关键词配置（板块名 → 关键词数组）。
+ *
+ * 后端 `info.sections.list` 返回的是**嵌套结构**，不是数组：
+ *   `{ default: {meta, order, keywords}, user: [...], effective: {...}, all: [...] }`
+ * 关键词真源在 `default.keywords`（内置板块）与 `user[].keywords`（用户自定义）。
+ */
 export async function getSectionKeywords(): Promise<Record<string, string[]>> {
   try {
-    const res = await callRpc<unknown>('info.sections.list', {})
-    const sections = asArray<InfoSection>(res, 'sections', 'items')
+    const res = await callRpc<{
+      default?: { keywords?: Record<string, string[]> }
+      user?: Array<{ name?: string; keywords?: string[] }>
+    }>('info.sections.list', {})
+
     const out: Record<string, string[]> = {}
-    for (const s of sections) {
-      if (!s || typeof s !== 'object') continue
-      const name = typeof s.name === 'string' ? s.name : null
-      if (!name) continue
-      const kw = Array.isArray(s.keywords)
-        ? s.keywords.filter((x): x is string => typeof x === 'string')
-        : []
-      out[name] = kw
+
+    // 内置板块：default.keywords 就是 {板块名: [关键词]}
+    const defaults = res?.default?.keywords
+    if (defaults && typeof defaults === 'object') {
+      for (const [name, kw] of Object.entries(defaults)) {
+        if (Array.isArray(kw)) {
+          out[name] = kw.filter((x): x is string => typeof x === 'string')
+        }
+      }
     }
+
+    // 用户自定义板块：覆盖同名内置板块
+    if (Array.isArray(res?.user)) {
+      for (const s of res.user) {
+        if (!s || typeof s.name !== 'string') continue
+        const kw = Array.isArray(s.keywords)
+          ? s.keywords.filter((x): x is string => typeof x === 'string')
+          : []
+        out[s.name] = kw
+      }
+    }
+
     return out
   } catch {
     return {}
   }
 }
 
-/** 保存资讯板块关键词配置。 */
+/**
+ * 保存资讯板块关键词配置。
+ *
+ * 后端 `info.sections.update(section_id, name?, emoji?, keywords?, enabled?, sources?)`
+ * 需要 section_id，而调用方传的是「板块名 → 关键词」映射，因此先查 list 拿 id 再逐个 update。
+ * 内置板块的 id 即板块名（见 `_SECTION_ORDER`），用户板块取 `user[].id`。
+ */
 export async function setSectionKeywords(keywords: Record<string, string[]>): Promise<boolean> {
   try {
-    await callRpc('info.personalize', { section_keywords: keywords })
+    const res = await callRpc<{
+      default?: { order?: string[] }
+      user?: Array<{ id?: string | number; name?: string }>
+    }>('info.sections.list', {})
+
+    const byName = new Map<string, string>()
+    // 内置板块：id 直接用板块名
+    for (const name of res?.default?.order ?? []) {
+      if (typeof name === 'string') byName.set(name, name)
+    }
+    // 用户自定义板块：用真实 id（字符串化，后端签名是 section_id: str）
+    for (const s of res?.user ?? []) {
+      if (s && typeof s.name === 'string' && s.id != null) {
+        byName.set(s.name, String(s.id))
+      }
+    }
+
+    const jobs: Promise<unknown>[] = []
+    for (const [name, kw] of Object.entries(keywords)) {
+      const id = byName.get(name)
+      if (!id) continue
+      jobs.push(callRpc('info.sections.update', { section_id: id, keywords: kw }))
+    }
+    if (jobs.length === 0) return false
+    await Promise.all(jobs)
     return true
   } catch {
     return false

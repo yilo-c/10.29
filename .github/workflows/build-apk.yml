@@ -154,6 +154,11 @@ jobs:
           # （/repos/{owner}/{repo}/check-runs/{id}/annotations）。
           # 这样任何只能访问公开 API 的排查方都能看到真实报错。
           ERR_TEXT=$(grep -A 12 "What went wrong" /tmp/gradle.log 2>/dev/null | head -20 || true)
+          # Kotlin 编译错误单独抓：格式为 "e: file:///path/Xxx.kt:12:34 message"
+          KT_ERRS=$(grep -E "^e: file:///" /tmp/gradle.log 2>/dev/null | head -25 || true)
+          if [ -n "$KT_ERRS" ]; then
+            ERR_TEXT=$(printf '=== Kotlin 编译错误 ===\n%s\n=== What went wrong ===\n%s' "$KT_ERRS" "$ERR_TEXT")
+          fi
           if [ -z "$ERR_TEXT" ]; then
             ERR_TEXT=$(tail -20 /tmp/gradle.log 2>/dev/null || echo "no log")
           fi

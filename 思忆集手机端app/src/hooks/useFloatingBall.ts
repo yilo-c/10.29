@@ -3,6 +3,7 @@
 import { useEffect, useCallback, useRef, useState } from 'react'
 import { useStore } from '@desk-notes/shared'
 import { floatingBall, type FloatingBallMood } from '../lib/floatingBall'
+import { useMobileStore } from '../store/mobileStore'
 import { swallowError } from '../lib/swallowError'
 
 /** 后端 mood → 悬浮球 mood */
@@ -36,6 +37,30 @@ export function useFloatingBall(options?: UseFloatingBallOptions) {
   }, [])
   const setBadge = useCallback(async (count: number) => {
     await floatingBall.setBadge(count)
+  }, [])
+
+  /**
+   * 绑定悬浮球的交互行为。
+   *
+   * 关键：悬浮球在 App 之外悬停，用户点它是想「快速做点什么」。
+   * 这里把单击接到 AI 对话、双击接到快速记录，
+   * 否则球只是能拖动的装饰。
+   */
+  useEffect(() => {
+    floatingBall.setHandlers({
+      onTap: () => {
+        try {
+          // 切到 AI 标签页并聚焦输入框
+          const store = useMobileStore.getState()
+          store.requestTab?.('ai')
+        } catch { /* store 未就绪 */ }
+      },
+      onDoubleTap: () => {
+        try {
+          useMobileStore.getState().requestQuickNote?.()
+        } catch { /* ignore */ }
+      },
+    })
   }, [])
 
   // ── 生命周期 ──

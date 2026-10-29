@@ -16,6 +16,7 @@ import { useKeyboardAvoidance } from './hooks/useKeyboardAvoidance'
 import { useAutoSyncOnForeground } from './hooks/useAutoSync'
 import { useBadge } from './hooks/useBadge'
 import { useFloatingBall } from './hooks/useFloatingBall'
+import { useMobileStore } from './store/mobileStore'
 import { haptic } from './lib/haptic'
 import { ensureWsConnected, configureWs } from './lib/rpcClient'
 import { registerEventBridge, unregisterEventBridge } from './lib/eventBridge'
@@ -127,6 +128,28 @@ export default function App() {
   useAutoSyncOnForeground()
   useBadge()
   useFloatingBall()
+
+  /**
+   * 消费悬浮球发来的导航请求。
+   * 悬浮球在 App 之外，无法直接改 App 的本地 state，
+   * 所以通过 mobileStore 发信号，这里订阅并执行。
+   */
+  useEffect(() => {
+    const unsub = useMobileStore.subscribe(state => {
+      const tab = state.pendingTabRequest
+      if (tab) {
+        if (tab === 'ai' || tab === 'todo' || tab === 'notes' || tab === 'tools' || tab === 'settings') {
+          setActiveTab(tab as Tab)
+        }
+        useMobileStore.getState().consumeTabRequest()
+      }
+      if (state.quickNoteRequested) {
+        setShowQuickNote(true)
+        useMobileStore.getState().consumeQuickNoteRequest()
+      }
+    })
+    return unsub
+  }, [])
 
   const switchTab = useCallback((tab: Tab) => {
     if (tab === activeTab) return

@@ -70,6 +70,20 @@ interface MobileStore {
   setSessionId: (id: string) => void
   setStreaming: (v: boolean) => void
 
+  /* 跨组件导航请求（悬浮球等外部入口触发） */
+  /**
+   * 请求切换到指定 Tab。
+   * 悬浮球在 App 外悬停，点一下要能把用户带回对应页面，
+   * 但球本身拿不到 App 的本地 state，所以通过 store 发信号，由 App.tsx 消费。
+   */
+  pendingTabRequest: string | null
+  requestTab: (tab: string) => void
+  consumeTabRequest: () => string | null
+  /** 请求打开快速记录面板 */
+  quickNoteRequested: boolean
+  requestQuickNote: () => void
+  consumeQuickNoteRequest: () => boolean
+
   /* Remote approvals */
   approvals: {
     pending: PendingApproval[]
@@ -474,6 +488,22 @@ export const useMobileStore = create<MobileStore>()(
       clearMessages: () => set(s => ({ chat: { ...s.chat, messages: [], sessionId: null } })),
       setSessionId: (sessionId: string) => set(s => ({ chat: { ...s.chat, sessionId } })),
       setStreaming: (streaming: boolean) => set(s => ({ chat: { ...s.chat, streaming } })),
+
+      /* ── 跨组件导航请求（悬浮球等外部入口） ── */
+      pendingTabRequest: null,
+      requestTab: (tab: string) => set({ pendingTabRequest: tab }),
+      consumeTabRequest: () => {
+        const tab = get().pendingTabRequest
+        if (tab) set({ pendingTabRequest: null })
+        return tab
+      },
+      quickNoteRequested: false,
+      requestQuickNote: () => set({ quickNoteRequested: true }),
+      consumeQuickNoteRequest: () => {
+        const want = get().quickNoteRequested
+        if (want) set({ quickNoteRequested: false })
+        return want
+      },
 
       /* ── Remote approvals ── */
       approvals: { pending: [], loading: false, error: null },

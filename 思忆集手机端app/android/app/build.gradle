@@ -45,6 +45,10 @@ dependencies {
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
     implementation project(':capacitor-cordova-android-plugins')
+
+    // 悬浮球插件：capacitor.settings.gradle 已 include ':siyi-floating-ball'，
+    // 但此前缺少这行依赖，模块虽被注册却从不参与编译，导致悬浮球完全无效。
+    implementation project(':siyi-floating-ball')
 }
 
 apply from: 'capacitor.build.gradle'

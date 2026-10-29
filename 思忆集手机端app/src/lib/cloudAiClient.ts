@@ -256,6 +256,18 @@ export interface ToolSchema {
     name: string
     description: string
     parameters: Record<string, unknown> | null
+    /**
+     * 严格模式（DeepSeek / OpenAI 均支持，Beta）。
+     *
+     * 开启后模型输出必须严格符合 parameters 的 JSON Schema，
+     * 能显著减少"参数缺失/多传字段/类型不对"这类问题 ——
+     * 对 tap 这种坐标参数尤其重要（传个字符串 "100" 就会失败）。
+     *
+     * 注意：开启 strict 后 schema 必须写完整（properties 全部列出
+     * 且 required 覆盖所有必填），否则部分端点会直接报错。
+     * 因此这里默认不开，由调用方按工具决定。
+     */
+    strict?: boolean
   }
 }
 

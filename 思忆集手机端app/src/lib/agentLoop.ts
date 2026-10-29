@@ -115,6 +115,27 @@ function exceedsRisk(tool: AiTool, max?: RiskLevel): boolean {
 
 /* ── 工具 → OpenAI schema ── */
 
+/**
+ * 判断该工具能否开启 strict 模式。
+ *
+ * strict 要求 required 覆盖 properties 的全部字段，
+ * 有可选参数的工具开了会报错。所以逐个判断而非一刀切：
+ *   tap（x/y 都必填）→ 开，避免坐标传成字符串
+ *   list_apps（limit 可选）→ 不开
+ *   swipe（duration 可选）→ 不开
+ */
+function canUseStrict(tool: AiTool): boolean {
+  const params = tool.parameters as
+    | { properties?: Record<string, unknown>; required?: string[] }
+    | null
+  if (!params || typeof params !== 'object') return false
+  const props = Object.keys(params.properties ?? {})
+  const req = params.required ?? []
+  // 无参数的工具（read_screen/nav_*）开 strict 无意义但无害，这里统一不开
+  if (props.length === 0) return false
+  return props.length === req.length
+}
+
 function toSchema(tool: AiTool): ToolSchema {
   return {
     type: 'function',
@@ -123,6 +144,7 @@ function toSchema(tool: AiTool): ToolSchema {
       name: tool.id.replace(/\./g, '__'),
       description: `${tool.description}（风险等级 ${tool.riskLevel}）`,
       parameters: tool.parameters ?? { type: 'object', properties: {} },
+      ...(canUseStrict(tool) ? { strict: true } : {}),
     },
   }
 }

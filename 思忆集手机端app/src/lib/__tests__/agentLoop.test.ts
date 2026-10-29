@@ -219,3 +219,63 @@ describe('agentLoop / 多步任务判定', () => {
     expect(looksLikeMultiStepTask(t)).toBe(false)
   })
 })
+
+describe('agentLoop / strict 模式', () => {
+  it('必填参数覆盖全部字段时才开 strict（tap）', async () => {
+    const { chatWithTools } = await import('../cloudAiClient')
+    const calls: unknown[] = []
+    ;(chatWithTools as unknown as { mockImplementation: (f: unknown) => void }).mockImplementation(
+      async (args: { tools: unknown[] }) => {
+        calls.push(args.tools)
+        callIndex++
+        return { content: 'ok', toolCalls: [], raw: { role: 'assistant', content: 'ok' } }
+      },
+    )
+    callIndex = 0
+    const reg = new ToolRegistry()
+    reg.register({
+      id: 'phone.tap',
+      description: 'tap',
+      parameters: {
+        type: 'object',
+        properties: { x: { type: 'number' }, y: { type: 'number' } },
+        required: ['x', 'y'],
+      },
+      tags: ['tap'],
+      riskLevel: 'R3_MODIFY',
+      execute: async () => ExecutionResult.success('ok'),
+    })
+
+    await runAgent('点', reg)
+    const sent = (calls[0] as Array<{ function: { strict?: boolean } }>)
+    expect(sent[0].function.strict).toBe(true)
+  })
+
+  it('有可选参数时不开 strict（list_apps）', async () => {
+    const { chatWithTools } = await import('../cloudAiClient')
+    const calls: unknown[] = []
+    ;(chatWithTools as unknown as { mockImplementation: (f: unknown) => void }).mockImplementation(
+      async (args: { tools: unknown[] }) => {
+        calls.push(args.tools)
+        return { content: 'ok', toolCalls: [], raw: { role: 'assistant', content: 'ok' } }
+      },
+    )
+    const reg = new ToolRegistry()
+    reg.register({
+      id: 'phone.list_apps',
+      description: 'list',
+      parameters: {
+        type: 'object',
+        properties: { limit: { type: 'number' } },
+        required: [],
+      },
+      tags: ['apps'],
+      riskLevel: 'R0_INFO',
+      execute: async () => ExecutionResult.success('ok'),
+    })
+
+    await runAgent('列表', reg)
+    const sent = (calls[0] as Array<{ function: { strict?: boolean } }>)
+    expect(sent[0].function.strict).toBeUndefined()
+  })
+})

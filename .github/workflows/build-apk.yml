@@ -123,12 +123,30 @@ jobs:
           restore-keys: gradle-${{ runner.os }}-
 
       - name: Build APK
+        id: build
         working-directory: 思忆集手机端app/android
         run: |
           # gradlew 在版本库里的权限位是 100644（非可执行），
           # Linux runner 上直接 ./gradlew 会 Permission denied。
           chmod +x gradlew
-          ./gradlew assembleDebug --no-daemon --stacktrace
+          # tee 到文件：失败时把关键错误写进 Step Summary，
+          # 这样不依赖 job log 权限也能看到真实原因
+          ./gradlew assembleDebug --no-daemon --stacktrace 2>&1 | tee /tmp/gradle.log
+          exit ${PIPESTATUS[0]}
+
+      - name: Gradle failure diagnostics
+        if: failure()
+        run: |
+          {
+            echo "### Gradle 构建失败诊断"
+            echo '```'
+            grep -nE "FAILURE|error:|Caused by|What went wrong|> Task .* FAILED|Could not|Unsupported|requires" /tmp/gradle.log 2>/dev/null | head -40 || echo "（未匹配到常见错误模式）"
+            echo '```'
+            echo "#### 最后 60 行"
+            echo '```'
+            tail -60 /tmp/gradle.log 2>/dev/null
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4

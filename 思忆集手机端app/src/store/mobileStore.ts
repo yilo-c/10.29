@@ -8,6 +8,7 @@ import { CloudAiClient } from '../lib/cloudAiClient'
 import { ToolRegistry } from '../lib/toolRegistry'
 import { a11yTools } from '../lib/a11yTools'
 import { runAgent, looksLikeMultiStepTask } from '../lib/agentLoop'
+import { describeToolCall } from '../components/ui/ApprovalDialog'
 import { persistMessages, getCurrentSessionId, newSessionId, getSession, listSessions, deleteSession, type StoredSession } from '../lib/sessionStore'
 import { ChatOrchestrator } from '../lib/chatOrchestrator'
 import { OfflineAiFallback } from '../lib/offlineFallback'
@@ -16,6 +17,15 @@ import type { PendingApproval } from '../lib/rpcClient'
 import { listPendingApprovals, approveApproval, rejectApproval } from '../lib/rpcClient'
 
 /* ── Chat types ── */
+
+/*
+ * 高风险操作审批的 resolver。
+ *
+ * Agent 循环 await 一个 Promise，审批弹窗通过 resolveApproval 兑现它。
+ * 用模块级变量而不是 store state：Promise 的 resolve 函数无法序列化，
+ * 放进 state 会污染 persist 且浏览器可能拒绝结构化克隆。
+ */
+let approvalResolver: ((d: { approved: boolean; reason?: string }) => void) | null = null
 
 export interface ChatMessage {
   id: string
@@ -84,6 +94,19 @@ interface MobileStore {
   removeChatSession: (id: string) => Promise<void>
   /** 新建会话 */
   startNewSession: () => void
+
+  /* 高风险操作审批（C 项） */
+  /** 待审批请求；null 表示无 */
+  pendingApproval: {
+    id: string
+    toolLabel: string
+    toolId: string
+    summary: string
+    details: Array<{ label: string; value: string }>
+    reason?: string
+  } | null
+  /** 提交审批结果（由弹窗调用） */
+  resolveApproval: (approved: boolean, reason?: string) => void
 
   /* 跨组件导航请求（悬浮球等外部入口触发） */
   /**
@@ -484,6 +507,23 @@ export const useMobileStore = create<MobileStore>()(
           if (cloudConfigured && looksLikeMultiStepTask(text)) {
             const agent = await runAgent(text, toolRegistry, {
               systemContext: buildAIContext(),
+              /*
+               * R3 高风险操作审批（C 项）
+               *
+               * tap/swipe 的能力边界等于"用户的手指"，
+               * 点错可能误付款/误删/误发。执行前必须让用户看到具体要做什么。
+               * 用户拒绝时，会把原因回灌给 AI，让它知道被拒而非重试。
+               */
+              requestApproval: async ({ tool, args }) => {
+                const desc = describeToolCall(tool.id, args)
+                const decision = await requestUserApproval({
+                  toolId: tool.id,
+                  toolLabel: desc.label,
+                  summary: desc.summary,
+                  details: desc.details,
+                })
+                return decision
+              },
               onStep: (step) => {
                 // 把工具轨迹实时拼进气泡，用户能看到 AI 在做什么
                 set(s => {
@@ -623,6 +663,15 @@ export const useMobileStore = create<MobileStore>()(
       startNewSession: () => {
         set(s => ({ chat: { ...s.chat, messages: [], sessionId: null, streaming: false } }))
       },
+
+      /* ── 高风险操作审批 ── */
+      pendingApproval: null,
+      resolveApproval: (approved: boolean, reason?: string) => {
+        const resolver = approvalResolver
+        approvalResolver = null
+        set({ pendingApproval: null })
+        resolver?.({ approved, reason })
+      },
       setStreaming: (streaming: boolean) => set(s => ({ chat: { ...s.chat, streaming } })),
 
       /* ── 跨组件导航请求（悬浮球等外部入口） ── */
@@ -696,6 +745,32 @@ export const useMobileStore = create<MobileStore>()(
     }
   )
 )
+
+/*
+ * 发起审批，返回用户决定。供 Agent 循环的 requestApproval 调用。
+ * 弹窗出现 → 用户点允许/拒绝 → resolveApproval 兑现此 Promise。
+ */
+function requestUserApproval(info: {
+  toolId: string
+  toolLabel: string
+  summary: string
+  details: Array<{ label: string; value: string }>
+  reason?: string
+}): Promise<{ approved: boolean; reason?: string }> {
+  return new Promise(resolve => {
+    approvalResolver = resolve
+    useMobileStore.setState({
+      pendingApproval: {
+        id: `ap_${Date.now()}`,
+        toolId: info.toolId,
+        toolLabel: info.toolLabel,
+        summary: info.summary,
+        details: info.details,
+        reason: info.reason,
+      },
+    })
+  })
+}
 
 /*
  * 自动落盘 / Auto-persist

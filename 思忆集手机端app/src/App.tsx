@@ -12,6 +12,7 @@ import LockScreen from './components/features/lock/LockScreen'
 import Onboarding from './components/features/onboarding/Onboarding'
 import { Toast, SkeletonLoader } from './components/ui'
 import ErrorBoundary from './components/ui/ErrorBoundary'
+import ApprovalDialog from './components/ui/ApprovalDialog'
 import { useKeyboardAvoidance } from './hooks/useKeyboardAvoidance'
 import { useSafeAreaInsets } from './hooks/useSafeAreaInsets'
 import { useAutoSyncOnForeground } from './hooks/useAutoSync'
@@ -133,6 +134,10 @@ export default function App() {
   useBadge()
   useFloatingBall()
 
+  /* 高风险操作审批：AI 要 tap/swipe 前必须经过用户确认 */
+  const pendingApproval = useMobileStore(s => s.pendingApproval)
+  const resolveApproval = useMobileStore(s => s.resolveApproval)
+
   /*
    * 启动时恢复上次会话。
    *
@@ -250,6 +255,16 @@ export default function App() {
       <QuickNoteSheet
         open={showQuickNote}
         onClose={() => setShowQuickNote(false)}
+      />
+
+      {/*
+        高风险操作审批弹窗。
+        放在最外层，确保任何 Tab 下都能弹出（AI 可能在后台执行多步任务）。
+        AI 被拒绝后会收到原因并转述给用户，不会静默重试。
+      */}
+      <ApprovalDialog
+        request={pendingApproval}
+        onDecide={(approved, reason) => resolveApproval(approved, reason)}
       />
     </div>
   )

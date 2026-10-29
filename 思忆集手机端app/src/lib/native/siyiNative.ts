@@ -96,6 +96,16 @@ export interface RedmiNotesResult {
   error?: string
 }
 
+export interface HttpFetchResult {
+  ok: boolean
+  status: number
+  body: string
+  contentType?: string
+  bytes?: number
+  truncated?: boolean
+  error?: string
+}
+
 export interface SystemInsets {
   ok: boolean
   /** 系统导航栏高度（物理 px） */
@@ -114,6 +124,16 @@ export interface SystemInsets {
 export interface SiyiNativePlugin {
   /** 读取系统栏 insets（edge-to-edge 下 App 需要据此避让系统导航键） */
   getInsets(): Promise<SystemInsets>
+
+  /**
+   * 原生 HTTP GET，绕开 WebView 的 CORS 限制。
+   * 走系统网络栈，开启系统级 VPN 后自动经 VPN 出口。
+   */
+  httpFetch(options: {
+    url: string
+    timeout?: number
+    headers?: Record<string, string>
+  }): Promise<HttpFetchResult>
 
   isAccessibilityRunning(): Promise<AccessibilityStatus>
   openAccessibilitySettings(): Promise<SiyiNativeBooleanResult>

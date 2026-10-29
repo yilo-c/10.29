@@ -13,7 +13,7 @@ import {
   cacheArticleContent,
   getCachedContent,
 } from '../../../lib/mobileArticleStore'
-import { collectAll } from '../../../lib/mobileInfoCollector'
+import { collectNews } from '../../../lib/newsCollector'
 import { syncBookmark, fullSync } from '../../../lib/mobileBookmarkSync'
 import { isAiConfigured, translateText, summarizeText, speakText, generateBrief } from '../../../lib/mobileAiUtils'
 import {
@@ -120,7 +120,9 @@ export default function InfoView() {
       let remoteBrief: string | null = null
       let remoteErrors: { source: string; error: string }[] | null = null
 
-      // 优先走桌面端 RPC；若桌面未配对或 RPC 失败，回退到本地采集。
+      // 桌面端 RPC 仅作为「补充源」：手机端已能直连新闻源，
+      // 桌面在线时额外拉一份它的 20 源结果（含 AI 翻译/分类），
+      // 但桌面不在线也完全不影响资讯可用。
       if (tokenManager.isPaired) {
         try {
           const cached = await fetchCachedItems()
@@ -160,55 +162,72 @@ export default function InfoView() {
         }
       }
 
+      // ── 本地直连抓取（主路径，不依赖桌面端） ──
+      // 走原生 httpFetch 绕开 WebView CORS；系统级 VPN 开启后自动经 VPN 出口。
+      // 桌面端只作为补充源，二者结果合并去重。
+      let landed: ArticleItem[] = []
+      let sourceStat: string | null = null
+
+      const local = await collectNews()
+      if (local.items.length > 0) {
+        landed = landed.concat(local.items)
+      }
+      const totalSrc = local.okCount + local.errors.length
+      if (local.errors.length > 0) {
+        // 境外源失败多半是没开 VPN，给出可操作的提示而不是干巴巴报错
+        const vpnHint = local.errors.some(e => e.reason.includes('VPN') || e.reason.includes('不可达'))
+        sourceStat = vpnHint
+          ? `${local.okCount}/${totalSrc} 个源成功 · 境外源不通，试试开启 VPN`
+          : `${local.okCount}/${totalSrc} 个源成功`
+      }
+
       if (remoteItems && remoteItems.length > 0) {
-        const merged = mergeArticles(remoteItems)
+        landed = landed.concat(remoteItems)
+      }
+
+      if (landed.length > 0) {
+        const merged = mergeArticles(landed)
         const newCount = Math.max(0, merged.length - prevCountRef.current)
         prevCountRef.current = merged.length
         setArticles(merged)
+
         if (remoteBrief) {
           setBrief(remoteBrief)
           setBriefCollapsed(false)
           localStorage.setItem('siyi-brief', JSON.stringify({ text: remoteBrief, time: Date.now() }))
         }
-        if (remoteErrors && remoteErrors.length > 0) {
-          const failedCount = remoteErrors.length
-          setError(failedCount >= 4 ? `${failedCount} 个桌面端源获取失败` : `${failedCount} 个源获取失败`)
+
+        if (sourceStat) {
+          setError(sourceStat)
+          setTimeout(() => setError(null), 5000)
+        } else if (remoteErrors && remoteErrors.length > 0) {
+          setError(`${remoteErrors.length} 个桌面端源获取失败`)
+          setTimeout(() => setError(null), 4000)
         }
+
         // 后台刷新且发现新增条目时发出通知
         if (background && newCount > 0 && 'Notification' in window && Notification.permission === 'granted') {
           new Notification('📰 新资讯', { body: `新增 ${newCount} 条资讯`, silent: true })
         }
+
+        // 简报过期则后台生成（不阻塞列表展示）
+        if (isAiConfigured() && merged.length > 0) {
+          const cachedBrief = localStorage.getItem('siyi-brief')
+          let stale = true
+          if (cachedBrief) {
+            try { const parsed = JSON.parse(cachedBrief); if (Date.now() - parsed.time < 3600000) stale = false } catch { console.warn('[info] invalid brief cache') }
+          }
+          if (stale && !briefLoadingRef.current) {
+            briefLoadingRef.current = true; setBriefLoading(true)
+            generateBrief(merged.slice(0, 30)).then(text => {
+              setBrief(text)
+              setBriefCollapsed(false)
+              localStorage.setItem('siyi-brief', JSON.stringify({ text, time: Date.now() }))
+            }).catch(() => {}).finally(() => { briefLoadingRef.current = false; setBriefLoading(false) })
+          }
+        }
       } else {
-        // 回退：本地采集（离线或无桌面端时）
-        const result = await collectAll()
-        if (result.items.length > 0) {
-          const merged = mergeArticles(result.items); prevCountRef.current = merged.length
-          setArticles(merged)
-          // Auto-generate brief in background if stale (> 1 hour)
-          if (isAiConfigured() && merged.length > 0) {
-            const cached = localStorage.getItem('siyi-brief')
-            let stale = true
-            if (cached) {
-              try { const parsed = JSON.parse(cached); if (Date.now() - parsed.time < 3600000) stale = false } catch { console.warn('[info] invalid brief cache') }
-            }
-            if (stale && !briefLoadingRef.current) {
-              briefLoadingRef.current = true; setBriefLoading(true)
-              generateBrief(merged.slice(0, 30)).then(text => {
-                setBrief(text)
-                setBriefCollapsed(false)
-                localStorage.setItem('siyi-brief', JSON.stringify({ text, time: Date.now() }))
-              }).catch(() => {}).finally(() => { briefLoadingRef.current = false; setBriefLoading(false) })
-            }
-          }
-        }
-        if (result.errors.length > 0) {
-          const failedCount = result.errors.length
-          if (failedCount >= 4) {
-            setError(`${failedCount}/${6} 个源获取失败，请检查网络`)
-          } else {
-            setError(`${failedCount} 个源获取失败`)
-          }
-        }
+        setError(sourceStat ?? '未能获取任何资讯，请检查网络连接')
       }
 
       // Show notification for new articles (background refresh only)

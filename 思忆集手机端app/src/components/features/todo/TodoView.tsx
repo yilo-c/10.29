@@ -10,6 +10,7 @@ import DateHeader from './DateHeader'
 import AlmanacStrip from './AlmanacStrip'
 import TodoBriefingCard from './TodoBriefingCard'
 import EmptyState from './EmptyState'
+import AiTaskPanel, { type AiTaskMode } from './AiTaskPanel'
 import MorningBriefingCard from './MorningBriefingCard'
 import { useReminderScheduler } from '../../../hooks/useReminderScheduler'
 import type { TodoItem as TodoItemType } from '@desk-notes/shared'
@@ -52,8 +53,10 @@ export default function TodoView() {
   const [sortMode, setSortMode] = useState<SortMode>('created')
   const [showSortPicker, setShowSortPicker] = useState(false)
   const [showSearch, setShowSearch] = useState(false)
+  const [aiMode, setAiMode] = useState<AiTaskMode | null>(null)
 
   const clearDoneTodos = useStore(s => s.clearDoneTodos)
+  const addTodo = useStore(s => s.addTodo)
 
   const todayCount = useMemo(() =>
     todos.filter(t => !t.done && t.dueDate && isToday(t.dueDate)).length,
@@ -234,6 +237,35 @@ export default function TodoView() {
             label={cat.label}
             onClick={() => { setCategory(cat.id); setTodoFilter('all') }}
           />
+        ))}
+      </div>
+
+      {/* AI 智能操作条：拆解目标 / 安排今日 / 分诊积压 */}
+      <div style={{
+        display: 'flex', gap: 6, padding: '0 20px 8px',
+        overflowX: 'auto', flexShrink: 0, scrollbarWidth: 'none',
+      }}>
+        {([
+          { mode: 'breakdown' as AiTaskMode, label: '拆解目标', icon: '✨' },
+          { mode: 'plan' as AiTaskMode, label: '安排今日', icon: '🗓' },
+          { mode: 'triage' as AiTaskMode, label: '清理积压', icon: '🧹' },
+        ]).map(b => (
+          <button
+            key={b.mode}
+            onClick={() => { haptic.light(); setAiMode(b.mode) }}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 5,
+              padding: '6px 12px', flexShrink: 0,
+              border: '1px solid var(--accent-border)',
+              borderRadius: 'var(--radius-full)',
+              background: 'var(--accent-surface)',
+              color: 'var(--accent)',
+              fontSize: 'var(--text-caption-1)', fontWeight: 600,
+              cursor: 'pointer', whiteSpace: 'nowrap',
+            }}
+          >
+            <span aria-hidden="true">{b.icon}</span>{b.label}
+          </button>
         ))}
       </div>
 
@@ -555,6 +587,27 @@ export default function TodoView() {
         item={actionItem}
         open={!!actionItem}
         onClose={() => setActionItem(null)}
+      />
+
+      <AiTaskPanel
+        open={aiMode !== null}
+        mode={aiMode ?? 'breakdown'}
+        onClose={() => setAiMode(null)}
+        todos={todos
+          .filter(t => !t.done)
+          .map(t => ({
+            id: t.id,
+            text: t.text,
+            priority: t.priority,
+            dueDate: t.dueDate,
+            category: t.category,
+          }))}
+        onAcceptSubtasks={(items) => {
+          // 批量建待办：逐条落地，AI 只是建议，写入仍走 store 正常路径
+          for (const text of items) {
+            addTodo(text, activeCat !== 'all' ? activeCat : undefined)
+          }
+        }}
       />
     </div>
   )

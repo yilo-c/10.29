@@ -172,3 +172,61 @@ export class CloudAiClient {
     return { reply: fullReply, sessionId: _sessionId }
   }
 }
+
+/* ── 笔记 AI 助手专用：带 system prompt 的单次对话 ── */
+
+/** 是否已配置云 AI（有 key） */
+export function usingCloudAi(): boolean {
+  return !!tokenManager.cloudApiKey
+}
+
+export interface ChatOnceArgs {
+  system?: string
+  user: string
+  maxTokens?: number
+}
+
+/**
+ * 单轮对话，支持 system prompt。
+ *
+ * 与 sendMessage 的区别：
+ *   - sendMessage 只发一条 user 消息，用于聊天页（历史由桌面端维护）
+ *   - 这里用于「选中文本 + 动作」的一次性改写，需要 system 约定输出格式
+ * 不带流式：笔记改写通常 1-3 秒返回，一次拿全比逐字更省事，
+ * 且避免把编辑器 UI 搞得太复杂。
+ */
+export async function cloudChat(args: ChatOnceArgs): Promise<string> {
+  const apiKey = tokenManager.cloudApiKey
+  if (!apiKey) throw new Error('未配置云 AI API Key')
+
+  const baseUrl = tokenManager.cloudApiBaseUrl
+  const model = inferModel(baseUrl)
+  const url = `${baseUrl.replace(/\/+$/, '')}/v1/chat/completions`
+
+  const messages: ChatMessage[] = []
+  if (args.system) messages.push({ role: 'system', content: args.system })
+  messages.push({ role: 'user', content: args.user })
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model,
+      messages,
+      stream: false,
+      max_tokens: args.maxTokens ?? 1200,
+      temperature: 0.7,
+    } as ChatCompletionRequest & { max_tokens: number; temperature: number }),
+  })
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => '')
+    throw new Error(`AI ${res.status}: ${text.slice(0, 120)}`)
+  }
+
+  const json = await res.json() as { choices?: { message?: { content?: string } }[] }
+  return json.choices?.[0]?.message?.content ?? ''
+}

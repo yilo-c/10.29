@@ -2,7 +2,8 @@ import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { onContentEdit, flushPendingEdit } from '@desk-notes/shared'
 import { useScreenWake } from '../../../hooks/useScreenWake'
 import { Button } from '../../ui'
-import NotesFormatToolbar from './NotesFormatToolbar'
+import NotesFormatToolbar, { type ToolbarAction } from './NotesFormatToolbar'
+import NoteAiAssistant from './NoteAiAssistant'
 import { NoteAttachmentToolbar } from './NoteAttachmentToolbar'
 import { NoteAttachmentPreview } from './NoteAttachmentPreview'
 import type { FloatingNote } from '@desk-notes/shared'
@@ -21,6 +22,8 @@ interface NoteEditorSheetProps {
 export default function NoteEditorSheet({ note, open, quickCapture, onClose, onUpdate, onAddNote }: NoteEditorSheetProps) {
   const [title, setTitle] = useState('')
   const [content, setContent] = useState('')
+  const [aiOpen, setAiOpen] = useState(false)
+  const [selRange, setSelRange] = useState<{ start: number; end: number }>({ start: 0, end: 0 })
   const [previewMode, setPreviewMode] = useState<'editor' | 'split' | 'preview'>('editor')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -217,6 +220,50 @@ export default function NoteEditorSheet({ note, open, quickCapture, onClose, onU
           textareaRef={textareaRef}
           content={content}
           onChange={handleContentChange}
+          selection={selRange}
+          onAction={(action: ToolbarAction) => {
+            if (action === 'ai') {
+              // 打开 AI 前同步选区，供面板判断「处理选中」还是「处理整篇」
+              const ta = textareaRef.current
+              if (ta) setSelRange({ start: ta.selectionStart, end: ta.selectionEnd })
+              setAiOpen(true)
+              return
+            }
+            if (action === 'checklist') {
+              // 快捷插入一条待办项
+              const ta = textareaRef.current
+              const pos = ta ? ta.selectionStart : content.length
+              const next = content.slice(0, pos) + '\n- [ ] ' + content.slice(pos)
+              handleContentChange(next)
+              return
+            }
+            if (action === 'image') {
+              // 复用下方附件工具栏的插图能力
+              document.getElementById('siyi-note-attach-trigger')?.click()
+              return
+            }
+            if (action === 'voice') {
+              // 语音输入交给系统输入法（用户键盘上的麦克风），这里给出提示
+              textareaRef.current?.focus()
+              return
+            }
+          }}
+        />
+
+        <NoteAiAssistant
+          open={aiOpen}
+          onClose={() => setAiOpen(false)}
+          selectionText={content.slice(selRange.start, selRange.end)}
+          fullText={content}
+          onApply={(text, mode) => {
+            if (mode === 'replace_selection' && selRange.end > selRange.start) {
+              handleContentChange(content.slice(0, selRange.start) + text + content.slice(selRange.end))
+            } else if (mode === 'replace_all') {
+              handleContentChange(text)
+            } else {
+              handleContentChange(content + '\n\n' + text)
+            }
+          }}
         />
 
         {/* 附件工具栏 */}
@@ -295,6 +342,10 @@ export default function NoteEditorSheet({ note, open, quickCapture, onClose, onU
               ref={textareaRef}
               value={content}
               onChange={e => handleContentChange(e.target.value)}
+              onSelect={e => {
+                const t = e.currentTarget
+                setSelRange({ start: t.selectionStart, end: t.selectionEnd })
+              }}
               onPaste={handlePaste}
               placeholder="写点什么..."
               style={{

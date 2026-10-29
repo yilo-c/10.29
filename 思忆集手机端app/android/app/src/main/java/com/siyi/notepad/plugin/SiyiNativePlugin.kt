@@ -14,6 +14,10 @@ import com.siyi.notepad.miui.RedmiNoteReader
 import com.siyi.notepad.miui.RootShell
 import com.siyi.notepad.phonebutler.PhoneButlerDomain
 import org.json.JSONObject
+import java.io.ByteArrayOutputStream
+import java.net.HttpURLConnection
+import java.net.URL
+import java.util.zip.GZIPInputStream
 
 /**
  * SiyiNative — Capacitor 插件桥接。
@@ -125,6 +129,104 @@ class SiyiNativePlugin : Plugin() {
             ret.put("handledByNative", false)
             call.resolve(ret)
         }
+    }
+
+    // ── 网络抓取（绕开 WebView CORS） ─────────────────────────
+
+    /**
+     * 原生 HTTP GET。
+     *
+     * 为什么需要：手机端资讯模块要直连各大新闻源（HN / TechCrunch / 36氪 / 少数派 …），
+     * 但 WebView 里发跨域 fetch 会被 CORS 拦截（这些源不返回
+     * Access-Control-Allow-Origin）。改由原生发请求即可绕开限制。
+     *
+     * VPN 兼容：系统级 VPN（如星辰）在 Android 上是全局的，
+     * 本方法走系统网络栈，用户开 VPN 后自动经 VPN 出口，无需任何植入或配置。
+     *
+     * 参数：url, timeout(ms), headers(可选 JSON)
+     * 返回：{ok, status, body, contentType, bytes, error?}
+     *
+     * 注意：本方法在工作线程执行，避免阻塞 UI；有大小上限防内存爆掉。
+     */
+    @PluginMethod
+    fun httpFetch(call: PluginCall) {
+        val urlStr = call.getString("url") ?: ""
+        if (urlStr.isEmpty()) {
+            val e = JSObject(); e.put("ok", false); e.put("error", "url required")
+            call.resolve(e); return
+        }
+        val timeout = call.getInt("timeout", 20000) ?: 20000
+        val maxBytes = 3 * 1024 * 1024   // 3MB 上限
+        val customHeaders = HashMap<String, String>()
+        try {
+            val h = call.getObject("headers")
+            h?.keys()?.forEach { k -> customHeaders[k] = h.getString(k) }
+        } catch (_: Exception) { }
+
+        Thread {
+            val ret = JSObject()
+            var conn: HttpURLConnection? = null
+            try {
+                val u = URL(urlStr)
+                conn = (u.openConnection() as HttpURLConnection).apply {
+                    requestMethod = "GET"
+                    connectTimeout = timeout
+                    readTimeout = timeout
+                    instanceFollowRedirects = true
+                    setRequestProperty("User-Agent",
+                        "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Mobile Safari/537.36")
+                    setRequestProperty("Accept", "application/rss+xml, application/atom+xml, application/xml, application/json, text/xml, text/html;q=0.9, */*;q=0.8")
+                    setRequestProperty("Accept-Encoding", "gzip")
+                    customHeaders.forEach { (k, v) -> setRequestProperty(k, v) }
+                }
+
+                val status = conn.responseCode
+                val ctype = conn.contentType ?: ""
+                val isGzip = (conn.contentEncoding ?: "").contains("gzip", ignoreCase = true)
+
+                val stream = if (status in 200..299) conn.inputStream else (conn.errorStream ?: conn.inputStream)
+                val raw = ByteArrayOutputStream()
+                val buf = ByteArray(8192)
+                var total = 0
+                var truncated = false
+                stream?.use { s0 ->
+                    val s = if (isGzip) GZIPInputStream(s0) else s0
+                    s.use { input ->
+                        while (true) {
+                            val n = input.read(buf)
+                            if (n <= 0) break
+                            if (total + n > maxBytes) {
+                                raw.write(buf, 0, maxBytes - total)
+                                truncated = true
+                                break
+                            }
+                            raw.write(buf, 0, n)
+                            total += n
+                        }
+                    }
+                }
+
+                val bytes = raw.toByteArray()
+                val charset = Regex("charset=([\\w-]+)", RegexOption.IGNORE_CASE).find(ctype)?.groupValues?.getOrNull(1)
+                    ?: "UTF-8"
+                val body = try { String(bytes, charset(charset)) } catch (_: Exception) { String(bytes, Charsets.UTF_8) }
+
+                ret.put("ok", status in 200..299)
+                ret.put("status", status)
+                ret.put("body", body)
+                ret.put("contentType", ctype)
+                ret.put("bytes", bytes.size)
+                if (truncated) ret.put("truncated", true)
+            } catch (e: Exception) {
+                ret.put("ok", false)
+                ret.put("status", 0)
+                ret.put("body", "")
+                ret.put("error", e.message ?: e.javaClass.simpleName)
+            } finally {
+                try { conn?.disconnect() } catch (_: Exception) { }
+                call.resolve(ret)
+            }
+        }.start()
     }
 
     // ── 无障碍服务状态 ─────────────────────────────────────

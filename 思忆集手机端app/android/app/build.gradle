@@ -11,8 +11,10 @@ android {
         applicationId "com.siyi.notepad"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        // 与 package.json 的 version 2.0.0 对齐；versionCode 提升，保证新包
+        // 能覆盖安装旧包（同 versionCode 时系统不允许降级覆盖）。
+        versionCode 200
+        versionName "2.0.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.

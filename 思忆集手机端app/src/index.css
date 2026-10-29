@@ -1,5 +1,6 @@
 /* ─── 思忆便签 · 全局样式 ─── */
 @import './styles/tokens.css';
+@import './styles/layout.css';
 
 * {
   margin: 0;

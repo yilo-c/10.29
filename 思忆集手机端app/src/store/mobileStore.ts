@@ -6,6 +6,8 @@ import { AuthRepository } from '../lib/authRepository'
 import { DesktopAiClient } from '../lib/desktopAiClient'
 import { CloudAiClient } from '../lib/cloudAiClient'
 import { ToolRegistry } from '../lib/toolRegistry'
+import { ChatOrchestrator } from '../lib/chatOrchestrator'
+import { OfflineAiFallback } from '../lib/offlineFallback'
 import { useStore, getHuangli } from '@desk-notes/shared'
 import type { PendingApproval } from '../lib/rpcClient'
 import { listPendingApprovals, approveApproval, rejectApproval } from '../lib/rpcClient'
@@ -363,29 +365,9 @@ export const useMobileStore = create<MobileStore>()(
         }
         set(s => ({ chat: { ...s.chat, messages: [...(s.chat.messages || []), userMsg], streaming: true } }))
 
-        // Try tools match first (local CRUD commands)
         ensureToolsRegistered()
-        const matched = toolRegistry.matchTools(text)
-        if (matched.length > 0) {
-          try {
-            const result = await matched[0].execute({ text })
-            if (result.success) {
-              const reply: ChatMessage = {
-                id: crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-                role: 'assistant',
-                content: result.data ?? '完成',
-                timestamp: Date.now(),
-              }
-              set(s => ({ chat: { ...s.chat, messages: [...(s.chat.messages || []), reply], streaming: false } }))
-              return
-            }
-          } catch (e) {
-            // Tool failed, fall through to AI
-            swallowError('mobileStore:380', e)
-          }
-        }
 
-        // Try natural language task creation (before AI call)
+        /* 自然语言建任务：确定性规则，先于 AI 尝试，命中就零成本解决 */
         const nluResult = await tryAutoCreateTask(text)
         if (nluResult) {
           const reply: ChatMessage = {
@@ -398,7 +380,7 @@ export const useMobileStore = create<MobileStore>()(
           return
         }
 
-        // Add empty assistant bubble for streaming
+        /* 流式占位气泡 */
         const streamMsgId = crypto.randomUUID?.() ?? `${Date.now()}-stream`
         set(s => ({
           chat: {
@@ -416,53 +398,76 @@ export const useMobileStore = create<MobileStore>()(
           })
         }
 
-        try {
-          let newSessionId: string | undefined
-
-          // Determine which AI to use
-          const useCloudAi = tokenManager.cloudAiEnabled && (tokenManager.cloudApiKey || useStore.getState().activeProfileId)
-          const useDesktopAi = tokenManager.isPaired && tokenManager.baseUrl && tokenManager.preferDesktopAi
-
-          if (useCloudAi) {
-            // Cloud AI (OpenAI-compatible, independent of desktop)
-            const cloudAi = new CloudAiClient()
-            const currentSessionId = get().chat.sessionId
-            const profiles = useStore.getState().aiProfiles
-            const activeProfile = profiles.find(p => p.id === useStore.getState().activeProfileId)
-            const overrides = activeProfile?.protocol === 'openai'
-              ? { apiKey: tokenManager.cloudApiKey || undefined, baseUrl: activeProfile.apiUrl, model: activeProfile.model }
-              : undefined
-            await cloudAi.sendMessageStreaming(contextualizeMessage(text), onChunk, currentSessionId ?? undefined, overrides)
-            newSessionId = currentSessionId ?? undefined
-          }
-          // Desktop AI (paired mode, only if cloud AI not used)
-          else if (useDesktopAi) {
-            const desktopAi = new DesktopAiClient()
-            desktopAi.configure(tokenManager.baseUrl, tokenManager.apiToken)
-            const currentSessionId = get().chat.sessionId
-            const response = await desktopAi.sendMessageStreaming(contextualizeMessage(text), onChunk, currentSessionId ?? undefined)
-            newSessionId = response.sessionId
-          }
-          // No AI service configured
-          else {
-            const fallbackText = 'AI 服务未配置。请配置云端 AI API 密钥或在设置中配对桌面端。'
-            set(s => {
-              const msgs = (s.chat.messages || []).map(m =>
-                m.id === streamMsgId ? { ...m, content: fallbackText } : m
-              )
-              return { chat: { ...s.chat, messages: msgs } }
-            })
-          }
-
-          set(s => ({ chat: { ...s.chat, sessionId: newSessionId ?? s.chat.sessionId, streaming: false } }))
-        } catch (err) {
-          const errMsg = err instanceof Error ? err.message : 'AI 服务暂不可用，请稍后重试'
+        const setStreamContent = (content: string) => {
           set(s => {
-            const msgs = s.chat.messages.map(m =>
-              m.id === streamMsgId ? { ...m, content: errMsg } : m
+            const msgs = (s.chat.messages || []).map(m =>
+              m.id === streamMsgId ? { ...m, content } : m
             )
             return { chat: { ...s.chat, messages: msgs, streaming: false } }
           })
+        }
+
+        try {
+          const cloudConfigured = tokenManager.cloudAiEnabled
+            && !!(tokenManager.cloudApiKey || useStore.getState().activeProfileId)
+          const desktopConnected = !!(tokenManager.isPaired && tokenManager.baseUrl)
+
+          const orchestrator = new ChatOrchestrator(toolRegistry, new OfflineAiFallback())
+
+          const result = await orchestrator.run(
+            { text, sessionId: get().chat.sessionId ?? undefined },
+            {
+              isDesktopConnected: desktopConnected,
+              cloudConfigured,
+              userPref: {
+                cloudAiEnabled: tokenManager.cloudAiEnabled,
+                promptBeforeCloud: tokenManager.promptBeforeCloud,
+                preferDesktopAi: tokenManager.preferDesktopAi,
+              },
+              onChunk,
+              sendCloud: async (msg, chunk, sessionId) => {
+                const cloudAi = new CloudAiClient()
+                const profiles = useStore.getState().aiProfiles
+                const activeProfile = profiles.find(p => p.id === useStore.getState().activeProfileId)
+                const overrides = activeProfile?.protocol === 'openai'
+                  ? { apiKey: tokenManager.cloudApiKey || undefined, baseUrl: activeProfile.apiUrl, model: activeProfile.model }
+                  : undefined
+                await cloudAi.sendMessageStreaming(
+                  contextualizeMessage(msg), chunk, sessionId, overrides,
+                )
+                return msg
+              },
+              sendDesktop: async (msg, chunk, sessionId) => {
+                const desktopAi = new DesktopAiClient()
+                desktopAi.configure(tokenManager.baseUrl, tokenManager.apiToken)
+                const response = await desktopAi.sendMessageStreaming(
+                  contextualizeMessage(msg), chunk, sessionId,
+                )
+                if (response.sessionId) {
+                  const sid = response.sessionId
+                  set(s => ({ chat: { ...s.chat, sessionId: sid } }))
+                }
+                return response.reply
+              },
+            },
+          )
+
+          /* 分流处理结果：工具/缓存/AI 已经把内容写进气泡，这里只补提示或错误 */
+          if (result.text) {
+            setStreamContent(result.text)
+          } else if (result.channel === 'blocked') {
+            setStreamContent(`🔒 ${result.error ?? '该内容按隐私设置未上传'}`)
+          } else if (result.queued) {
+            setStreamContent(`⏳ ${result.error ?? '已排队，联网后自动重试'}`)
+          } else {
+            setStreamContent(result.error ?? '');
+            if (!result.error) {
+              setStreamContent('AI 未返回内容，请重试');
+            }
+          }
+        } catch (err) {
+          const errMsg = err instanceof Error ? err.message : 'AI 服务暂不可用，请稍后重试'
+          setStreamContent(errMsg)
         }
       },
 

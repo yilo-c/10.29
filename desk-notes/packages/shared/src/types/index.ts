@@ -87,6 +87,13 @@ export interface FloatingNote {
   fontSize?: number
   contentViewMode?: 'edit' | 'preview' | 'split'
   /**
+   * 编辑器模式标记（手机端为主）。
+   * 'markdown' = 按 Markdown 渲染/编辑；不填按旧纯文本处理。
+   * 与 `contentViewMode` 是两个维度：后者控制预览/编辑分栏，本字段控制正文格式。
+   * 2026-10 手机端笔记统一为 Markdown 后引入（见 思忆集手机端app/docs/11-编辑器统一为Markdown-v1.md）。
+   */
+  editMode?: 'markdown' | 'plain'
+  /**
    * @deprecated 2026-09-19 U0 治本：读即迁移机件已整体移除，本字段不再被任何代码读取
    * （历史：迁移期格式标记，契约 §1.3）。保留键名仅为已落盘数据兼容，勿在新代码使用。
    */

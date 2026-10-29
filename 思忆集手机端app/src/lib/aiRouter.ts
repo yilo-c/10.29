@@ -150,12 +150,35 @@ function resolveComplexTarget(
   isDesktopConnected: boolean,
   userPref: UserAiPreference,
 ): AiTarget {
-  const isPrivate = privacyLevel === PrivacyLevel.LOCAL_ONLY || privacyLevel === PrivacyLevel.SYNCABLE
-
-  if (isPrivate && isDesktopConnected) {
-    return AiTarget.DESKTOP_LOCAL_AI
+  /*
+   * 隐私语义修正（2026-10）：
+   * 原实现把 SYNCABLE 和 LOCAL_ONLY 一起判为「私密」，导致桌面未连接时
+   * **所有普通问题都排队**，云 AI 永远不可达 —— 这是 assistantRuntime 当初
+   * 被弃用、真实链路另写一套的直接原因。
+   *
+   * 正确语义：
+   *  - LOCAL_ONLY   → 绝不外发，只走桌面（本地模型）
+   *  - SYNCABLE     → 可在自己设备间同步，允许发给自己的桌面端；桌面不可达时
+   *                   按用户设置决定是否上云（默认不打扰：排队）
+   *  - SHAREABLE    → 可外发，允许上云（受 promptBeforeCloud 控制）
+   *  - MODEL_EGRESS_ALLOWED → 明确允许发给模型，直接上云
+   */
+  if (privacyLevel === PrivacyLevel.LOCAL_ONLY) {
+    return isDesktopConnected ? AiTarget.DESKTOP_LOCAL_AI : AiTarget.QUEUED_PENDING
   }
-  if (isPrivate && !isDesktopConnected) {
+
+  if (privacyLevel === PrivacyLevel.SYNCABLE) {
+    // 自己的数据：优先自己的桌面端；桌面不在且用户开了云，才上云
+    if (isDesktopConnected && userPref.preferDesktopAi) {
+      return AiTarget.DESKTOP_LOCAL_AI
+    }
+    if (isDesktopConnected) {
+      return AiTarget.DESKTOP_LOCAL_AI
+    }
+    // 桌面不可达：用户显式允许云 → 上云；否则排队等桌面
+    if (userPref.cloudAiEnabled && !userPref.promptBeforeCloud) {
+      return AiTarget.CLOUD_AI
+    }
     return AiTarget.QUEUED_PENDING
   }
 

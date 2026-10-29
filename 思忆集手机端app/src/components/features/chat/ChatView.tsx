@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { Keyboard, KeyboardInfo } from '@capacitor/keyboard'
 import { useMobileStore } from '../../../store/mobileStore'
 import { IconSparkles } from '../../ui'
@@ -14,6 +14,9 @@ import { swallowError } from '../../../lib/swallowError'
 import { translateText as bridgeTranslate } from '../../../lib/bridges'
 import { listPendingApprovals, approveApproval, rejectApproval } from '../../../lib/rpcClient'
 import { saveChatMessages, ingestConversation } from '../../../lib/bridges/aiBridge'
+import { ChatOrchestrator } from '../../../lib/chatOrchestrator'
+import { ToolRegistry } from '../../../lib/toolRegistry'
+import { OfflineAiFallback } from '../../../lib/offlineFallback'
 
 function parseAgentSteps(content: string): AgentStep[] {
   const match = content.match(/```agent-steps\n([\s\S]*?)\n```/)
@@ -112,6 +115,19 @@ export default function ChatView() {
   const listRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const rootRef = useRef<HTMLDivElement>(null)
+
+  /* 隐私判定用的单例编排器（inspect 无副作用，不需要真实依赖） */
+  const orchestratorRef = useRef(new ChatOrchestrator(new ToolRegistry(), new OfflineAiFallback()))
+
+  /**
+   * 实时隐私判定：用户打字时就告诉他这段内容是否会上传。
+   * 复用 orchestrator 的判定逻辑（inspect 不执行、无副作用），
+   * 避免 UI 与真实路由各写一套规则而漂移。
+   */
+  const privacyHint = useMemo(
+    () => orchestratorRef.current.inspect(input || ''),
+    [input],
+  )
 
   // ── Keyboard avoidance (Capacitor + VisualViewport) ──
   useEffect(() => {
@@ -503,15 +519,32 @@ export default function ChatView() {
           附件
         </button>
 
-        <input
-          ref={inputRef}
-          value={input}
-          onChange={e => { const v = e.target.value; setInput(v); sessionStorage.setItem('siyi-chat-draft', v) }}
-          onKeyDown={handleKeyDown}
-          placeholder="输入消息..."
-          disabled={streaming}
-          style={{ flex: 1, padding: '10px 14px', border: '0.5px solid var(--border-default)', borderRadius: 'var(--radius-xl)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 'var(--text-footnote)', outline: 'none' }}
-        />
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 }}>
+          <input
+            ref={inputRef}
+            value={input}
+            onChange={e => { const v = e.target.value; setInput(v); sessionStorage.setItem('siyi-chat-draft', v) }}
+            onKeyDown={handleKeyDown}
+            placeholder="输入消息..."
+            disabled={streaming}
+            style={{ width: '100%', padding: '10px 14px', border: '0.5px solid var(--border-default)', borderRadius: 'var(--radius-xl)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 'var(--text-footnote)', outline: 'none' }}
+          />
+          {/* 实时隐私提示：让用户看得见「这段内容会不会离开设备」 */}
+          {privacyHint.sensitive && (
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 5,
+              padding: '3px 10px',
+              fontSize: 'var(--text-caption-2)',
+              color: 'var(--tone-smooth)',
+              background: 'var(--bg-glass)',
+              borderRadius: 'var(--radius-full)',
+              alignSelf: 'flex-start',
+            }}>
+              <span aria-hidden="true">🔒</span>
+              <span>含敏感内容 · 不会上传，仅在本机处理</span>
+            </div>
+          )}
+        </div>
 
         <button
           onClick={async () => {

@@ -1,0 +1,314 @@
+/* ═══════════════════════════════════════════════════════
+   思忆便签 · 布局层 / Layout Layer
+   用途：把散落在 60+ 组件的内联 style 收敛到语义化类。
+   原则：只做布局与排布，不改 tokens；主题仍由 tokens.css 驱动。
+   ═══════════════════════════════════════════════════════ */
+
+/* ── 应用骨架 / App Shell ── */
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  overflow: hidden;
+}
+
+.app-main {
+  flex: 1;
+  min-height: 0;              /* 关键：允许子元素滚动而不是撑破 flex */
+  position: relative;
+  overflow: hidden;
+}
+
+/* 页面容器：所有 Tab 共用，确保 padding/滚动行为一致 */
+.page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--bg-primary);
+}
+
+.page--hidden {
+  display: none;
+}
+
+/* 可滚动内容区：统一滚动与底部留白 */
+.page-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: calc(var(--tabbar-height) + var(--space-4));
+}
+
+.page-scroll--flush {
+  padding-bottom: 0;
+}
+
+/* 页面头部：统一高度与安全区 */
+.page-header {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: calc(var(--safe-top) + var(--space-3)) var(--space-4) var(--space-3);
+  background: var(--bg-primary);
+  border-bottom: 0.5px solid var(--border-subtle);
+}
+
+.page-header__title {
+  font-size: var(--text-title-2);
+  font-weight: var(--font-weight-bold);
+  letter-spacing: -0.4px;
+  line-height: 1.2;
+}
+
+.page-header__spacer {
+  flex: 1;
+}
+
+/* 页面正文：列表/表单的内边距 */
+.page-body {
+  padding: var(--space-4);
+}
+
+.page-body--tight {
+  padding: var(--space-3);
+}
+
+.page-body--flush {
+  padding: 0;
+}
+
+/* ── 底部导航 / Tab Bar ── */
+:root {
+  /* 单一定义，所有页面依赖它算底部留白 */
+  --tabbar-height: 50px;
+}
+
+.tabbar {
+  flex-shrink: 0;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  align-items: center;
+  height: calc(var(--tabbar-height) + var(--safe-bottom));
+  padding-bottom: var(--safe-bottom);
+  background: var(--bg-primary);
+  border-top: 0.5px solid var(--border-subtle);
+  position: relative;
+  z-index: 20;
+}
+
+/* 半透明毛玻璃版本（滚动内容透出时更现代） */
+.tabbar--glass {
+  background: color-mix(in srgb, var(--bg-primary) 82%, transparent);
+  backdrop-filter: saturate(180%) blur(20px);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+}
+
+.tabbar__item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  height: var(--tabbar-height);
+  border: none;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  color: var(--text-tertiary);
+  transition: color var(--duration-fast) var(--ease-out);
+  -webkit-tap-highlight-color: transparent;
+  position: relative;
+}
+
+.tabbar__item--active {
+  color: var(--accent);
+}
+
+.tabbar__label {
+  font-size: 10px;
+  line-height: 1;
+  letter-spacing: 0.2px;
+  font-weight: var(--font-weight-regular);
+}
+
+.tabbar__item--active .tabbar__label {
+  font-weight: var(--font-weight-semibold);
+}
+
+/* 中央 AI 主按钮：抬起 + 强调色，视觉重心 */
+.tabbar__item--primary {
+  justify-content: flex-start;
+  padding-top: 0;
+}
+
+.tabbar__fab {
+  width: 46px;
+  height: 46px;
+  border-radius: var(--radius-full);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent);
+  color: #fff;
+  box-shadow: var(--shadow-fab);
+  transform: translateY(-14px);
+  transition: transform var(--duration-fast) var(--ease-spring),
+              box-shadow var(--duration-fast) var(--ease-out);
+}
+
+.tabbar__item--primary:active .tabbar__fab {
+  transform: translateY(-14px) scale(0.92);
+}
+
+.tabbar__item--primary .tabbar__label {
+  transform: translateY(-10px);
+}
+
+/* ── 通用行 / 卡片 ── */
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--row-min-height);
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.stack--loose {
+  gap: var(--space-4);
+}
+
+.spacer {
+  flex: 1;
+}
+
+.card {
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+}
+
+.card--flat {
+  background: var(--bg-primary);
+  border: 0.5px solid var(--border-card);
+}
+
+/* ── 工具条：页面顶部的一排小按钮 ── */
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.toolbar::-webkit-scrollbar {
+  display: none;
+}
+
+.tool-btn {
+  flex-shrink: 0;
+  padding: 5px 11px;
+  background: none;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  color: var(--text-tertiary);
+  font-size: var(--text-caption-1);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: background var(--duration-fast), border-color var(--duration-fast), color var(--duration-fast);
+}
+
+.tool-btn--active {
+  background: var(--accent-surface);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* ── 浮动操作按钮 ── */
+.fab {
+  position: absolute;
+  right: var(--space-4);
+  bottom: calc(var(--space-4) + var(--safe-bottom));
+  width: var(--fab-size);
+  height: var(--fab-size);
+  border-radius: var(--radius-full);
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: var(--shadow-fab);
+  cursor: pointer;
+  z-index: 15;
+  transition: transform var(--duration-fast) var(--ease-spring);
+}
+
+.fab:active {
+  transform: scale(0.92);
+}
+
+/* ── 空状态 ── */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  padding: var(--space-10) var(--space-6);
+  text-align: center;
+  color: var(--text-tertiary);
+}
+
+/* ── 分隔与安全区 ── */
+.safe-top {
+  padding-top: var(--safe-top);
+}
+
+.safe-bottom {
+  padding-bottom: var(--safe-bottom);
+}
+
+.hairline {
+  height: 0.5px;
+  background: var(--border-subtle);
+  flex-shrink: 0;
+}
+
+/* ── 动效 ── */
+@keyframes fadeSlideIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.page-enter {
+  animation: fadeSlideIn 0.22s var(--ease-out);
+}
+
+/* 尊重系统的减少动效偏好 */
+@media (prefers-reduced-motion: reduce) {
+  .page-enter,
+  .tabbar__fab,
+  .fab {
+    animation: none !important;
+    transition: none !important;
+  }
+}

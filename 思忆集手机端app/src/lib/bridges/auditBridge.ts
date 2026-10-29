@@ -2,23 +2,33 @@
  * 审计桥 — 封装桌面后端 `audit.*` RPC。
  *
  * 后端真源：`思忆集app/backend/handlers/_audit.py`
- * 方法：list / get / stats / rollback / can_rollback / list_rollbackable /
- *      batch_rollback
  *
- * 用途：桌面端 Agent 执行的每个写操作都会留审计记录，支持回滚。
- * 手机端在这里提供「看历史 + 一键撤销」，这是 AI 代操作的安全兜底。
+ * ⚠️ 已逐一对齐后端（2026-10-29 核验）。重要修正：
+ *  1. `audit.list` 参数是 `{limit, action_id, status}`，**没有 offset / rollbackable_only**。
+ *     后端 limit 上限 500（默认 50，因单条约 7KB）。
+ *  2. `audit.rollback` 返回 **`{rolled_back: bool, reason?}`**，不是 `{success, error}`。
+ *  3. `audit.can_rollback` 返回 `{can_rollback: bool, reason?}`。
+ *  4. `audit.batch_rollback` 返回 `{rolled_back: number, total: number, reason?}`（计数，不是布尔）。
+ *  5. 无 `success` 信封 —— 失败以 `error` 字段表示，条目列表在 `entries`。
+ *
+ * 用途：桌面 Agent 的每个写操作留审计，支持单条/批量回滚。这是 AI 代操作的安全兜底。
  */
+
 import { callRpc } from '../rpcClient'
 
 export interface AuditEntry {
-  id: string | number
-  action?: string
-  target?: string
+  /** 审计条目 id，回滚时必须用它 */
+  id: string
+  action_id?: string
+  operation?: string
   target_type?: string
+  target_id?: string
   status?: string
   actor?: string
-  detail?: Record<string, unknown> | string
-  created_at?: string | number
+  /** 列表接口会把它压成预览，get 接口返回完整快照 */
+  request?: unknown
+  result?: unknown
+  created_at?: number | string
   rollbackable?: boolean
   rolled_back?: boolean
   [key: string]: unknown
@@ -26,52 +36,46 @@ export interface AuditEntry {
 
 export interface AuditStats {
   total?: number
+  by_status?: Record<string, number>
+  by_operation?: Record<string, number>
+  by_target_type?: Record<string, number>
   rollbackable?: number
-  rolled_back?: number
-  by_action?: Record<string, number>
   [key: string]: unknown
 }
 
 export interface AuditListArgs {
   limit?: number
-  offset?: number
-  action?: string
-  target_type?: string
-  rollbackable_only?: boolean
+  /** 按动作 ID 过滤（后端字段名是 action_id，不是 action） */
+  actionId?: string
+  /** 按状态过滤，如 success / failed / pending */
+  status?: string
 }
 
-function asArray<T>(res: unknown, ...keys: string[]): T[] {
-  if (Array.isArray(res)) return res as T[]
-  if (res && typeof res === 'object') {
-    for (const k of keys) {
-      const v = (res as Record<string, unknown>)[k]
-      if (Array.isArray(v)) return v as T[]
-    }
-    for (const v of Object.values(res as Record<string, unknown>)) {
-      if (Array.isArray(v)) return v as T[]
-    }
-  }
-  return []
+interface Envelope {
+  error?: string
+  entries?: AuditEntry[]
+  count?: number
+  [key: string]: unknown
 }
 
 export async function list(args: AuditListArgs = {}): Promise<AuditEntry[]> {
   try {
-    const res = await callRpc<unknown>('audit.list', {
-      limit: args.limit,
-      offset: args.offset,
-      action: args.action,
-      target_type: args.target_type,
-      rollbackable_only: args.rollbackable_only,
+    const res = await callRpc<Envelope>('audit.list', {
+      limit: args.limit ?? 50,
+      action_id: args.actionId ?? '',
+      status: args.status ?? '',
     })
-    return asArray<AuditEntry>(res, 'entries', 'items', 'list', 'logs')
+    return Array.isArray(res?.entries) ? res.entries : []
   } catch {
     return []
   }
 }
 
-export async function get(entryId: string | number): Promise<AuditEntry | null> {
+export async function get(entryId: string): Promise<AuditEntry | null> {
+  if (!entryId) return null
   try {
-    return await callRpc<AuditEntry>('audit.get', { entry_id: entryId })
+    const res = await callRpc<AuditEntry | null>('audit.get', { entry_id: entryId })
+    return res ?? null
   } catch {
     return null
   }
@@ -79,54 +83,80 @@ export async function get(entryId: string | number): Promise<AuditEntry | null> 
 
 export async function stats(): Promise<AuditStats | null> {
   try {
-    return await callRpc<AuditStats>('audit.stats', {})
+    const res = await callRpc<AuditStats & { error?: string }>('audit.stats', {})
+    if (res && typeof res === 'object' && res.error) return null
+    return res ?? null
   } catch {
     return null
   }
 }
 
-export async function canRollback(entryId: string | number): Promise<boolean> {
+/**
+ * 判断某条审计能否回滚。
+ * 后端返回 `{can_rollback: bool, reason?}`。
+ */
+export async function canRollback(entryId: string): Promise<{ canRollback: boolean; reason?: string }> {
+  if (!entryId) return { canRollback: false, reason: 'entry_id 不能为空' }
   try {
-    const res = await callRpc<{ can_rollback?: boolean; rollbackable?: boolean } | boolean>(
-      'audit.can_rollback',
-      { entry_id: entryId },
-    )
-    if (typeof res === 'boolean') return res
-    return res?.can_rollback === true || res?.rollbackable === true
-  } catch {
-    return false
-  }
-}
-
-/** 回滚单条审计记录。 */
-export async function rollback(entryId: string | number): Promise<{ success: boolean; error?: string }> {
-  try {
-    const res = await callRpc<{ success?: boolean; error?: string }>('audit.rollback', {
+    const res = await callRpc<{ can_rollback?: boolean; reason?: string }>('audit.can_rollback', {
       entry_id: entryId,
     })
-    return { success: res?.success !== false, error: res?.error }
+    return { canRollback: res?.can_rollback === true, reason: res?.reason }
   } catch (e) {
-    return { success: false, error: e instanceof Error ? e.message : String(e) }
+    return { canRollback: false, reason: e instanceof Error ? e.message : String(e) }
   }
 }
 
+/**
+ * 回滚单条审计记录。
+ *
+ * ⚠️ 后端返回 `{rolled_back: bool, reason?}` —— **不是** `{success, error}`。
+ * 判定成功必须看 `rolled_back`，看 `success` 会永远得到 undefined → 误判失败。
+ */
+export async function rollback(entryId: string): Promise<{ rolledBack: boolean; reason?: string }> {
+  if (!entryId) return { rolledBack: false, reason: 'entry_id 不能为空' }
+  try {
+    const res = await callRpc<{ rolled_back?: boolean; reason?: string }>('audit.rollback', {
+      entry_id: entryId,
+    })
+    return { rolledBack: res?.rolled_back === true, reason: res?.reason }
+  } catch (e) {
+    return { rolledBack: false, reason: e instanceof Error ? e.message : String(e) }
+  }
+}
+
+/** 可回滚条目列表（后端 limit 上限 200）。 */
 export async function listRollbackable(limit = 50): Promise<AuditEntry[]> {
   try {
-    const res = await callRpc<unknown>('audit.list_rollbackable', { limit })
-    return asArray<AuditEntry>(res, 'entries', 'items', 'list')
+    const res = await callRpc<Envelope>('audit.list_rollbackable', { limit })
+    return Array.isArray(res?.entries) ? res.entries : []
   } catch {
     return []
   }
 }
 
-/** 批量回滚（谨慎使用，会一次性撤销多条改动）。 */
-export async function batchRollback(entryIds: Array<string | number>): Promise<{ success: boolean; error?: string }> {
+/**
+ * 批量回滚。
+ * 后端返回 `{rolled_back: number, total: number, reason?}` —— 是**成功条数**，
+ * 不是布尔值。这里同时返回两个数，UI 可显示「3/5 成功」。
+ */
+export async function batchRollback(
+  entryIds: string[],
+): Promise<{ rolledBack: number; total: number; reason?: string }> {
+  if (!entryIds || entryIds.length === 0) {
+    return { rolledBack: 0, total: 0, reason: 'entry_ids 不能为空' }
+  }
   try {
-    const res = await callRpc<{ success?: boolean; error?: string }>('audit.batch_rollback', {
-      entry_ids: entryIds,
-    })
-    return { success: res?.success !== false, error: res?.error }
+    const res = await callRpc<{ rolled_back?: number; total?: number; reason?: string }>(
+      'audit.batch_rollback',
+      { entry_ids: entryIds },
+    )
+    return {
+      rolledBack: typeof res?.rolled_back === 'number' ? res.rolled_back : 0,
+      total: typeof res?.total === 'number' ? res.total : entryIds.length,
+      reason: res?.reason,
+    }
   } catch (e) {
-    return { success: false, error: e instanceof Error ? e.message : String(e) }
+    return { rolledBack: 0, total: entryIds.length, reason: e instanceof Error ? e.message : String(e) }
   }
 }

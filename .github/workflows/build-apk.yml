@@ -1,0 +1,92 @@
+name: Build Android APK
+
+# 为什么用 GitHub Actions 而不是本机构建：
+#   1. Google 的 Android SDK 构建工具（aapt2）只提供 x86-64 二进制，
+#      没有 ARM/aarch64 版本，所以在 ARM 设备（如手机 proot）上无法编译资源。
+#   2. Gradle + AGP 编译峰值内存 3-4GB，手机可用内存不足。
+#   3. GitHub 的 ubuntu-latest runner 是 x86-64，且预装 JDK + Android SDK。
+#
+# 触发方式：
+#   - 每次 push 到 main
+#   - 或在 Actions 页面手动点击「Run workflow」
+#
+# 产物：在本次运行页面的 Artifacts 区域下载 app-debug-apk
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '思忆集手机端app/**'
+      - '.github/workflows/build-apk.yml'
+  workflow_dispatch:   # 支持手动触发
+
+jobs:
+  build:
+    name: Build debug APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: 思忆集手机端app/package-lock.json
+
+      - name: Setup JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install shared package deps
+        working-directory: desk-notes/packages/shared
+        run: npm install --no-audit --no-fund
+
+      - name: Install mobile deps
+        working-directory: 思忆集手机端app
+        run: npm install --no-audit --no-fund
+
+      - name: Typecheck
+        working-directory: 思忆集手机端app
+        run: npx tsc --noEmit
+
+      - name: Unit tests
+        working-directory: 思忆集手机端app
+        run: npx vitest run
+
+      - name: Build web assets
+        working-directory: 思忆集手机端app
+        run: npx vite build
+
+      - name: Capacitor sync
+        working-directory: 思忆集手机端app
+        run: npx cap sync android
+
+      - name: Grant execute permission for gradlew
+        working-directory: 思忆集手机端app/android
+        run: chmod +x gradlew
+
+      - name: Build APK
+        working-directory: 思忆集手机端app/android
+        run: ./gradlew assembleDebug --stacktrace
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-debug-apk
+          path: 思忆集手机端app/android/app/build/outputs/apk/debug/*.apk
+          retention-days: 30
+
+      - name: Show APK info
+        working-directory: 思忆集手机端app/android/app/build/outputs/apk/debug
+        run: |
+          ls -lh *.apk
+          echo "构建完成，在运行页面的 Artifacts 区下载 app-debug-apk"

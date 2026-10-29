@@ -54,6 +54,7 @@ export default function TodoView() {
   const [showSortPicker, setShowSortPicker] = useState(false)
   const [showSearch, setShowSearch] = useState(false)
   const [aiMode, setAiMode] = useState<AiTaskMode | null>(null)
+  const [aiBarOpen, setAiBarOpen] = useState(false)
 
   const clearDoneTodos = useStore(s => s.clearDoneTodos)
   const addTodo = useStore(s => s.addTodo)
@@ -238,36 +239,61 @@ export default function TodoView() {
             onClick={() => { setCategory(cat.id); setTodoFilter('all') }}
           />
         ))}
+        {/* AI 自动化开关：默认关闭，用户按需开启 */}
+        <button
+          onClick={() => { haptic.light(); setAiBarOpen(v => !v) }}
+          aria-label={aiBarOpen ? '收起 AI 工具' : '展开 AI 工具'}
+          aria-expanded={aiBarOpen}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 4,
+            padding: '5px 10px', flexShrink: 0,
+            border: aiBarOpen ? '1px solid var(--accent)' : '1px solid var(--border-default)',
+            borderRadius: 'var(--radius-full)',
+            background: aiBarOpen ? 'var(--accent-surface)' : 'none',
+            color: aiBarOpen ? 'var(--accent)' : 'var(--text-tertiary)',
+            fontSize: 'var(--text-caption-1)', fontWeight: 600,
+            cursor: 'pointer', whiteSpace: 'nowrap',
+          }}
+        >
+          <span aria-hidden="true">🤖</span>AI
+        </button>
       </div>
 
-      {/* AI 智能操作条：拆解目标 / 安排今日 / 分诊积压 */}
-      <div style={{
-        display: 'flex', gap: 6, padding: '0 20px 8px',
-        overflowX: 'auto', flexShrink: 0, scrollbarWidth: 'none',
-      }}>
-        {([
-          { mode: 'breakdown' as AiTaskMode, label: '拆解目标', icon: '✨' },
-          { mode: 'plan' as AiTaskMode, label: '安排今日', icon: '🗓' },
-          { mode: 'triage' as AiTaskMode, label: '清理积压', icon: '🧹' },
-        ]).map(b => (
-          <button
-            key={b.mode}
-            onClick={() => { haptic.light(); setAiMode(b.mode) }}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 5,
-              padding: '6px 12px', flexShrink: 0,
-              border: '1px solid var(--accent-border)',
-              borderRadius: 'var(--radius-full)',
-              background: 'var(--accent-surface)',
-              color: 'var(--accent)',
-              fontSize: 'var(--text-caption-1)', fontWeight: 600,
-              cursor: 'pointer', whiteSpace: 'nowrap',
-            }}
-          >
-            <span aria-hidden="true">{b.icon}</span>{b.label}
-          </button>
-        ))}
-      </div>
+      {/*
+        AI 自动化入口 —— 默认收起，不是默认行为。
+        理由：多数待办是「记下来就完了」，不需要 AI 介入；
+        自动化的价值在于「重复性/需要规划」的任务（如每天定时抓新闻）。
+        因此这里做成显式展开，且只在用户主动点击后才调用 AI。
+      */}
+      {aiBarOpen && (
+        <div style={{
+          display: 'flex', gap: 6, padding: '0 20px 8px',
+          overflowX: 'auto', flexShrink: 0, scrollbarWidth: 'none',
+        }}>
+          {([
+            { mode: 'breakdown' as AiTaskMode, label: '拆解目标', icon: '✨' },
+            { mode: 'plan' as AiTaskMode, label: '安排今日', icon: '🗓' },
+            { mode: 'triage' as AiTaskMode, label: '清理积压', icon: '🧹' },
+          ]).map(b => (
+            <button
+              key={b.mode}
+              onClick={() => { haptic.light(); setAiMode(b.mode) }}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 5,
+                padding: '6px 12px', flexShrink: 0,
+                border: '1px solid var(--accent-border)',
+                borderRadius: 'var(--radius-full)',
+                background: 'var(--accent-surface)',
+                color: 'var(--accent)',
+                fontSize: 'var(--text-caption-1)', fontWeight: 600,
+                cursor: 'pointer', whiteSpace: 'nowrap',
+              }}
+            >
+              <span aria-hidden="true">{b.icon}</span>{b.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Status filter chips */}
       <div style={{

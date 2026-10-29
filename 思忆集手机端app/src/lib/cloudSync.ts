@@ -117,6 +117,26 @@ export async function pushLocalData(): Promise<boolean> {
       preferDesktopAi: tokenManager.preferDesktopAi,
       promptBeforeCloud: tokenManager.promptBeforeCloud,
     },
+    // 资讯板块偏好：Worker 的 ALLOWED_RESOURCES 已包含 info_sections / info_brief，
+    // 但手机端此前从未推送 → 双端资讯配置不同步。
+    info_sections: (() => {
+      try {
+        const raw = localStorage.getItem('siyi-info-sections')
+        return raw ? JSON.parse(raw) : (store as unknown as { infoSectionKeywords?: unknown }).infoSectionKeywords ?? {}
+      } catch { return {} }
+    })(),
+    info_brief: (() => {
+      try {
+        const raw = localStorage.getItem('siyi-brief')
+        if (!raw) return null
+        const parsed = JSON.parse(raw) as { text?: string; time?: number }
+        // 简报只同步 24 小时内的，过期的没意义还占流量
+        if (parsed?.text && parsed.time && Date.now() - parsed.time < 86400000) {
+          return { text: parsed.text, time: parsed.time }
+        }
+      } catch { /* ignore */ }
+      return null
+    })(),
   }
 
   let allOk = true
@@ -238,6 +258,29 @@ export async function pullRemoteData(): Promise<boolean> {
             // Only apply non-sensitive settings
             if (data.cloudAiEnabled !== undefined) {
               tokenManager.cloudAiEnabled = data.cloudAiEnabled
+            }
+            break
+          case 'info_sections':
+            // 资讯板块偏好：与桌面端对齐，让双端看到同样的资讯分类
+            if (data && typeof data === 'object') {
+              try {
+                localStorage.setItem('siyi-info-sections', JSON.stringify(data))
+                const st = useStore.getState() as unknown as {
+                  setInfoSectionKeywords?: (v: Record<string, string[]>) => void
+                }
+                st.setInfoSectionKeywords?.(data as Record<string, string[]>)
+              } catch { /* ignore */ }
+            }
+            break
+          case 'info_brief':
+            // 今日资讯简报：过期的不落地
+            if (data && typeof data.text === 'string') {
+              const t = typeof data.time === 'number' ? data.time : Date.now()
+              if (Date.now() - t < 86400000) {
+                try {
+                  localStorage.setItem('siyi-brief', JSON.stringify({ text: data.text, time: t }))
+                } catch { /* ignore */ }
+              }
             }
             break
         }

@@ -46,10 +46,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node 20
+      - name: Setup Node 22
+        # 必须 22+：@capacitor/cli@8.4.0 的 engines 要求 node >= 22.0.0，
+        # 用 Node 20 会在 npm ci 阶段报 EBADENGINE 并在后续步骤失败。
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
           cache-dependency-path: 思忆集手机端app/package-lock.json
 
@@ -96,7 +98,12 @@ jobs:
 
       - name: Install mobile deps
         working-directory: 思忆集手机端app
-        run: npm ci
+        # 用 npm install 而非 npm ci：
+        # package-lock.json 与 package.json 的版本范围在 CI 的 npm 下不同步
+        # （实测报 "Missing: esbuild@0.28.2 from lock file"），
+        # npm ci 会严格校验并直接失败。npm install 会按 package.json 重新解析，
+        # 对本项目（依赖少、无 workspaces）代价可接受。
+        run: npm install --no-audit --no-fund
 
       - name: Build web assets
         working-directory: 思忆集手机端app

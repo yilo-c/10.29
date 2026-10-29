@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      2026-10-29 修复：styles.xml 的 AppTheme 引用了 colorPrimary /
+      colorPrimaryDark / colorAccent 三个颜色，但 res/ 下从未定义
+      colors.xml，aapt2 在资源编译阶段直接失败（resource color/colorPrimary
+      not found），这是 GitHub Actions「Build APK」失败的根因之一。
+
+      取值与 Web 端 src/styles/tokens.css 的 --accent 保持一致，
+      保证原生主题（启动页/状态栏/原生控件）与 App 内视觉同色。
+    -->
+    <color name="colorPrimary">#007AFF</color>
+    <color name="colorPrimaryDark">#0062CC</color>
+    <color name="colorAccent">#007AFF</color>
+</resources>

@@ -29,17 +29,32 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Node.js 20
+      - name: Set up Node.js 22
+        # 必须 22+：@capacitor/cli@8.4.0 的 engines 要求 node >= 22.0.0。
+        # 此前这里用 Node 20，npm ci 阶段 EBADENGINE 直接失败，
+        # 导致 Mobile CI 长期红灯（Type check / vitest 全部 skipped）。
+        # 与 build-apk.yml 保持一致。
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
+
+      - name: Install shared package deps
+        # @desk-notes/shared 是 file: 本地依赖（symlink）。它有自己的
+        # dependencies（react/zustand/fuse.js/lunar-javascript），
+        # 不装会让手机端 typecheck 解析 React 类型时回落失败。
+        # 与 build-apk.yml 的步骤顺序保持一致。
+        working-directory: desk-notes/packages/shared
+        run: npm install --no-audit --no-fund
 
       - name: Install dependencies
-        # 手机端用 npm（package-lock.json 已就位）。@desk-notes/shared 等
-        # file: 本地依赖在整仓 checkout 后相对路径可解析。
-        run: npm ci
+        # 用 npm install 而非 npm ci：package-lock.json 与 package.json
+        # 在 CI 的 npm 下不同步（实测 "Missing: esbuild@0.28.2 from lock file"），
+        # npm ci 严格校验会直接失败。与 build-apk.yml 保持一致。
+        run: npm install --no-audit --no-fund
 
       - name: Type check
+        # 只检查手机端自身代码（tsconfig include: ["src"]）；
+        # shared 源码经 paths 引入并被检查，但不跑 shared 自己的 tsc。
         run: npm run typecheck
 
       - name: Run tests (vitest)

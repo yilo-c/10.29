@@ -160,7 +160,13 @@ class SiyiNativePlugin : Plugin() {
         val customHeaders = HashMap<String, String>()
         try {
             val h = call.getObject("headers")
-            h?.keys()?.forEach { k -> customHeaders[k] = h.getString(k) }
+            // getString 返回 String?（可空），而 HashMap<String, String> 的键值
+            // 要求非空，直接 put 会触发 Kotlin 类型不匹配（V was expected）。
+            // 这里显式跳过 null 值：请求头无值等价于不设置。
+            h?.keys()?.forEach { k ->
+                val v = h.getString(k)
+                if (v != null) customHeaders[k] = v
+            }
         } catch (_: Exception) { }
 
         Thread {

@@ -36,6 +36,11 @@ concurrency:
   group: build-apk-${{ github.ref }}
   cancel-in-progress: true
 
+# 发布 Release 需要写权限。仓库默认 GITHUB_TOKEN 为只读，
+# 不显式声明会报 "Resource not accessible by integration"。
+permissions:
+  contents: write
+
 jobs:
   build:
     name: Build debug APK
@@ -183,6 +188,30 @@ jobs:
           retention-days: 30
           if-no-files-found: error
 
+      # 发布到 Release：artifact 下载必须登录认证，而 Release 资产有公开直链，
+      # 手机端（无 GitHub 登录态）可以直接 curl 下载。
+      - name: Publish APK to Release
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          APK_DIR="思忆集手机端app/android/app/build/outputs/apk/debug"
+          APK="$(ls "$APK_DIR"/*.apk | head -1)"
+          TAG="apk-${GITHUB_SHA::7}"
+          cp "$APK" /tmp/app-debug.apk
+
+          # 已存在同 tag 则先删（重跑同一 commit 时避免冲突）
+          gh release delete "$TAG" --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag 2>/dev/null || true
+
+          gh release create "$TAG" /tmp/app-debug.apk \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "APK ${GITHUB_SHA::7}" \
+            --notes "自动构建的 debug APK（commit ${GITHUB_SHA}）。
+          
+          下载直链（无需登录）：
+          https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/app-debug.apk"
+
       - name: Summary
         if: always()
         run: |
@@ -193,7 +222,12 @@ jobs:
               echo '```'
               ls -lh "$DIR"/*.apk
               echo '```'
-              echo "在本次运行的 **Artifacts** 区下载 \`app-debug-apk\`。"
+              echo "Artifacts 区：\`app-debug-apk\`（需登录）"
+              echo ""
+              echo "公开直链（无需登录）："
+              echo "\`\`\`"
+              echo "https://github.com/${GITHUB_REPOSITORY}/releases/download/apk-${GITHUB_SHA::7}/app-debug.apk"
+              echo "\`\`\`"
             } >> "$GITHUB_STEP_SUMMARY"
           else
             echo "### APK 未生成，请查看上方构建日志" >> "$GITHUB_STEP_SUMMARY"

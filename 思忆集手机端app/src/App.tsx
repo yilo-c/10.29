@@ -13,6 +13,7 @@ import Onboarding from './components/features/onboarding/Onboarding'
 import { Toast, SkeletonLoader } from './components/ui'
 import ErrorBoundary from './components/ui/ErrorBoundary'
 import { useKeyboardAvoidance } from './hooks/useKeyboardAvoidance'
+import { useSafeAreaInsets } from './hooks/useSafeAreaInsets'
 import { useAutoSyncOnForeground } from './hooks/useAutoSync'
 import { useBadge } from './hooks/useBadge'
 import { useFloatingBall } from './hooks/useFloatingBall'
@@ -125,6 +126,9 @@ export default function App() {
   }, [appPin, lockApp])
 
   useKeyboardAvoidance()
+  // 系统栏避让：把原生 WindowInsets 写进 --safe-bottom / --safe-top，
+  // 解决 Redmi 三键导航下底部 Tab 栏与系统导航键重叠
+  useSafeAreaInsets()
   useAutoSyncOnForeground()
   useBadge()
   useFloatingBall()

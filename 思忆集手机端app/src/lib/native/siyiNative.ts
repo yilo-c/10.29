@@ -96,7 +96,25 @@ export interface RedmiNotesResult {
   error?: string
 }
 
+export interface SystemInsets {
+  ok: boolean
+  /** 系统导航栏高度（物理 px） */
+  bottom: number
+  /** 状态栏高度（物理 px） */
+  top: number
+  /** 屏幕密度，用于 px → CSS px 换算 */
+  density?: number
+  screenHeight?: number
+  source?: string
+  /** 原生 MainActivity 是否已给 WebView 容器加上系统栏 padding（是则 CSS 不再叠加） */
+  handledByNative?: boolean
+  error?: string
+}
+
 export interface SiyiNativePlugin {
+  /** 读取系统栏 insets（edge-to-edge 下 App 需要据此避让系统导航键） */
+  getInsets(): Promise<SystemInsets>
+
   isAccessibilityRunning(): Promise<AccessibilityStatus>
   openAccessibilitySettings(): Promise<SiyiNativeBooleanResult>
   readScreen(): Promise<ScreenContentResult>

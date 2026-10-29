@@ -87,6 +87,18 @@
 :root {
   /* 单一定义，所有页面依赖它算底部留白 */
   --tabbar-height: 50px;
+
+  /*
+   * --safe-bottom / --safe-top 定义在 tokens.css（唯一定义处）。
+   * 运行时由 useSafeAreaInsets() 覆写为实际像素值：
+   *   原生 WindowInsets → CSS px → 写入 document.documentElement.style。
+   *
+   * 为什么不能只靠 env(safe-area-inset-*)：
+   *   targetSdk 36 强制 edge-to-edge，而 Capacitor WebView 默认不向 CSS
+   *   分发 inset，`env(safe-area-inset-bottom)` 在三键导航模式下为 0，
+   *   导致底栏画进系统导航键区域（Redmi 实测重叠，方块键盖住 AI 按钮）。
+   *   env() 仅作 JS 尚未运行时的兜底。
+   */
 }
 
 .tabbar {
@@ -95,12 +107,20 @@
   grid-auto-flow: column;
   grid-auto-columns: 1fr;
   align-items: center;
+  /* 关键：内容高度 + 系统导航栏高度，两者不重叠 */
   height: calc(var(--tabbar-height) + var(--safe-bottom));
   padding-bottom: var(--safe-bottom);
   background: var(--bg-primary);
   border-top: 0.5px solid var(--border-subtle);
   position: relative;
   z-index: 20;
+  /* 避免系统手势区误触 */
+  touch-action: manipulation;
+}
+
+/* 底栏整体上抬，避免与系统导航键的边界判定冲突 */
+.tabbar--offset {
+  margin-bottom: 0;
 }
 
 /* 半透明毛玻璃版本（滚动内容透出时更现代） */

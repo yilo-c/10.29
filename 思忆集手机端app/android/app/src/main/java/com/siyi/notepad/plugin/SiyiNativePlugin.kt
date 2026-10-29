@@ -34,6 +34,99 @@ class SiyiNativePlugin : Plugin() {
     private val phoneButler: PhoneButlerDomain by lazy { PhoneButlerDomain(context) }
     private val redmiNotes: RedmiNoteReader by lazy { RedmiNoteReader(context) }
 
+    // ── 系统栏 insets ─────────────────────────────────────
+
+    /**
+     * 返回系统栏占用的像素高度。
+     *
+     * 为什么需要：targetSdk 36 起 Android 强制 edge-to-edge，WebView 内容会延伸到
+     * 系统导航栏/状态栏下方；而 WebView 默认不向 CSS 分发 inset，
+     * 导致 `env(safe-area-inset-bottom)` 在三键导航模式下为 0，
+     * App 自己的底部导航栏就画进了系统导航键区域（Redmi 实测重叠）。
+     *
+     * 返回 px（物理像素），前端除以 devicePixelRatio 转 CSS px 使用。
+     */
+    @PluginMethod
+    fun getInsets(call: PluginCall) {
+        val ret = JSObject()
+        try {
+            val activity = activity
+            if (activity == null) {
+                // Activity 不可用时退回资源维度（导航栏高度），至少不返回 0
+                val res = context.resources
+                val id = res.getIdentifier("navigation_bar_height", "dimen", "android")
+                val h = if (id > 0) res.getDimensionPixelSize(id) else 0
+                val sid = res.getIdentifier("status_bar_height", "dimen", "android")
+                val sh = if (sid > 0) res.getDimensionPixelSize(sid) else 0
+                ret.put("ok", false)
+                ret.put("bottom", h)
+                ret.put("top", sh)
+                ret.put("source", "resources")
+                ret.put("handledByNative", false)
+                call.resolve(ret)
+                return
+            }
+
+            val result = ret
+            activity.runOnUiThread {
+                try {
+                    var bottom = 0
+                    var top = 0
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                        val wi = activity.windowManager.currentWindowMetrics
+                        val insets = wi.windowInsets.getInsets(
+                            android.view.WindowInsets.Type.navigationBars() or
+                                android.view.WindowInsets.Type.statusBars()
+                        )
+                        bottom = insets.bottom
+                        top = insets.top
+                    } else {
+                        @Suppress("DEPRECATION")
+                        val v = activity.window.decorView
+                        @Suppress("DEPRECATION")
+                        val sysUi = v.systemUiVisibility
+                        // 三键导航时 visible=false 才占用空间
+                        val navVisible = (sysUi and android.view.View.SYSTEM_UI_FLAG_HIDE_NAVIGATION) == 0
+                        if (navVisible) {
+                            val res = activity.resources
+                            val id = res.getIdentifier("navigation_bar_height", "dimen", "android")
+                            bottom = if (id > 0) res.getDimensionPixelSize(id) else 0
+                        }
+                        val sid = activity.resources.getIdentifier("status_bar_height", "dimen", "android")
+                        top = if (sid > 0) activity.resources.getDimensionPixelSize(sid) else 0
+                    }
+                    result.put("ok", true)
+                    result.put("bottom", bottom)
+                    result.put("top", top)
+                    // 原生 MainActivity 已给 WebView 容器加过系统栏 padding，
+                    // 此时 CSS 不应再叠加同样的留白，否则会双倍空白。
+                    // 前端据此决定是否写入 --safe-bottom。
+                    result.put("handledByNative", true)
+                    result.put("density", activity.resources.displayMetrics.density.toDouble())
+                    result.put("screenHeight", activity.resources.displayMetrics.heightPixels)
+                    result.put("source", "windowInsets")
+                } catch (e: Exception) {
+                    val res = activity.resources
+                    val id = res.getIdentifier("navigation_bar_height", "dimen", "android")
+                    result.put("ok", false)
+                    result.put("bottom", if (id > 0) res.getDimensionPixelSize(id) else 0)
+                    result.put("top", 0)
+                    result.put("error", e.message)
+                    result.put("source", "fallback")
+                    result.put("handledByNative", false)
+                }
+                call.resolve(result)
+            }
+        } catch (e: Exception) {
+            ret.put("ok", false)
+            ret.put("bottom", 0)
+            ret.put("top", 0)
+            ret.put("error", e.message)
+            ret.put("handledByNative", false)
+            call.resolve(ret)
+        }
+    }
+
     // ── 无障碍服务状态 ─────────────────────────────────────
 
     @PluginMethod

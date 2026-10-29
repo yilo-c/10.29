@@ -65,6 +65,24 @@ jobs:
         working-directory: desk-notes/packages/shared
         run: npm install --no-audit --no-fund
 
+      - name: Install mobile deps
+        working-directory: ./思忆集手机端app
+        run: npm install --no-audit --no-fund
+
+      - name: Build web assets
+        working-directory: ./思忆集手机端app
+        run: npx vite build
+
+      - name: Capacitor sync
+        # 必需：capacitor-cordova-android-plugins/ 整个目录（含
+        # cordova.variables.gradle、capacitor.settings.gradle 引用的各插件
+        # 工程）都是 cap sync 的生成物，不入库。缺这一步时 Gradle 配置阶段
+        # 直接报 Could not read script .../cordova.variables.gradle as it does
+        # not exist（实测 run 40969960128）。
+        # 与 build-apk.yml 保持一致。
+        working-directory: ./思忆集手机端app
+        run: npx cap sync android
+
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
 

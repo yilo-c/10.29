@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>小问桌宠 - 高质量手动分帧测试</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #1a1a2e;
+      color: #e0e0e0;
+      font-family: system-ui, sans-serif;
+      padding: 40px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+    }
+    h1 { margin-bottom: 30px; color: #79cfff; font-size: 24px; }
+    .canvas-container {
+      background: rgba(121, 207, 255, 0.08);
+      border: 2px dashed rgba(121, 207, 255, 0.3);
+      border-radius: 16px;
+      padding: 20px;
+      margin-bottom: 30px;
+    }
+    canvas { display: block; }
+    .controls {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+      justify-content: center;
+      max-width: 700px;
+    }
+    button {
+      padding: 10px 20px;
+      background: rgba(121, 207, 255, 0.15);
+      border: 1px solid rgba(121, 207, 255, 0.4);
+      color: #79cfff;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 14px;
+      transition: all 0.2s;
+    }
+    button:hover { background: rgba(121, 207, 255, 0.25); }
+    button.active { background: #79cfff; color: #1a1a2e; }
+    .info {
+      background: rgba(255, 255, 255, 0.05);
+      padding: 16px 24px;
+      border-radius: 10px;
+      font-size: 13px;
+      line-height: 1.8;
+      max-width: 550px;
+    }
+    .fps-control {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 16px;
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 8px;
+    }
+    .fps-control input { width: 60px; }
+    .frame-counter {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      background: rgba(0,0,0,0.6);
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-family: monospace;
+      font-size: 12px;
+    }
+    .grid-preview {
+      margin-top: 20px;
+      padding: 16px;
+      background: rgba(0,0,0,0.2);
+      border-radius: 10px;
+    }
+    .grid-preview h3 { font-size: 14px; margin-bottom: 12px; color: #79cfff; }
+    .grid-preview img {
+      width: 64px;
+      height: 64px;
+      margin: 4px;
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 4px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <h1>🎴 小问桌宠 - 高质量手动分帧测试</h1>
+
+  <div class="frame-counter" id="frameCounter">frame: 0 / 0</div>
+
+  <div class="canvas-container">
+    <canvas id="petCanvas" width="256" height="256"></canvas>
+  </div>
+
+  <div class="controls">
+    <button onclick="playClip('clickDefend', false)" class="active">▶ clickDefend (12fps) - 受惊拔剑</button>
+    <button onclick="playClip('shy', false)">▶ shy (8fps) - 害羞捂脸</button>
+    <button onclick="playClip('dragFly', false)">▶ dragFly (10fps) - 御剑飞行</button>
+    <button onclick="togglePause()">⏸ pause</button>
+    <button onclick="stepFrame()">⏭ step</button>
+  </div>
+
+  <div class="fps-control">
+    <label>FPS:</label>
+    <input type="number" id="fpsInput" value="10" min="1" max="30" onchange="updateFPS(this.value)">
+  </div>
+
+  <div class="info">
+    <strong>3 组动作，每组 6 帧：</strong>
+    <ul style="margin-top: 8px; padding-left: 20px;">
+      <li><strong>clickDefend</strong> — 吃惊 → 抖肩 → 拔剑 → 看清来人 → 傲娇 → 恢复</li>
+      <li><strong>shy</strong> — 正常 → 抬袖 → 半遮脸 → 全遮 → 红晕 → 从缝里偷看</li>
+      <li><strong>dragFly</strong> — 待机 → 踩剑 → 起飞 → 加速飞行 → 惊吓 → 落地站稳</li>
+    </ul>
+    <br>
+    <strong>来源：</strong>GPT-4o 生成的 sprite sheet 手动切割，角色 100% 一致。
+  </div>
+
+  <div class="grid-preview">
+    <h3>帧预览（点击跳转到该帧）：</h3>
+    <div id="frameGrid"></div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('petCanvas')
+    const ctx = canvas.getContext('2d')
+    const frameCounter = document.getElementById('frameCounter')
+    const frameGrid = document.getElementById('frameGrid')
+
+    // 帧资源配置
+    const BASE = '/pet/xiaowen_frames_manual/'
+    const CLIPS = {
+      clickDefend: {
+        fps: 12,
+        loop: false,
+        frames: [
+          BASE + 'click_defend_01.png',
+          BASE + 'click_defend_02.png',
+          BASE + 'click_defend_03.png',
+          BASE + 'click_defend_04.png',
+          BASE + 'click_defend_05.png',
+          BASE + 'click_defend_06.png',
+        ]
+      },
+      shy: {
+        fps: 8,
+        loop: false,
+        frames: [
+          BASE + 'shy_01.png',
+          BASE + 'shy_02.png',
+          BASE + 'shy_03.png',
+          BASE + 'shy_04.png',
+          BASE + 'shy_05.png',
+          BASE + 'shy_06.png',
+        ]
+      },
+      dragFly: {
+        fps: 10,
+        loop: false,
+        frames: [
+          BASE + 'drag_fly_01.png',
+          BASE + 'drag_fly_02.png',
+          BASE + 'drag_fly_03.png',
+          BASE + 'drag_fly_04.png',
+          BASE + 'drag_fly_05.png',
+          BASE + 'drag_fly_06.png',
+        ]
+      }
+    }
+
+    // 预加载图片
+    const imageCache = {}
+    let loadedCount = 0
+    let totalImages = 0
+
+    Object.values(CLIPS).forEach(clip => {
+      totalImages += clip.frames.length
+      clip.frames.forEach(src => {
+        const img = new Image()
+        img.src = src
+        img.onload = () => {
+          loadedCount++
+          if (loadedCount >= totalImages && currentClip) {
+            running = true
+            requestAnimationFrame(animate)
+            renderFrameGrid()
+          }
+        }
+        imageCache[src] = img
+      })
+    })
+
+    let currentClip = CLIPS.clickDefend
+    let currentIndex = 0
+    let frameTimer = 0
+    let lastTime = 0
+    let running = false
+    let paused = false
+    let customFPS = 10
+
+    function playClip(name, loop) {
+      currentClip = CLIPS[name]
+      currentIndex = 0
+      frameTimer = 0
+      paused = false
+      running = true
+
+      document.querySelectorAll('button').forEach(b => b.classList.remove('active'))
+      event.target.classList.add('active')
+
+      if (loadedCount >= totalImages) {
+        lastTime = 0
+        requestAnimationFrame(animate)
+      }
+      renderFrameGrid()
+    }
+
+    function togglePause() {
+      paused = !paused
+      if (!paused && running) {
+        lastTime = 0
+        requestAnimationFrame(animate)
+      }
+    }
+
+    function stepFrame() {
+      paused = true
+      currentIndex = (currentIndex + 1) % currentClip.frames.length
+      draw()
+      renderFrameGrid()
+    }
+
+    function updateFPS(val) {
+      customFPS = parseInt(val) || 10
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, 256, 256)
+      const src = currentClip.frames[currentIndex]
+      const img = imageCache[src]
+      if (img && img.complete) {
+        // 居中绘制
+        const x = (256 - img.width) / 2
+        const y = (256 - img.height) / 2
+        ctx.drawImage(img, x, y)
+      }
+      frameCounter.textContent = `frame: ${currentIndex + 1} / ${currentClip.frames.length}`
+    }
+
+    function renderFrameGrid() {
+      frameGrid.innerHTML = ''
+      currentClip.frames.forEach((src, idx) => {
+        const img = document.createElement('img')
+        img.src = src
+        img.style.opacity = idx === currentIndex ? '1' : '0.5'
+        img.style.borderColor = idx === currentIndex ? '#79cfff' : ''
+        img.onclick = () => {
+          currentIndex = idx
+          draw()
+          renderFrameGrid()
+        }
+        frameGrid.appendChild(img)
+      })
+    }
+
+    function animate(timestamp) {
+      if (!running || paused) return
+
+      const dt = lastTime ? Math.min(timestamp - lastTime, 100) : 16
+      lastTime = timestamp
+
+      const fps = customFPS
+      const frameDuration = 1000 / fps
+
+      frameTimer += dt
+      if (frameTimer >= frameDuration) {
+        frameTimer = 0
+        currentIndex++
+        if (currentIndex >= currentClip.frames.length) {
+          if (currentClip.loop) {
+            currentIndex = 0
+          } else {
+            currentIndex = currentClip.frames.length - 1
+            running = false
+          }
+        }
+        renderFrameGrid()
+      }
+
+      draw()
+
+      if (running) {
+        requestAnimationFrame(animate)
+      }
+    }
+
+    // 启动
+    if (loadedCount >= totalImages) {
+      running = true
+      requestAnimationFrame(animate)
+      renderFrameGrid()
+    }
+  </script>
+</body>
+</html>

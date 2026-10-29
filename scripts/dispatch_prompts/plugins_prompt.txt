@@ -1,0 +1,18 @@
+你是一个 FastAPI 后端开发者。请在 automation-hub/api/routes/ 下创建 plugins.py，实现插件管理 API。
+
+## 参考
+- 路由风格参考 automation-hub/api/routes/agent.py
+- 桌面端 plugin_registry.py 有 PluginRegistry：list_plugins/get_manifest/get_config/set_config/list_by_type
+
+## 端点
+1. GET /plugins — 列表（?include_disabled=true）
+2. GET /plugins/{plugin_id} — 详情
+3. GET /plugins/{plugin_id}/config — 配置
+4. PUT /plugins/{plugin_id}/config — 更新配置（body: {config}）
+5. POST /plugins/{plugin_id}/toggle — 启用/禁用（body: {enabled}）
+6. GET /plugins/types — 按类型统计
+
+## 约束
+- 内存存储，TODO 替换为数据库
+- APIRouter(prefix="/plugins", tags=["plugins"]), require_scope("plugins:admin")
+- 错误处理同 agent.py

@@ -1,0 +1,198 @@
+name: Python Tests
+
+# 统一 Python 流水线（2026-08-20：合并 python-ci.yml —— 原 python-ci 重复跑
+# pytest 且未设 SIYI_INTEGRATION_AUTOSTART，集成测试被静默跳过；现并入本流水线，
+# 触发分支覆盖 fix/** / feat/**，集成测试经 SIYI_INTEGRATION_AUTOSTART=1 真跑，
+# 单一流水线全绿即代表集成测试已执行，不再有"双流水线各跑各的"）。
+on:
+  schedule:
+    # C-6 / V3-07：每周一 06:00 UTC 例行审计（含 pip-audit 门禁）
+    - cron: '0 6 * * 1'
+  workflow_dispatch: {}   # 可手动触发完整流水线（含依赖审计）
+  push:
+    branches: [main, develop, 'fix/**', 'feat/**']
+    paths:
+      - '思忆集app/**'
+      - 'automation_hub/**'
+      - 'scripts/**'
+      - 'pyproject.toml'
+      - 'requirements-desktop.txt'
+      - '.github/workflows/python-tests.yml'
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - '思忆集app/**'
+      - 'automation_hub/**'
+      - 'scripts/**'
+      - 'pyproject.toml'
+      - 'requirements-desktop.txt'
+      - '.github/workflows/python-tests.yml'
+
+jobs:
+  quality-gates:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # M0b/C-7：bandit_ratchet --check-changed 依赖 origin/<base> 引用；
+          # 默认浅 clone 下该引用不存在 → 脚本打 "no changed files; skipping" RC=0（假绿）。
+          fetch-depth: 0
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        working-directory: 思忆集app
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Install CI extras (bandit + pip-audit)
+        run: pip install bandit pip-audit
+
+      # ── 批次5 #3：后端启动自检（复用现有 smoke_check.py，不新建）──
+      # 导入 core/backend/api 关键模块；崩溃类/缺依赖问题在 CI 即红，
+      # 不等到 pytest 或运行时才发现。
+      - name: Backend startup self-check (批次5, smoke_check)
+        working-directory: 思忆集app
+        run: python smoke_check.py --suite all
+
+      # ── 批次5 #4：中文乱码检测门禁（mojibake 硬门禁）────────
+      - name: Garbled-text check (批次5, mojibake)
+        run: python scripts/check_garbled_text.py
+
+      # ── core/ 模块完整性检查（防止关键文件丢失） ─────────────
+      - name: Core module integrity check
+        run: python scripts/check_core_integrity.py
+
+      # ── P2-23 ① 密钥扫描 ────────────────────────────────────
+      - name: Secret scan (P2-23)
+        run: python scripts/scan_secrets.py
+
+      # ── P2-23 ② 层边界检查 ─────────────────────────────────
+      - name: Layer boundary check (P2-23)
+        run: python scripts/check-layer-boundaries.py
+
+      # ── I1 内核边界棘轮（M0b 接线：脚本已在位但从未挂 CI，C-7/D9 真缺口之三）──
+      - name: Kernel boundary ratchet gate (I1 / C-7)
+        run: python scripts/kernel_boundary_ratchet.py
+
+      # ── CI 引用面自检（M0b：workflow/构建脚本引用的本地路径缺失即红，
+      #    已登记豁免用 --allow-registered；治 check_garbled_text 死引用同族 4 例）──
+      - name: CI reference self-check (M0b)
+        run: python scripts/ci_selfcheck.py --allow-registered
+
+      # 无源码裸 pyc 守卫（防 2026-07-18 源码丢失事故再发）
+      - name: No sourceless pyc guard
+        run: python scripts/check_no_sourceless_pyc.py
+
+      # 文档三态标记一致性检查（防 INDEX.md 与 docs/archive/ 漂移：
+      # 死链 / 孤儿文档 / 静默归档 / 新旧双份）
+      - name: Doc index consistency check
+        run: python scripts/check_doc_index_consistency.py
+
+      # 事实生成物防漂移（debt-v2 V1-03 / M3）：RPC 方法与 SIYI_* 变量
+      # 清单由 gen_inventory.py 生成并入库（docs/inventory.md），漂移即红
+      - name: Inventory drift check (V1-03)
+        run: python scripts/gen_inventory.py --check
+
+      # ── C-7 假绿封堵（M0b）：棘轮前置断言 ──────────────────
+      # 实测两条假绿通道：①venv 无 bandit → 脚本静默返回 0 条目 RC=0
+      # ②origin/<base> 引用缺失 → --check-changed 打 skip RC=0。前置断言让
+      # 这两种情况在棘轮步骤之前显式红，而不是带着假绿通过。
+      - name: Assert ratchet prerequisites (C-7 fail-not-skip)
+        shell: bash
+        run: |
+          python -c "import bandit; print('bandit ok')"
+          git rev-parse --verify "origin/${{ github.base_ref || 'main' }}"
+
+      # ── P2-24 ③ 安全扫描 bandit（仅 high severity 失败） ────
+      # T1.2 补全：去掉 continue-on-error 假门禁；改用 bandit_ratchet.py
+      # 棘轮（与 mypy 棘轮同机制）——基线 scripts/bandit-baseline.json
+      # 记录 3 个已知 high（B413/B411 协议/库误报 + B602 已修），仅"新增" high 阻塞。
+      - name: Bandit security scan (P2-24, T1.2 ratchet)
+        run: python scripts/bandit_ratchet.py --check-changed --base main
+
+      # ── P2-3 ④ pip-audit 漏洞扫描门禁 ──────────────────────
+      # 批次5（2026-08-26）严格模式：无有效审计结果（0 包可审计 / 命令异常 /
+      # 超时 / 输出解析失败）即非零退出——封堵"find-links/离线源空清单→假绿"。
+      # 非基线漏洞（新漏洞）阻塞 CI；基线漏洞（scripts/pip-audit-baseline.txt）
+      # 视为已知接受不阻塞；依赖升级后应从基线文件中移除已修复的漏洞 ID。
+      - name: pip-audit gate (P2-3, strict E1/E2)
+        run: python scripts/run_pip_audit.py --verbose
+
+      # ── P2-23 + P2-25 ⑤ 覆盖率门禁（棘轮 T0.1/T4.1；批次5：21→22，目标 22，非 25） ──
+      # 阈值与 scripts/coverage_gate.py 的 DEFAULT_THRESHOLD=22.0 对齐：TASK-V2-03
+      # 已补测试达 22%，本步不再倒逼红（阈值 21 的历史豁免已解除）。批次5 目标棘轮到 22，
+      # 按 T0.1 逐档推进，切勿直接拔到 25（实测未达时必红）。
+      - name: Coverage gate (P2-23/P2-25)
+        run: python scripts/coverage_gate.py --threshold 22
+
+      # ── S11 ⑥ 后端方法调用覆盖率检查（防止新增僵尸接口） ────
+      # 契约测试 test_no_new_unused_methods 的补充报告工具，
+      # 新增未调用方法时退出码非零。
+      # R2-3：--undocumented 检查「注册但未进 AGENTS.md 方法表」的新增方法
+      # （原则 P-4 堵流式新债；存量 100 项入基线不阻塞，新增基线外→红）。
+      - name: Method coverage check (S11 + R2-3 undocumented)
+        run: python scripts/check_method_coverage.py --undocumented
+
+      # ── B-14 登记册引用检查（防"登记了未提交"证据链断裂）──
+      # 登记册「复测方式」列引用的测试文件必须存在于 git 树，否则 CI 红。
+      # 堵死"登记了复测方式却从未提交测试文件"的通道（audit-report-2026-08-27 原则 P-2）。
+      - name: Risk-register reference check (B-14)
+        run: python scripts/check_register_refs.py
+
+      # ── 全量 pytest（作为 coverage_gate 之外的兜底） ────────
+      # 注：test_integration_* 需要后端在 18765 运行；conftest 会在后端
+      # 不可达时自动跳过这些用例（CI 无后端）；设 SIYI_INTEGRATION_REQUIRED=1
+      # 可强制要求后端在场（不可达时直接失败）。
+      # P2-3：SIYI_INTEGRATION_AUTOSTART=1 使集成测试自包含——后端不可达时
+      # 自动拉起随机端口+临时数据目录的会话级后端，会话结束自动清理。
+      - name: Run full pytest (desktop)
+        working-directory: 思忆集app
+        env:
+          SIYI_INTEGRATION_AUTOSTART: "1"
+        run: python -m pytest tests/ -q --tb=short --basetemp "${{ runner.temp }}\pytest-tmp"
+        timeout-minutes: 20
+
+      - name: Run automation_hub tests
+        if: ${{ hashFiles('automation_hub/tests/**') != '' }}
+        run: python -m pytest automation_hub/tests/ -q --tb=short
+
+      # ── T1.2：mypy 棘轮门禁（只拦新增类型错误）────────────
+      # 存量 955 错误已锁入 scripts/mypy-baseline.txt；--check-changed
+      # 仅拦截"新增/修改文件中基线外"的新错误，存量不误杀。
+      # 不再 continue-on-error —— 真正阻塞门禁。
+      - name: Type check with mypy (T1.2 ratchet)
+        run: python scripts/mypy_ratchet.py --check-changed --base main
+
+      # ── M5：cron 病灶零容忍硬门禁（2026-08-24 清零后常驻）──
+      # 三模块（proactive.tick 事故链路）已清零并移出 mypy 基线，此处为
+      # 全量零错误硬门禁，不随棘轮基线放宽；任何错误（含存量复发）直接红。
+      - name: Cron lesion mypy zero-tolerance gate (M5)
+        working-directory: 思忆集app
+        run: python -m mypy services/cron_actions.py app_runtime/_context_cron.py backend/handlers/_cron.py --ignore-missing-imports
+
+      # ── T3.3：ruff 门禁硬化（与 T1.2 基线策略一致）──────────
+      # 改用 gen_quality_baseline.py --check-changed：新增/修改的 .py 文件
+      # 若引入"基线外"的新 ruff 违规则阻塞合并；存量违规不误杀。
+      # 不再 continue-on-error —— 这是真正的阻塞门禁。
+      - name: Ruff gate (T1.2/T3.3 baseline)
+        run: python scripts/gen_quality_baseline.py --check-changed --base main
+
+      # ── T1.2：裸 except 棘轮门禁（fail-not-skip 的静态防线）──
+      # scan_broad_except.py --check-changed：仅拦截"白名单路径"下新增的
+      # 静默裸 except（total=1917 / silent=520 存量不误杀），存量违规不阻塞。
+      # 与 ruff 门禁同机制（只拦新增），真正的阻塞门禁，非 continue-on-error。
+      - name: Broad-except ratchet gate (T1.2)
+        run: python scripts/scan_broad_except.py --check-changed --base main
+
+      - name: Upload coverage.xml
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml
+          path: 思忆集app/coverage.xml
+          if-no-files-found: ignore

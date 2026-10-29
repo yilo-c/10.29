@@ -1,0 +1,46 @@
+{
+  "manifest_version": 3,
+  "name": "思忆集浏览器助手",
+  "version": "0.5.0",
+  "description": "在浏览器侧边栏中总结当前网页，一键发送到思忆集桌面端沉淀，并支持保存到阅读列表与书签。",
+  "minimum_chrome_version": "114",
+  "permissions": ["activeTab", "tabs", "scripting", "storage", "sidePanel", "contextMenus", "notifications"],
+  "commands": {
+    "save-to-reading": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+S",
+        "mac": "Command+Shift+S"
+      },
+      "description": "将当前页面保存到思忆集阅读列表"
+    }
+  },
+  "host_permissions": [
+    "http://127.0.0.1/*",
+    "http://localhost/*",
+    "https://api.bilibili.com/*",
+    "https://www.kimi.com/*",
+    "https://kimi.com/*",
+    "https://chat.deepseek.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_title": "思忆集浏览器助手",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png"
+    }
+  },
+  "options_page": "options.html",
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  }
+}

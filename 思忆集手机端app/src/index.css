@@ -1,0 +1,113 @@
+/* ─── 思忆便签 · 全局样式 ─── */
+@import './styles/tokens.css';
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body {
+  height: 100%;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-family: -apple-system, "PingFang SC", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
+  font-size: var(--text-body);
+}
+
+#root {
+  height: 100%;
+}
+
+button {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* ─── Touch feedback (Q7) ─── */
+button:active:not(:disabled),
+[role="button"]:active,
+.list-item:active {
+  opacity: 0.85;
+  transition: opacity 0.05s ease;
+}
+
+/* ─── Skeleton loading animation (Q3) ─── */
+@keyframes skeleton-pulse {
+  0% { opacity: 0.6; }
+  50% { opacity: 0.3; }
+  100% { opacity: 0.6; }
+}
+
+.skeleton {
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+  animation: skeleton-pulse 1.5s ease-in-out infinite;
+}
+
+input, textarea, select {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+main > div {
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+::-webkit-scrollbar {
+  width: 3px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--bg-glass);
+  border-radius: 2px;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Phase 1.5: Tab 切换动画 */
+@keyframes fadeSlideIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slideUp {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes fadeOutDown {
+  from { opacity: 1; transform: translateY(0); }
+  to { opacity: 0; transform: translateY(10px); }
+}

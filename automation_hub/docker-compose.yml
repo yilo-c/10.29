@@ -1,0 +1,42 @@
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: automation-hub-redis
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+
+  api:
+    build: .
+    container_name: automation-hub-api
+    ports:
+      - "${API_PORT:-8000}:8000"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+      - DATABASE_PATH=${DATABASE_PATH:-/data/automation_hub.sqlite3}
+    restart: unless-stopped
+    volumes:
+      - ${DATA_DIR:-./data}:/data
+    depends_on:
+      - redis
+
+  worker:
+    build: .
+    container_name: automation-hub-worker
+    command: python -m automation_hub.worker.worker
+    environment:
+      - PYTHONUNBUFFERED=1
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+      - DATABASE_PATH=${DATABASE_PATH:-/data/automation_hub.sqlite3}
+    restart: unless-stopped
+    volumes:
+      - ./data:/data
+      # Docker executor 需要访问宿主机 docker socket
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      - redis
+      - api
+
+volumes:
+  redis_data:

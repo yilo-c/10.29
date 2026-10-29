@@ -1,0 +1,17 @@
+你是一个 FastAPI 后端开发者。请在 automation-hub/api/routes/ 下创建 knowledge_base.py，实现知识库/RAG API。
+
+## 参考
+- 路由风格参考 automation-hub/api/routes/agent.py
+- 桌面端有 knowledge_base 目录和相关模块
+
+## 端点
+1. GET /knowledge-base/documents — 文档列表
+2. POST /knowledge-base/documents — 添加文档（body: {title, content, tags?, source?}）
+3. DELETE /knowledge-base/documents/{doc_id} — 删除
+4. POST /knowledge-base/query — 检索（body: {query, top_k?, threshold?}）
+5. GET /knowledge-base/status — 知识库状态
+
+## 约束
+- 内存存储，TODO 替换为数据库+向量检索引擎
+- APIRouter(prefix="/knowledge-base", tags=["knowledge-base"]), require_scope("knowledge-base:use")
+- 错误处理同 agent.py

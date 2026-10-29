@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  思忆 Android 网络安全配置（PR 5 引入，2026-06-14）
+
+  设计权衡：
+  - 默认 (base-config)：拒绝 cleartext，强制 HTTPS。
+  - 私有网段 (10.x、172.16-31.x、192.168.x、169.254.x、回环)：允许 cleartext，
+    因为桌面后端运行在 LAN，要求自签名 HTTPS 部署成本过高。
+    桌面 ↔ 手机交互必须依赖 SIYI_TRANSFER_KEY 鉴权（已在 _transfer.py 实现），
+    而非依赖传输层加密。
+  - 外网域名：强制 HTTPS。
+
+  这是「LAN 内可用 + 公网不裸跑」的折中方案。
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+
+    <domain-config cleartextTrafficPermitted="true">
+        <!-- 回环 -->
+        <domain includeSubdomains="false">localhost</domain>
+        <domain includeSubdomains="false">127.0.0.1</domain>
+        <!-- Android 模拟器宿主机 -->
+        <domain includeSubdomains="false">10.0.2.2</domain>
+        <!--
+          私有网段：Android 不支持 CIDR 网段，只能逐 host 列出或保留通配。
+          下面把常见家用路由器网段列出；用户在不同网段会需要在「设置」自行添加，
+          或开启 dev 模式（未来计划）。
+          这是一个常见的妥协 — 见 https://developer.android.com/training/articles/security-config
+        -->
+        <domain includeSubdomains="true">192.168.0.1</domain>
+        <domain includeSubdomains="true">192.168.1.1</domain>
+        <domain includeSubdomains="true">192.168.31.1</domain>
+        <domain includeSubdomains="true">10.0.0.1</domain>
+        <!--
+          V2.1 批次4（Tailscale 直连）：CGNAT 100.64.0.0/10 整段无法在 xml 表达
+          （Android 仅精确字符串匹配），此处列常见 Tailscale 节点 IP：
+            100.100.100.100 —— MagicDNS 解析地址（tailnet DNS）
+            100.64.0.1 / 100.101.102.103 —— 典型节点示例
+          若桌面 Tailscale IP 不在列：a) 在配对时改用 MagicDNS hostname 并在
+          下方 domain 补充 `<host>.<tailnet>.ts.net`；b) 或按「可配置信任 IP」
+          提示在设置中补充后重新打包。
+        -->
+        <domain includeSubdomains="true">100.100.100.100</domain>
+        <domain includeSubdomains="true">100.64.0.1</domain>
+        <domain includeSubdomains="true">100.101.102.103</domain>
+        <!--
+          注意：上面的 domain 不会按 CIDR 匹配整个网段 — Android 仅按精确字符串匹配。
+          实际部署中，用户的桌面 IP 可能是 192.168.31.42，需要单独加。
+          长期方案：手机端 SettingsView 暴露「自定义 LAN IP」字段，启动时
+          通过 NetworkSecurityPolicy.isCleartextTrafficPermitted(host) 测试，
+          失败则提示用户配置 HTTPS 或扩展此白名单。
+        -->
+    </domain-config>
+</network-security-config>

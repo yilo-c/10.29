@@ -1,0 +1,80 @@
+{
+  "tool_id": "git",
+  "display_name": "Git",
+  "cli_path": "git",
+  "description": "Git 版本控制 — 提供常用查询类命令。只读命令为低风险，写操作需审批。",
+  "enabled": true,
+  "health_check_command": "git --version",
+  "commands": {
+    "status": {
+      "description": "查看工作区状态",
+      "template": "{cli} status --porcelain",
+      "params": {},
+      "risk": "low",
+      "timeout": 10
+    },
+    "log": {
+      "description": "查看提交历史",
+      "template": "{cli} log --oneline -n {limit}",
+      "params": {
+        "limit": {
+          "type": "int",
+          "required": false,
+          "description": "显示条数",
+          "default": 10
+        }
+      },
+      "risk": "low",
+      "timeout": 15
+    },
+    "diff": {
+      "description": "查看未提交的修改",
+      "template": "{cli} diff {target}",
+      "params": {
+        "target": {
+          "type": "string",
+          "required": false,
+          "description": "对比目标（HEAD/分支名/文件路径）",
+          "default": "HEAD"
+        }
+      },
+      "risk": "low",
+      "timeout": 15
+    },
+    "commit": {
+      "description": "提交暂存区的修改。⚠️ 高风险，需 sandbox 审批",
+      "template": "{cli} commit -m",
+      "stdin_template": "{message}",
+      "params": {
+        "message": {
+          "type": "string",
+          "required": true,
+          "description": "提交信息"
+        }
+      },
+      "risk": "high",
+      "confirmation": "every_time",
+      "timeout": 30
+    },
+    "push": {
+      "description": "推送到远程仓库。⚠️ 高风险，需 sandbox 审批",
+      "template": "{cli} push {remote} {branch}",
+      "params": {
+        "remote": {
+          "type": "string",
+          "required": false,
+          "description": "远程名",
+          "default": "origin"
+        },
+        "branch": {
+          "type": "string",
+          "required": false,
+          "description": "分支名（默认当前分支）"
+        }
+      },
+      "risk": "high",
+      "confirmation": "every_time",
+      "timeout": 60
+    }
+  }
+}

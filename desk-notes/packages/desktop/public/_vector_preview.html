@@ -1,0 +1,31 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"><title>vector preview</title>
+<style>body{margin:0;background:#334;padding:16px;display:flex;flex-wrap:wrap;gap:14px}
+.cell{background:#fff;border-radius:10px;padding:6px;text-align:center}
+.cell .label{font:12px sans-serif;color:#345;padding:2px}</style>
+</head><body>
+<script type="module">
+import { drawVXiaoWen, vDefaults } from '/src/FloatingBubble/xiaowenVector.ts'
+
+const poses = {
+  idle: {},
+  defend: { armLAngle: 0.5, armLFore: 1.1, armRAngle: 0.7, armRFore: 1.4, swordAngle: -1.8, headTilt: 0.05, browRaise: 0.8, mouthOpen: 0.4, bodyTilt: -0.04, squash: 1.03 },
+  shy: { armRAngle: 2.4, armRFore: 1.9, headTilt: -0.08, blush: 1, gazeX: -0.7, mouthSmile: 0.9, bodyTilt: 0.03 },
+  fly: { legs: 2, swordMode: 1, armLAngle: 1.1, armLFore: 0.3, armRAngle: 0.9, armRFore: 0.3, bodyTilt: -0.12, headTilt: 0.06, mouthOpen: 0.5, browRaise: 0.3, bodyBob: -6 },
+  sit: { legs: 1, swordMode: 2, armLAngle: 0.75, armLFore: 1.5, armRAngle: 0.75, armRFore: 1.5, eyeOpen: 0.35, headTilt: 0.04, bodyBob: 24 },
+  sleepy: { eyeOpen: 0.25, headTilt: 0.22, armLAngle: 0.5, armLFore: 1.2, armRAngle: 0.4, armRFore: 1.0, swordAngle: 0.4, mouthOpen: 0.5, blush: 0.3, bodyTilt: 0.05, squash: 0.98 },
+}
+
+for (const [name, over] of Object.entries(poses)) {
+  const cell = document.createElement('div'); cell.className = 'cell'
+  const cv = document.createElement('canvas'); cv.width = 220; cv.height = 220
+  const label = document.createElement('div'); label.className = 'label'; label.textContent = name
+  cell.append(cv, label); document.body.appendChild(cell)
+  const ctx = cv.getContext('2d')
+  ctx.save()
+  ctx.scale(220 / 512, 220 / 512)
+  const s = { ...vDefaults(), ...over }
+  drawVXiaoWen(ctx, s)
+  ctx.restore()
+}
+document.title = 'DONE'
+</script></body></html>

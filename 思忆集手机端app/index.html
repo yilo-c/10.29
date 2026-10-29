@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+<meta name="theme-color" content="#FFFFFF" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="便签" />
+<!--
+  PR 5（2026-06-14）：CSP 收紧。
+  connect-src 保留 http:/https: 是因为手机端需要连接 LAN 上任意 IP 的桌面后端
+  （CSP 不支持 IPv4 网段表达）；通过 Android network_security_config.xml 限制
+  cleartext 仅允许 localhost/127.0.0.1，加上后端的 SIYI_TRANSFER_KEY 鉴权
+  组成两层防御。
+-->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; connect-src 'self' ws: wss: http: https:; frame-src 'none'; object-src 'none'; worker-src 'self' blob:;" />
+<title>思忆便签</title>
+</head>
+<body><div id="root"></div><script type="module" src="/src/main.tsx"></script></body>
+</html>

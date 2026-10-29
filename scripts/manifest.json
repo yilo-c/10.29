@@ -1,0 +1,53 @@
+{
+  "daily_report": {
+    "description": "生成每日运维报告",
+    "parameters": {
+      "output_path": {
+        "type": "string",
+        "description": "报告输出路径",
+        "default": "/workspace/reports/daily_{date}.md",
+        "pattern": "^/workspace/reports/.*$"
+      }
+    },
+    "working_dir": "/workspace",
+    "allowed_commands": ["pandoc", "sqlite3"]
+  },
+  "backup": {
+    "description": "执行数据备份",
+    "parameters": {
+      "source_dir": {
+        "type": "string",
+        "description": "源目录",
+        "default": "/workspace/data",
+        "pattern": "^/workspace/.*$"
+      },
+      "target_dir": {
+        "type": "string",
+        "description": "目标目录",
+        "default": "/workspace/backups",
+        "pattern": "^/workspace/backups/.*$"
+      }
+    },
+    "working_dir": "/workspace",
+    "allowed_commands": ["rsync", "tar"]
+  },
+  "rss_fetch": {
+    "description": "获取RSS源数据",
+    "parameters": {
+      "url": {
+        "type": "string",
+        "description": "RSS源URL",
+        "pattern": "^https://.*$"
+      },
+      "output_path": {
+        "type": "string",
+        "description": "输出路径",
+        "default": "/workspace/rss/{source}.xml",
+        "pattern": "^/workspace/rss/.*$"
+      }
+    },
+    "working_dir": "/workspace",
+    "allowed_commands": ["curl", "wget"],
+    "network_policy": "allow_outbound:rss"
+  }
+}

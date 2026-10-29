@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>小问桌宠 - 最终比例匹配测试</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #1a1a2e;
+      color: #e0e0e0;
+      font-family: system-ui, sans-serif;
+      padding: 40px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+    }
+    h1 { margin-bottom: 20px; color: #79cfff; font-size: 24px; }
+    .compare-row {
+      display: flex;
+      gap: 40px;
+      margin-bottom: 30px;
+      align-items: flex-start;
+    }
+    .canvas-container {
+      background: rgba(121, 207, 255, 0.08);
+      border: 2px dashed rgba(121, 207, 255, 0.3);
+      border-radius: 16px;
+      padding: 20px;
+    }
+    canvas { display: block; }
+    .label { text-align: center; margin-top: 10px; font-size: 12px; color: #79cfff; }
+    .controls {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+      justify-content: center;
+      max-width: 700px;
+    }
+    button {
+      padding: 10px 20px;
+      background: rgba(121, 207, 255, 0.15);
+      border: 1px solid rgba(121, 207, 255, 0.4);
+      color: #79cfff;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 14px;
+      transition: all 0.2s;
+    }
+    button:hover { background: rgba(121, 207, 255, 0.25); }
+    button.active { background: #79cfff; color: #1a1a2e; }
+    .info {
+      background: rgba(255, 255, 255, 0.05);
+      padding: 16px 24px;
+      border-radius: 10px;
+      font-size: 13px;
+      line-height: 1.8;
+      max-width: 600px;
+    }
+    .frame-counter {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      background: rgba(0,0,0,0.6);
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-family: monospace;
+      font-size: 12px;
+    }
+  </style>
+</head>
+<body>
+  <h1>🎴 小问桌宠 - 最终比例匹配测试</h1>
+
+  <div class="frame-counter" id="frameCounter">frame: 0 / 0</div>
+
+  <div class="compare-row">
+    <div>
+      <div class="canvas-container">
+        <canvas id="canvasOriginal" width="256" height="256"></canvas>
+      </div>
+      <div class="label">原始 idle_01.png（参考基准）</div>
+    </div>
+    <div>
+      <div class="canvas-container">
+        <canvas id="canvasNew" width="256" height="256"></canvas>
+      </div>
+      <div class="label">新生成动画帧（比例已对齐）</div>
+    </div>
+  </div>
+
+  <div class="controls">
+    <button onclick="playClip('clickDefend', false)" class="active">▶ clickDefend - 受惊拔剑</button>
+    <button onclick="playClip('shy', false)">▶ shy - 害羞捂脸</button>
+    <button onclick="playClip('dragFly', false)">▶ dragFly - 御剑飞行</button>
+    <button onclick="playClip('idleOriginal', true)">▶ 原始 idle 循环（对比基准）</button>
+    <button onclick="togglePause()">⏸ pause</button>
+    <button onclick="stepFrame()">⏭ step</button>
+  </div>
+
+  <div class="info">
+    <strong>✅ 已对齐的关键参数：</strong>
+    <ul style="margin-top: 8px; padding-left: 20px;">
+      <li>画布尺寸：256 × 256 px</li>
+      <li>角色高度：145 px（与原始 idle_01 完全一致）</li>
+      <li>垂直位置：顶部留白 81 px，底部留白 30 px</li>
+      <li>水平位置：居中对齐</li>
+    </ul>
+    <br>
+    <strong>3 组新动作：</strong>
+    <ul>
+      <li><strong>clickDefend</strong>（6帧）：吃惊 → 抖肩 → 拔剑 → 看清来人 → 傲娇 → 恢复</li>
+      <li><strong>shy</strong>（6帧）：正常 → 抬袖遮脸 → 脸红 → 从指缝偷看</li>
+      <li><strong>dragFly</strong>（6帧）：待机 → 踩剑 → 起飞 → 加速 → 惊吓 → 落地</li>
+    </ul>
+  </div>
+
+  <script>
+    const canvasOriginal = document.getElementById('canvasOriginal')
+    const ctxOriginal = canvasOriginal.getContext('2d')
+    const canvasNew = document.getElementById('canvasNew')
+    const ctxNew = canvasNew.getContext('2d')
+    const frameCounter = document.getElementById('frameCounter')
+
+    // 原始 idle 基准帧
+    const ORIGINAL_IDLE = [
+      '/pet/xiaowen/frames/idle/idle_01.png',
+      '/pet/xiaowen/frames/idle/idle_02.png',
+      '/pet/xiaowen/frames/idle/idle_03.png',
+      '/pet/xiaowen/frames/idle/idle_04.png',
+    ]
+
+    // 新动作帧
+    const BASE = '/pet/xiaowen_frames_final/'
+    const CLIPS = {
+      idleOriginal: {
+        fps: 2,
+        loop: true,
+        frames: ORIGINAL_IDLE,
+      },
+      clickDefend: {
+        fps: 8,
+        loop: false,
+        frames: [
+          BASE + 'click_defend_01.png',
+          BASE + 'click_defend_02.png',
+          BASE + 'click_defend_03.png',
+          BASE + 'click_defend_04.png',
+          BASE + 'click_defend_05.png',
+          BASE + 'click_defend_06.png',
+        ]
+      },
+      shy: {
+        fps: 6,
+        loop: false,
+        frames: [
+          BASE + 'shy_01.png',
+          BASE + 'shy_02.png',
+          BASE + 'shy_03.png',
+          BASE + 'shy_04.png',
+          BASE + 'shy_05.png',
+          BASE + 'shy_06.png',
+        ]
+      },
+      dragFly: {
+        fps: 9,
+        loop: false,
+        frames: [
+          BASE + 'drag_fly_01.png',
+          BASE + 'drag_fly_02.png',
+          BASE + 'drag_fly_03.png',
+          BASE + 'drag_fly_04.png',
+          BASE + 'drag_fly_05.png',
+          BASE + 'drag_fly_06.png',
+        ]
+      }
+    }
+
+    // 预加载
+    const imageCache = {}
+    let loadedCount = 0
+    let totalImages = 0
+
+    Object.values(CLIPS).forEach(clip => {
+      totalImages += clip.frames.length
+      clip.frames.forEach(src => {
+        const img = new Image()
+        img.src = src
+        img.onload = () => {
+          loadedCount++
+          if (loadedCount >= totalImages && running) {
+            requestAnimationFrame(animate)
+          }
+        }
+        imageCache[src] = img
+      })
+    })
+
+    let currentClip = CLIPS.clickDefend
+    let currentIndex = 0
+    let frameTimer = 0
+    let lastTime = 0
+    let running = true
+    let paused = false
+
+    function playClip(name, loop) {
+      currentClip = CLIPS[name]
+      currentIndex = 0
+      frameTimer = 0
+      paused = false
+      running = true
+
+      document.querySelectorAll('button').forEach(b => b.classList.remove('active'))
+      event.target.classList.add('active')
+
+      if (loadedCount >= totalImages) {
+        lastTime = 0
+        requestAnimationFrame(animate)
+      }
+    }
+
+    function togglePause() {
+      paused = !paused
+      if (!paused && running) {
+        lastTime = 0
+        requestAnimationFrame(animate)
+      }
+    }
+
+    function stepFrame() {
+      paused = true
+      currentIndex = (currentIndex + 1) % currentClip.frames.length
+      draw()
+    }
+
+    function draw() {
+      ctxOriginal.clearRect(0, 0, 256, 256)
+      ctxNew.clearRect(0, 0, 256, 256)
+
+      // 左边：原始 idle 第 0 帧作为静态对比
+      const origImg = imageCache[ORIGINAL_IDLE[0]]
+      if (origImg && origImg.complete) {
+        ctxOriginal.drawImage(origImg, 0, 0)
+      }
+
+      // 右边：当前播放的新帧
+      const src = currentClip.frames[currentIndex]
+      const newImg = imageCache[src]
+      if (newImg && newImg.complete) {
+        ctxNew.drawImage(newImg, 0, 0)
+      }
+
+      frameCounter.textContent = `frame: ${currentIndex + 1} / ${currentClip.frames.length}`
+    }
+
+    function animate(timestamp) {
+      if (!running || paused) return
+
+      const dt = lastTime ? Math.min(timestamp - lastTime, 100) : 16
+      lastTime = timestamp
+
+      const frameDuration = 1000 / currentClip.fps
+      frameTimer += dt
+      if (frameTimer >= frameDuration) {
+        frameTimer = 0
+        currentIndex++
+        if (currentIndex >= currentClip.frames.length) {
+          if (currentClip.loop) {
+            currentIndex = 0
+          } else {
+            currentIndex = currentClip.frames.length - 1
+            running = false
+          }
+        }
+      }
+
+      draw()
+      if (running) requestAnimationFrame(animate)
+    }
+
+    // 启动
+    if (loadedCount >= totalImages) {
+      requestAnimationFrame(animate)
+    }
+  </script>
+</body>
+</html>

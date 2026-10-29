@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android 6+ 自动备份（auto-backup-to-Google-Drive）规则。
+  PR 5 后 allowBackup=false 会让此文件不会被读取，但保留以备未来重启备份。
+  当前规则：排除所有 SharedPreferences、数据库、文件 — 因为它们包含 token 与笔记内容。
+-->
+<full-backup-content>
+    <exclude domain="sharedpref" path="."/>
+    <exclude domain="database" path="."/>
+    <exclude domain="file" path="."/>
+    <exclude domain="external" path="."/>
+</full-backup-content>

@@ -1,0 +1,8 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">思忆便签</string>
+    <string name="title_activity_main">思忆便签</string>
+    <string name="package_name">com.siyi.notepad</string>
+    <string name="custom_url_scheme">com.siyi.notepad</string>
+    <string name="siyi_accessibility_service_description">允许思忆集读取屏幕内容并执行点击/滑动等辅助操作，用于完成你明确发起的手机自动化任务。</string>
+</resources>

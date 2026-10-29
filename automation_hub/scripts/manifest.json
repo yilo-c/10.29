@@ -1,0 +1,102 @@
+{
+  "scripts": [
+    {
+      "id": "backup_notes.py",
+      "name": "backup_notes.py",
+      "description": "备份笔记文件",
+      "command": ["python", "./scripts/backup_notes.py"],
+      "parameters": [
+        {
+          "name": "source",
+          "type": "string",
+          "required": true,
+          "description": "源目录路径"
+        },
+        {
+          "name": "destination",
+          "type": "string",
+          "required": true,
+          "description": "目标目录路径"
+        }
+      ]
+    },
+    {
+      "id": "cleanup_dir.py",
+      "name": "cleanup_dir.py",
+      "description": "清理目录中的旧文件",
+      "command": ["python", "./scripts/cleanup_dir.py"],
+      "parameters": [
+        {
+          "name": "directory",
+          "type": "string",
+          "required": true,
+          "description": "要清理的目录路径"
+        },
+        {
+          "name": "days",
+          "type": "integer",
+          "required": false,
+          "default": 7,
+          "description": "保留最近几天的文件"
+        }
+      ]
+    },
+    {
+      "id": "daily_report.py",
+      "name": "daily_report.py",
+      "description": "生成每日报告",
+      "command": ["python", "./scripts/daily_report.py"],
+      "parameters": [
+        {
+          "name": "output",
+          "type": "string",
+          "required": true,
+          "description": "报告输出路径"
+        }
+      ]
+    },
+    {
+      "id": "fetch_rss.py",
+      "name": "fetch_rss.py",
+      "description": "抓取RSS源",
+      "command": ["python", "./scripts/fetch_rss.py"],
+      "parameters": [
+        {
+          "name": "url",
+          "type": "string",
+          "required": true,
+          "description": "RSS URL地址"
+        },
+        {
+          "name": "limit",
+          "type": "integer",
+          "required": false,
+          "default": 10,
+          "description": "抓取条目数量限制"
+        }
+      ]
+    },
+    {
+      "id": "seed_rss_sources.py",
+      "name": "seed_rss_sources.py",
+      "description": "批量注册RSS来源（50%英文，Tier2默认禁用）",
+      "command": ["python", "./scripts/seed_rss_sources.py"],
+      "parameters": [
+        {
+          "name": "include-tier2",
+          "type": "boolean",
+          "required": false,
+          "default": false,
+          "description": "是否包含Tier2来源（默认禁用）"
+        },
+        {
+          "name": "enable-all",
+          "type": "boolean",
+          "required": false,
+          "default": false,
+          "description": "强制启用全部来源"
+        }
+      ]
+    }
+  ]
+}

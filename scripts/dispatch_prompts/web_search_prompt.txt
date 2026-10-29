@@ -1,0 +1,17 @@
+你是一个 FastAPI 后端开发者。请在 automation-hub/api/routes/ 下创建 web_search.py，实现 Web Search API 路由。
+
+## 参考
+- 路由风格参考 automation-hub/api/routes/agent.py
+- 桌面端已有 web_search_service.py（搜索引擎包装）
+
+## 端点
+1. POST /web-search/search — 搜索（body: {query, language, max_results, sources?}）
+2. GET /web-search/engines — 列出可用搜索引擎
+3. GET /web-search/status — 搜索服务状态
+
+## 约束
+- 使用内存 dict 存储，标注 TODO: 替换为数据库持久化
+- APIRouter(prefix="/web-search", tags=["web-search"])
+- require_scope("web-search:use") 鉴权
+- 与 agent.py 一致的错误处理模式
+- 注意在 main.py 中注册路由

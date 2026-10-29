@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Experimental VRM 3D 桌宠 — AI 骨骼驱动</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: #0a1018; color: #e6edf3; font-family: 'Segoe UI', system-ui, sans-serif;
+  display: flex; justify-content: center; align-items: center; min-height: 100vh; overflow: hidden;
+}
+.container { display: flex; gap: 24px; align-items: flex-start; padding: 20px; }
+.viewport-wrap {
+  position: relative; border-radius: 24px; overflow: hidden;
+  background: linear-gradient(145deg, rgba(255,255,255,0.04), rgba(255,255,255,0.01));
+  border: 1px solid rgba(121,207,255,0.12);
+  box-shadow: 0 24px 80px rgba(0,0,0,0.6);
+  width: 520px; height: 580px;
+}
+#canvas-container { width: 520px; height: 580px; display: block; }
+#canvas-container canvas { display: block; width: 100% !important; height: 100% !important; }
+#loadingOverlay {
+  position: absolute; inset: 0; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 16px;
+  background: radial-gradient(ellipse at 50% 50%, rgba(10,16,24,0.9), rgba(10,16,24,0.98));
+  transition: opacity 0.6s; z-index: 10;
+}
+#loadingOverlay.hide { opacity: 0; pointer-events: none; }
+.spinner { width: 40px; height: 40px; border: 2px solid rgba(121,207,255,0.1); border-top-color: #79cfff; border-radius: 50%; animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.loading-text { font-size: 12px; color: #8b949e; letter-spacing: 0.5px; }
+.panel {
+  width: 340px; max-height: 620px; overflow-y: auto;
+  background: rgba(255,255,255,0.02); border-radius: 20px;
+  border: 1px solid rgba(121,207,255,0.07); padding: 20px;
+  font-size: 13px; line-height: 1.5; scrollbar-width: thin;
+}
+.panel::-webkit-scrollbar { width: 3px; }
+.panel::-webkit-scrollbar-thumb { background: rgba(121,207,255,0.15); border-radius: 2px; }
+.section-title { font-size: 10px; color: #8b949e; text-transform: uppercase; letter-spacing: 1px; margin: 14px 0 6px; padding-bottom: 4px; border-bottom: 1px solid rgba(255,255,255,0.04); display: flex; align-items: center; gap: 6px; }
+.section-title:first-of-type { margin-top: 0; }
+.row { display: flex; justify-content: space-between; align-items: center; padding: 2px 0; font-size: 11px; }
+.row .l { color: #8b949e; }
+.row .v { color: #e6edf3; font-weight: 500; }
+.row .v.hl { color: #79cfff; }
+.modes { display: flex; gap: 5px; flex-wrap: wrap; margin: 6px 0; }
+.mb { padding: 4px 12px; border-radius: 12px; border: 1px solid rgba(121,207,255,0.12); background: rgba(255,255,255,0.02); color: #c9d1d9; font-size: 10px; cursor: pointer; transition: all 0.2s; font-family: inherit; }
+.mb:hover { border-color: rgba(121,207,255,0.25); color: #fff; }
+.mb.on { background: rgba(121,207,255,0.08); border-color: #79cfff; color: #79cfff; }
+.log { margin-top: 6px; max-height: 80px; overflow-y: auto; font-size: 10px; color: #6e7681; line-height: 1.5; }
+.log::-webkit-scrollbar { width: 2px; }
+.log::-webkit-scrollbar-thumb { background: rgba(121,207,255,0.1); border-radius: 2px; }
+.log .ln { padding: 1px 0; opacity: 0.6; }
+.log .ln.fresh { opacity: 1; color: #b1bac4; }
+.sbar { display: flex; gap: 8px; margin-top: 10px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.03); font-size: 9px; color: #6e7681; flex-wrap: wrap; }
+.sdot { width: 5px; height: 5px; border-radius: 50%; display: inline-block; margin-right: 3px; }
+.sdot.g { background: #3fb950; box-shadow: 0 0 5px rgba(63,185,80,0.3); }
+.hint { text-align: center; margin-top: 8px; font-size: 9px; color: rgba(139,148,158,0.35); letter-spacing: 0.3px; }
+.drop-zone {
+  position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);
+  padding: 6px 14px; border-radius: 20px;
+  background: rgba(121,207,255,0.06); border: 1px dashed rgba(121,207,255,0.15);
+  font-size: 9px; color: rgba(139,148,158,0.6); white-space: nowrap; z-index: 5;
+  transition: all 0.3s; pointer-events: none;
+}
+.drop-zone.highlight { background: rgba(121,207,255,0.12); border-color: rgba(121,207,255,0.3); color: #79cfff; }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="viewport-wrap">
+    <div id="loadingOverlay">
+      <div class="spinner"></div>
+      <div class="loading-text" id="loadingText">生成 3D 角色中...</div>
+    </div>
+    <div id="canvas-container"></div>
+    <div class="drop-zone" id="dropHint">📁 拖入 .vrm 文件替换模型</div>
+    <div class="hint" id="hintText">✦ 点击 · 悬停 · 滚轮缩放 · 拖拽旋转</div>
+  </div>
+  <div class="panel">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:2px;">
+      <span style="font-size:20px;">🧊</span>
+      <span style="font-weight:600;font-size:14px;color:#e6edf3;">3D 骨骼桌宠</span>
+      <span style="font-size:9px;color:#6e7681;margin-left:auto;" id="fpsD">-- fps</span>
+    </div>
+    <div style="font-size:9px;color:#6e7681;margin-bottom:6px;">Experimental · Three.js · AI 实时骨骼驱动</div>
+    <div class="section-title"><span>🧠</span> AI 控制</div>
+    <div class="row"><span class="l">当前情绪</span><span class="v" id="moodD">—</span></div>
+    <div class="row"><span class="l">骨骼状态</span><span class="v" id="boneD">—</span></div>
+    <div class="row"><span class="l">用户操作</span><span class="v" id="actD">—</span></div>
+    <div class="row"><span class="l">模型类型</span><span class="v hl" id="modelTypeD">默认角色</span></div>
+    <div class="section-title"><span>🎭</span> 人格模式</div>
+    <div class="modes" id="modeB">
+      <button class="mb on" data-mode="normal">🎯 正常</button>
+      <button class="mb" data-mode="playful">🌸 活泼</button>
+      <button class="mb" data-mode="lazy">😴 慵懒</button>
+      <button class="mb" data-mode="curious">🔍 好奇</button>
+      <button class="mb" data-mode="dance">💃 舞蹈</button>
+    </div>
+    <div class="section-title"><span>📜</span> 决策日志</div>
+    <div class="log" id="logD"></div>
+    <div class="sbar">
+      <span><span class="sdot g"></span>骨骼在线</span>
+      <span id="modelInfo">角色: 默认</span>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+// ═══════════════════════════════════════════════════════════════════════
+// 3D 桌宠 — Three.js 骨骼驱动 (支持 VRM 加载)
+// ═══════════════════════════════════════════════════════════════════════
+
+const THREE_VER = '0.157.0';
+const THREE = await import(`https://esm.sh/three@${THREE_VER}`);
+const { OrbitControls } = await import(`https://esm.sh/three@${THREE_VER}/examples/jsm/controls/OrbitControls.js`);
+
+let VRMLoaderPlugin = null, VRMUtils = null;
+try {
+  const vrmMod = await import(`https://esm.sh/@pixiv/three-vrm@3.0.0`);
+  VRMLoaderPlugin = vrmMod.VRMLoaderPlugin;
+  VRMUtils = vrmMod.VRMUtils;
+} catch (e) {
+  console.warn('VRM support unavailable:', e.message);
+}
+
+// ─── DOM ───
+const $ = id => document.getElementById(id);
+const container = $('canvas-container');
+const LOGS = [];
+const W = 520, H = 580;
+
+function addLog(msg) {
+  const d = new Date();
+  const t = `[${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}:${String(d.getSeconds()).padStart(2,'0')}]`;
+  LOGS.unshift(`${t} ${msg}`);
+  if (LOGS.length > 20) LOGS.pop();
+  $('logD').innerHTML = LOGS.map((l, i) => `<div class="ln ${i===0?'fresh':''}">${l}</div>`).join('');
+}
+
+// ─── Three.js 场景 ───
+const scene = new THREE.Scene();
+scene.background = null;
+
+[ [0xffffff, 1.4, 1.2, 2.5, 3], [0x8888ff, 0.4, -1, 1, -2], [0x79cfff, 0.25, 0, -1, 1.5] ]
+  .forEach(([c, i, x, y, z]) => { const l = new THREE.DirectionalLight(c, i); l.position.set(x, y, z); scene.add(l); });
+scene.add(new THREE.AmbientLight(0xffffff, 0.5));
+scene.add(new THREE.HemisphereLight(0x79cfff, 0x060a10, 0.3));
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+renderer.setSize(W, H);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.0;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+container.appendChild(renderer.domElement);
+
+const camera = new THREE.PerspectiveCamera(25, W / H, 0.1, 100);
+camera.position.set(0, 0.5, 2.8);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 0.7, 0);
+controls.enableDamping = true; controls.dampingFactor = 0.08;
+controls.minDistance = 1.5; controls.maxDistance = 5;
+controls.maxPolarAngle = Math.PI * 0.85;
+controls.update();
+
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(3, 3), new THREE.ShadowMaterial({ opacity: 0.18 }));
+ground.rotation.x = -Math.PI / 2; ground.position.y = -0.02; ground.receiveShadow = true;
+scene.add(ground);
+
+const glowRing = new THREE.Mesh(
+  new THREE.RingGeometry(0.35, 0.8, 32),
+  new THREE.MeshBasicMaterial({ color: 0x79cfff, transparent: true, opacity: 0.04, side: THREE.DoubleSide, depthWrite: false })
+);
+glowRing.rotation.x = -Math.PI / 2;
+scene.add(glowRing);
+
+// ─── 生成风格化默认角色 ───
+let characterGroup = new THREE.Group();
+let vrm = null;
+let isVRM = false;
+
+function buildDefaultCharacter() {
+  const matBody = new THREE.MeshStandardMaterial({ color: 0xf0a858, roughness: 0.5, metalness: 0.05 });
+  const matBelly = new THREE.MeshStandardMaterial({ color: 0xfce8d0, roughness: 0.6 });
+  const matEar = new THREE.MeshStandardMaterial({ color: 0xd08038, roughness: 0.5 });
+  const matEarInner = new THREE.MeshStandardMaterial({ color: 0xf0c0a0, roughness: 0.6 });
+  const matEye = new THREE.MeshStandardMaterial({ color: 0x1a0a00, roughness: 0.3 });
+  const matEyeHighlight = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 0.3 });
+  const matNose = new THREE.MeshStandardMaterial({ color: 0x6a4030, roughness: 0.8 });
+  const matTail = new THREE.MeshStandardMaterial({ color: 0xe8944a, roughness: 0.5 });
+  const matTailTip = new THREE.MeshStandardMaterial({ color: 0xfce8d0, roughness: 0.5 });
+
+  const g = new THREE.Group();
+
+  // 身体 (椭球)
+  const body = new THREE.Mesh(new THREE.SphereGeometry(0.28, 24, 20), matBody);
+  body.scale.set(1, 1.25, 0.85);
+  body.position.y = 0.15;
+  body.castShadow = true;
+  g.add(body);
+
+  // 肚子
+  const belly = new THREE.Mesh(new THREE.SphereGeometry(0.18, 16, 14), matBelly);
+  belly.scale.set(0.9, 1.1, 0.6);
+  belly.position.set(0, 0.1, 0.22);
+  g.add(belly);
+
+  // 头
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.2, 20, 18), matBody);
+  head.position.y = 0.44;
+  head.castShadow = true;
+  g.add(head);
+
+  // 左耳 (圆锥)
+  const earL = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.14, 8), matEar);
+  earL.position.set(-0.13, 0.55, 0);
+  earL.rotation.z = -0.3; earL.rotation.x = 0.2;
+  g.add(earL);
+  const earLInner = new THREE.Mesh(new THREE.ConeGeometry(0.035, 0.1, 6), matEarInner);
+  earLInner.position.set(-0.13, 0.55, 0);
+  earLInner.rotation.z = -0.3; earLInner.rotation.x = 0.2;
+  g.add(earLInner);
+
+  // 右耳
+  const earR = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.14, 8), matEar);
+  earR.position.set(0.13, 0.55, 0);
+  earR.rotation.z = 0.3; earR.rotation.x = -0.2;
+  g.add(earR);
+  const earRInner = new THREE.Mesh(new THREE.ConeGeometry(0.035, 0.1, 6), matEarInner);
+  earRInner.position.set(0.13, 0.55, 0);
+  earRInner.rotation.z = 0.3; earRInner.rotation.x = -0.2;
+  g.add(earRInner);
+
+  // 眼睛
+  for (const s of [-1, 1]) {
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.04, 10, 10), matEye);
+    eye.position.set(s * 0.07, 0.46, 0.17);
+    g.add(eye);
+    const hl = new THREE.Mesh(new THREE.SphereGeometry(0.015, 8, 8), matEyeHighlight);
+    hl.position.set(s * 0.07 + 0.02, 0.475, 0.195);
+    g.add(hl);
+  }
+
+  // 鼻子
+  const nose = new THREE.Mesh(new THREE.SphereGeometry(0.015, 8, 8), matNose);
+  nose.position.set(0, 0.42, 0.2);
+  g.add(nose);
+
+  // 左臂
+  const armL = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.05, 0.22, 8), matBody);
+  armL.position.set(-0.3, 0.15, 0);
+  armL.rotation.z = 1.2; armL.rotation.x = 0.3;
+  armL.castShadow = true;
+  g.add(armL);
+
+  // 右臂
+  const armR = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.05, 0.22, 8), matBody);
+  armR.position.set(0.3, 0.15, 0);
+  armR.rotation.z = -1.2; armR.rotation.x = -0.3;
+  armR.castShadow = true;
+  g.add(armR);
+
+  // 左腿
+  const legL = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.055, 0.18, 8), matBody);
+  legL.position.set(-0.12, -0.12, 0);
+  legL.castShadow = true;
+  g.add(legL);
+
+  // 右腿
+  const legR = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.055, 0.18, 8), matBody);
+  legR.position.set(0.12, -0.12, 0);
+  legR.castShadow = true;
+  g.add(legR);
+
+  // 尾巴 (曲线管状)
+  const curve = new THREE.CatmullRomCurve3([
+    new THREE.Vector3(0, -0.05, -0.22),
+    new THREE.Vector3(0, 0.08, -0.35),
+    new THREE.Vector3(0, 0.22, -0.38),
+    new THREE.Vector3(0, 0.3, -0.32),
+  ]);
+  const tail = new THREE.Mesh(new THREE.TubeGeometry(curve, 12, 0.035, 8, false), matTail);
+  tail.castShadow = true;
+  g.add(tail);
+
+  // 尾巴尖
+  const tip = new THREE.Mesh(new THREE.SphereGeometry(0.035, 8, 8), matTailTip);
+  tip.position.set(0, 0.3, -0.32);
+  g.add(tip);
+
+  // 腮红
+  const blushMat = new THREE.MeshBasicMaterial({ color: 0xffa080, transparent: true, opacity: 0.15 });
+  for (const s of [-1, 1]) {
+    const blush = new THREE.Mesh(new THREE.SphereGeometry(0.04, 8, 8), blushMat);
+    blush.scale.set(1.5, 1, 0.5);
+    blush.position.set(s * 0.14, 0.4, 0.17);
+    g.add(blush);
+  }
+
+  return g;
+}
+
+// ─── 存储角色部件引用 ───
+let charParts = { group: null, ears: [], arms: [], head: null, body: null, tail: null };
+
+function setupCharacter() {
+  if (characterGroup) scene.remove(characterGroup);
+  characterGroup = buildDefaultCharacter();
+  characterGroup.position.y = 0;
+  scene.add(characterGroup);
+  isVRM = false;
+  charParts.group = characterGroup;
+  // 存储关键部件引用用于动画
+  charParts.ears = [];
+  characterGroup.children.forEach(c => {
+    if (c.geometry?.type === 'ConeGeometry' && c.position.y > 0.5) charParts.ears.push(c);
+    if (c.geometry?.type === 'SphereGeometry' && c.position.y > 0.4 && c.position.z > 0.18 && c.material?.color?.getHex() === 0x1a0a00) charParts.eyes = charParts.eyes || [];
+    if (c.geometry?.type === 'CylinderGeometry' && Math.abs(c.position.x) > 0.2) charParts.arms = charParts.arms || []; charParts.arms?.push(c);
+  });
+  // 用 position 重设分组做整体浮动
+  $('modelTypeD').textContent = '默认角色';
+  addLog('🦊 默认 3D 角色已生成');
+  addLog('💡 拖入 .vrm 文件可加载自定义模型');
+}
+
+setupCharacter();
+$('loadingOverlay').classList.add('hide');
+
+// ─── VRM 加载 ───
+async function loadVRMFromURL(url, onProgress) {
+  if (!VRMLoaderPlugin) throw new Error('VRM 支持未加载');
+  const { GLTFLoader } = await import(`https://esm.sh/three@${THREE_VER}/examples/jsm/loaders/GLTFLoader.js`);
+  return new Promise((resolve, reject) => {
+    const loader = new GLTFLoader();
+    loader.register(p => new VRMLoaderPlugin(p));
+    loader.load(url, gltf => {
+      const v = gltf.userData.vrm;
+      v ? resolve(v) : reject(new Error('不是有效 VRM 模型'));
+    }, onProgress, reject);
+  });
+}
+
+async function loadVRMFile(file) {
+  $('loadingOverlay').classList.remove('hide');
+  $('loadingText').textContent = `加载 ${file.name}...`;
+  addLog(`📁 ${file.name}`);
+  try {
+    if (vrm) { scene.remove(vrm.scene); try { vrm.dispose?.(); } catch(e) {} vrm = null; }
+    if (characterGroup && !isVRM) { scene.remove(characterGroup); }
+
+    const url = URL.createObjectURL(file);
+    vrm = await loadVRMFromURL(url, p => {
+      const pct = Math.round((p.loaded / p.total) * 90);
+      $('loadingText').textContent = `加载 ${pct}%`;
+    });
+    URL.revokeObjectURL(url);
+
+    vrm.scene.visible = true;
+    scene.add(vrm.scene);
+    try { VRMUtils.rotateVRM0(vrm); } catch(e) {}
+
+    vrm.scene.traverse(obj => { if (obj.isMesh) { obj.castShadow = true; obj.receiveShadow = true; } });
+
+    const box = new THREE.Box3().setFromObject(vrm.scene);
+    const s = 1.2 / Math.max(box.max.x - box.min.x, box.max.y - box.min.y, box.max.z - box.min.z);
+    if (Math.abs(s - 1) > 0.05) vrm.scene.scale.setScalar(s);
+    vrm.scene.position.y = -box.min.y * s;
+
+    isVRM = true;
+    $('modelTypeD').textContent = 'VRM 模型';
+    $('modelInfo').textContent = `模型: ${vrm.meta?.title || file.name}`;
+    $('loadingOverlay').classList.add('hide');
+    addLog('✅ VRM 模型加载成功');
+  } catch (err) {
+    addLog(`❌ ${err.message}`);
+    if (!vrm && !characterGroup.parent) { setupCharacter(); }
+    $('loadingOverlay').classList.add('hide');
+  }
+}
+
+// ─── AI 决策 ───
+const AI = {
+  mode: 'normal', lastAct: 'none',
+  compute(time) {
+    const t = time * 0.001;
+    const p = {
+      headTilt: 0, headTurn: 0, bodySway: 0,
+      breathe: 0.5 + Math.sin(t * 1.8) * 0.3,
+      armSwing: 0, tailWag: 0.3 + Math.sin(t * 2) * 0.15,
+      earTwitch: 0, happy: 0.1, surprised: 0,
+      bounce: 0,
+    };
+    switch (this.mode) {
+      case 'playful':
+        p.headTilt = Math.sin(t * 2.5) * 0.15;
+        p.headTurn = Math.sin(t * 1.8) * 0.2;
+        p.armSwing = Math.sin(t * 3) * 0.3;
+        p.tailWag = 0.5 + Math.sin(t * 3.5) * 0.4;
+        p.bounce = Math.abs(Math.sin(t * 2.5)) * 0.04;
+        p.happy = 0.5 + Math.sin(t * 2) * 0.2;
+        p.earTwitch = Math.sin(t * 4) * 0.2;
+        break;
+      case 'lazy':
+        p.headTilt = 0.2;
+        p.breathe = 0.3 + Math.sin(t * 1.0) * 0.12;
+        p.tailWag = 0.1;
+        p.happy = 0.05;
+        break;
+      case 'curious':
+        p.headTurn = Math.sin(t * 0.7) * 0.35;
+        p.headTilt = Math.sin(t * 1.2) * 0.08;
+        p.earTwitch = Math.sin(t * 3) * 0.3;
+        p.surprised = 0.2 + Math.sin(t * 1.8) * 0.1;
+        break;
+      case 'dance':
+        p.headTilt = Math.sin(t * 4) * 0.2;
+        p.headTurn = Math.sin(t * 3.5) * 0.25;
+        p.breathe = 0.6 + Math.sin(t * 3) * 0.3;
+        p.armSwing = Math.sin(t * 4) * 0.5;
+        p.bodySway = Math.sin(t * 2) * 0.05;
+        p.tailWag = 0.6 + Math.sin(t * 4) * 0.5;
+        p.bounce = Math.abs(Math.sin(t * 4)) * 0.06;
+        p.happy = 0.7 + Math.sin(t * 2) * 0.2;
+        break;
+      default:
+        p.headTurn = Math.sin(t * 0.3) * 0.06;
+        p.headTilt = Math.sin(t * 0.5) * 0.04;
+        p.tailWag = 0.3 + Math.sin(t * 2) * 0.15;
+        break;
+    }
+    if (this.lastAct === 'click') { p.surprised = 0.8; p.headTilt = -0.15; setTimeout(() => this.lastAct === 'click' && (this.lastAct = 'none'), 800); }
+    if (this.lastAct === 'hover') { p.headTurn = 0.28; p.happy = 0.4; }
+    return p;
+  }
+};
+
+// ─── 骨骼控制 ───
+function applyPose(p) {
+  if (isVRM && vrm?.humanoid) {
+    const lerp = (a, b) => a + (b - a) * 0.1;
+    const L = 0.1;
+    ['head','neck','leftUpperArm','rightUpperArm','spine'].forEach(b => {
+      const n = vrm.humanoid.getRawBoneNode(b);
+      if (b === 'head' && n) { n.rotation.x = lerp(n.rotation.x, p.headTilt); n.rotation.y = lerp(n.rotation.y, p.headTurn); }
+      else if (b === 'leftUpperArm' && n) { n.rotation.x = lerp(n.rotation.x, -0.2 + p.armSwing); }
+      else if (b === 'rightUpperArm' && n) { n.rotation.x = lerp(n.rotation.x, -0.2 - p.armSwing); }
+      else if (b === 'spine' && n) { n.position.y = lerp(n.position.y, p.breathe * 0.008); }
+    });
+    if (vrm.blendShapeProxy) {
+      vrm.blendShapeProxy.setValue('blinkLeft', 0); vrm.blendShapeProxy.setValue('blinkRight', 0);
+      vrm.blendShapeProxy.setValue('happy', Math.min(1, Math.max(0, p.happy)));
+      vrm.blendShapeProxy.setValue('surprised', Math.min(1, Math.max(0, p.surprised)));
+    }
+    if (vrm) vrm.update(performance.now());
+    return;
+  }
+
+  // 默认角色控制
+  if (!characterGroup) return;
+  const g = characterGroup;
+  g.position.y = p.bounce;
+  g.rotation.z = p.bodySway;
+
+  // 头 (第一个大球在上部)
+  const head = g.children.find(c => c.geometry?.type === 'SphereGeometry' && c.position.y > 0.4 && c.scale.y < 1.2);
+  if (head) { head.rotation.x = p.headTilt; head.rotation.y = p.headTurn; }
+
+  // 耳朵
+  g.children.filter(c => c.geometry?.type === 'ConeGeometry' && c.position.y > 0.5).forEach((e, i) => {
+    e.rotation.z = (i < 2 ? -0.3 : 0.3) + p.earTwitch * (i < 2 ? -1 : 1) * 0.5;
+  });
+
+  // 手臂
+  const arms = g.children.filter(c => c.geometry?.type === 'CylinderGeometry' && Math.abs(c.position.x) > 0.2);
+  if (arms.length >= 2) {
+    arms[0].rotation.z = 1.2 + p.armSwing;
+    arms[1].rotation.z = -1.2 - p.armSwing;
+  }
+
+  // 尾巴 (TubeGeometry)
+  const tail = g.children.find(c => c.geometry?.type === 'TubeGeometry');
+  if (tail) tail.rotation.y = p.tailWag * 0.3;
+}
+
+// ─── 交互 ───
+const rc = new THREE.Raycaster();
+const ptr = new THREE.Vector2();
+let hover = false, clickTimer = 0;
+
+renderer.domElement.addEventListener('pointermove', e => {
+  const rect = renderer.domElement.getBoundingClientRect();
+  ptr.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+  ptr.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+  rc.setFromCamera(ptr, camera);
+  const target = isVRM ? vrm?.scene : characterGroup;
+  if (target) {
+    const hits = rc.intersectObject(target, true);
+    if (hits.length > 0) {
+      if (!hover) { hover = true; AI.lastAct = 'hover'; addLog('👆 悬停'); }
+      renderer.domElement.style.cursor = 'pointer';
+    } else { hover = false; renderer.domElement.style.cursor = 'default'; }
+  }
+});
+renderer.domElement.addEventListener('click', () => {
+  const n = Date.now();
+  if (n - clickTimer < 400) { addLog('👆👆 双击！'); AI.lastAct = 'dance'; clickTimer = 0; }
+  else { clickTimer = n; addLog('👆 单击'); AI.lastAct = 'click'; }
+});
+
+document.querySelectorAll('#modeB .mb').forEach(b => {
+  b.addEventListener('click', () => {
+    document.querySelectorAll('#modeB .mb').forEach(x => x.classList.remove('on'));
+    b.classList.add('on'); AI.mode = b.dataset.mode; addLog(`🎭 ${b.textContent.trim()}`);
+  });
+});
+
+// 拖拽 VRM
+const dropHint = $('dropHint');
+document.addEventListener('dragover', e => { e.preventDefault(); dropHint.classList.add('highlight'); });
+document.addEventListener('dragleave', () => dropHint.classList.remove('highlight'));
+document.addEventListener('drop', e => {
+  e.preventDefault(); dropHint.classList.remove('highlight');
+  const f = e.dataTransfer.files[0];
+  if (f?.name.endsWith('.vrm')) loadVRMFile(f);
+});
+
+// ─── 主循环 ───
+let fc = 0, fpsTime = 0;
+const moodNames = { none: '平静', click: '受惊', hover: '好奇', dance: '兴奋' };
+
+function animate(time) {
+  requestAnimationFrame(animate);
+  fc++;
+  if (time - fpsTime > 1000) { $('fpsD').textContent = fc + ' fps'; fc = 0; fpsTime = time; }
+
+  if (fc % 2 === 0) {
+    const p = AI.compute(time);
+    applyPose(p);
+    $('moodD').textContent = moodNames[AI.lastAct] || '平静';
+    $('boneD').textContent = AI.mode === 'dance' ? '舞蹈' : AI.mode === 'playful' ? '活泼' : AI.mode === 'lazy' ? '慵懒' : AI.mode === 'curious' ? '好奇' : '待机';
+    $('actD').textContent = AI.lastAct === 'none' ? '—' : AI.lastAct === 'click' ? '单击' : AI.lastAct === 'hover' ? '悬停' : AI.lastAct;
+  }
+
+  glowRing.rotation.z = time * 0.0001;
+  controls.update();
+  renderer.render(scene, camera);
+}
+
+// ─── 默认启动 ───
+addLog('🧊 3D 桌宠启动');
+addLog('🦊 风格化角色已加载');
+addLog('💡 拖入 .vrm 文件加载自定义模型');
+$('modelInfo').textContent = '角色: 默认风格化';
+
+animate(0);
+</script>
+</body>
+</html>

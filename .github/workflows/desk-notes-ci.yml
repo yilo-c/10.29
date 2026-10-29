@@ -1,0 +1,108 @@
+name: Desk-Notes CI
+
+on:
+  push:
+    branches: [main, develop, 'fix/**', 'feat/**']
+    paths:
+      - "desk-notes/**"
+      - ".github/workflows/desk-notes-ci.yml"
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - "desk-notes/**"
+      - ".github/workflows/desk-notes-ci.yml"
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: ./desk-notes
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install pnpm
+        run: npm install -g pnpm@10.33.3
+
+      - name: Install dependencies
+        # 去掉 --frozen-lockfile：package.json 已新增 eslint 依赖（T3.3），
+        # 需按声明安装；CI 内装包成功即生效，不强制 lock 与本地完全一致。
+        run: pnpm install
+
+      - name: Type check
+        run: pnpm run typecheck:desktop
+
+      - name: Lint (eslint, T3.3)
+        # T3.3 前端 lint 门禁转正（2026-08-22）：存量 154 error 已清到 0，
+        # 移除 continue-on-error 转硬阻塞。lint / typecheck / test 皆为硬门禁。
+        run: pnpm lint
+
+      - name: Audit prod deps (pnpm, C-6/V3-07; E3 hard gate)
+        # 批次5（E3）：由「观察性基线」翻转为硬阻塞门禁——移除 continue-on-error。
+        # 对 desk-notes/package.json 生产依赖（dependencies）跑 pnpm audit，
+        # 存在 high/critical 漏洞即非零退出，阻断合并。
+        # 实测（2026-08-26）：--prod 仅 low/moderate，退出码 0，可作硬门禁不误伤；
+        # 开发工具链（devDependencies: vite/electron 等）的 4 个 high 为存量已知项，
+        # 不属本生产依赖门禁范围，由 dependabot 升级驱动另行跟踪。
+        run: pnpm audit --prod --audit-level high
+
+      - name: Run tests
+        run: pnpm test
+
+      - name: Build
+        # C-12 修复（2026-09-12）：monorepo 重组后 vite 入口（index.html/vite.config）
+        # 在 packages/desktop，desk-notes 根跑 vite build 必挂（ci_selfcheck 登记缺口③）。
+        # 产物落 packages/desktop/dist，随后根目录 sync 步骤经 sync-dist.mjs 取该 dist。
+        working-directory: ./desk-notes/packages/desktop
+        run: pnpm run build
+
+      - name: Sync to web_dist/
+        run: pnpm run sync
+
+  # C-12（2026-09-12）：Playwright E2E 门禁（browser 模式，先挂已验证可过的 spec）。
+  # 后端依赖链（chromadb/sentence-transformers→torch）过重，CI 暂以
+  # SIYI_E2E_SKIP_BACKEND=1 跑纯 UI 断言；真后端用例（notes 落库等）本地经
+  # e2e/globalSetup.ts harness 自动起隔离后端执行，CI 接后端列为待补。
+  # 浏览器走 runner 预装 Chrome（config channel: 'chrome'），无需下载 playwright 内核。
+  e2e:
+    name: Desktop E2E (Playwright)
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: ./desk-notes/packages/desktop
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install pnpm
+        run: npm install -g pnpm@10.33.3
+
+      - name: Install dependencies
+        # 与 build job 同源；--lockfile=false 容忍并行任务的 lock 漂移（E2E 非发布门禁）
+        working-directory: ./desk-notes
+        run: pnpm install --lockfile=false
+
+      - name: Run E2E (browser-only, 真子集)
+        env:
+          SIYI_E2E_SKIP_BACKEND: "1"
+        # C-12 登记：dashboard/notification-center 暂不挂 CI——前者工作台路由被 chat
+        # 重构临时摘除（ContentRouter 无 case 'dashboard'），后者需真后端预置数据；
+        # notes.spec 在 browser-only 下自动 skip（保留占位，CI 接后端后转真跑）。
+        run: npx playwright test e2e/smoke.spec.ts e2e/chat.spec.ts e2e/navigation.spec.ts e2e/calendar.spec.ts e2e/pwa.spec.ts e2e/notes.spec.ts --workers=1 --reporter=list
+
+      - name: Upload failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-test-results
+          path: desk-notes/packages/desktop/test-results/
+          retention-days: 7

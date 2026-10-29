@@ -1,0 +1,286 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+
+# Virtualenv
+.venv3.11/
+
+# IDE
+.vscode/
+*.sublime-workspace
+
+# macOS
+.DS_Store
+
+# 忽略应用数据备份（避免泄露 secret 与大文件）
+思忆集app/data/backups/
+思忆集app/data_backup_20260519/
+# Local secrets
+/config.yaml
+/config.local.yaml
+
+# Virtual environments
+.venv/
+.venv3.11/
+
+# OS / IDE
+.vscode/
+
+# Data artifacts
+/data/
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Backup / interim files (coding artifacts — never commit)
+*.backup
+*.bak
+*.bak2
+*.fixed
+__temp_*
+
+# Scratch / temp files (根目录临时脚本/日志)
+_fix_*.py
+_tmp_*.py
+_tmp_*.txt
+__method_*.txt
+_extract*.py
+_extract*.txt
+_extracted*.txt
+*_backup.py
+_grep_tool.py
+_debug_out.txt
+_ctx.txt
+_main_window_methods.txt
+extracted_methods.txt
+test_vm_import.py
+run_output*.txt
+qt_debug.txt
+*.db
+_storage_meta.json
+# 只忽略项目内生成的 zip，不忽略上游依赖 zip
+思忆集.zip
+# 不忽略 EXE 安装包：有道云笔记-*.exe 留给手动管理
+
+# 桌宠副本 / 快照层级
+七奈桌宠软件/
+小问桌宠文件/
+.publish_3_25_repo/
+
+# 测试临时文件
+.pytest_cache/
+.pytest-tmp/
+pytest_*.txt
+pytest_*.db
+
+# 损坏环境备份
+.venv3.11.broken-*/
+
+# 工具目录
+.tools/
+
+# 运行时数据 data/（2026-08-24 修正：整层忽略曾吞掉 local_storage.py/sqlite_store.py 等
+# 核心存储源码，HEAD 快照缺 data/ 全层，新鲜 clone 无法运行。现改为只忽略运行时
+# 产物（*.db/*.json/*.log/*.tmp），*.py 源码与 tool_specs_samples 参考样例恢复跟踪）
+思忆集app/data/**
+!思忆集app/data/**/
+!思忆集app/data/**/*.py
+!思忆集app/data/tool_specs_samples/**
+siyi_database.db
+# automation_hub 运行时数据目录（2026-08-24 原 data/ 未锚定规则锚定后补回）
+automation_hub/data/
+
+# Type checking cache
+.mypy_cache/
+
+# IDE & Debugging Tools
+_tmp_*.py
+__method_*.txt
+_extract*
+_debug_out.txt
+_ctx.txt
+_grep_tool.py
+extracted_methods.txt
+
+# Coverage
+.coverage
+.coverage/
+.coverage.*
+
+# Test Artifacts
+pytest_*.txt
+pytest_*.db
+test_output_*.json
+TEMP*.txt
+*pytest_output.txt
+*test_result.txt
+*test_output.txt
+Dh*.txt
+CUsers*.txt
+
+# Build Artifacts（2026-08-24：/build/ 锚定到仓库根，未锚定的 build/ 曾吞掉
+# 思忆集app/build/ 构建工具包源码：check_web_dist.py/smoke_check.py/__init__.py 等）
+/build/
+# Android 构建产物（含思忆集手机端插件子项目，2026-08-24 锚定后补回）
+**/android/build/
+dist/
+*.egg-info/
+android/build/
+android/.gradle/
+
+# Android Keystore (security sensitive)
+*.jks
+*.keystore
+
+# Security: tokens, keys, and config files
+.env
+settings.json
+*.pem
+*.key
+
+# Local data backups (may contain real secrets — never commit)
+**/data_backup_*/
+data_backup_*/
+
+# Test temp files
+.pytest-tmp-root/
+
+# Snapshots & Archives
+.publish_*/
+*_backup.py
+*.zip
+_archived_temp/
+
+# Broken Environments
+.venv*.broken-*
+
+# Local Development
+*.local.yaml
+run_output*.txt
+qt_debug.txt
+siyi_database.db
+
+# Windows specific
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Node.js
+node_modules/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# 已清理的重复目录（防止误提交）
+siyi_app/
+.claude/worktrees/
+claudejiaoben/logs/
+
+# 已清理的根目录垃圾文件（防止误提交）
+CLAUDE.md
+启动思忆集.cmd
+restart_app.cmd
+test_cat.png
+新建 文本文档.txt
+AI-协作流程模板.md
+baseline_doctor_assets.json
+
+# Editor directories and files
+.idea/
+*.swp
+*.swo
+
+# 2026-06 补充：临时验证/测试产物（根目录散落）
+/_p01.txt
+/_review_existing.py
+/_test_results.txt
+/browser-test-result.txt
+/pw-check.txt
+/pw-ok.txt
+/test-results.txt
+/test_out.txt
+/tmp_run_output.txt
+/tmp_run_verify.ps1
+/tmp_verify_output.txt
+/tmp_verify_result.txt
+
+# 2026-06 补充：本地工具/缓存目录
+/ollama_models/
+desk-notes/.electron-data/
+cloudflare/worker/.wrangler/
+claudejiaoben/diag/
+claudejiaoben/data/
+claudejiaoben/.ruff_cache/
+
+# 2026-06 补充：claudejiaoben 单次提交中间产物（不入库）
+claudejiaoben/*_commit_msg.txt
+claudejiaoben/p1_20_hunks.patch
+claudejiaoben/p1_20_mixed.txt
+claudejiaoben/p1_20_pure.txt
+
+# 2026-06 补充：桌宠资源临时目录与备份目录
+desk-notes/packages/desktop/public/pet/xiaowen/_gen_*/
+desk-notes/packages/desktop/public/pet/xiaowen/frames/*.bak.*/
+desk-notes/packages/desktop/public/pet/xiaowen_frames_final/
+desk-notes/packages/desktop/public/pet/xiaowen_frames_manual/
+
+# 2026-06 补充：覆盖率
+思忆集app/coverage.xml
+# Test artifact: mock base_dir leaked to cwd (2026-08-15)
+/MagicMock/
+# L9 回归基线中间产物（junit xml 可再生，仅提交汇总 JSON）
+acceptance_output/*_junit.xml
+
+# 2026-08-20 仓库卫生（C 项）：同步产物 / 临时脚本 / 缓存目录统一忽略。
+# 注意：_*.py 会同时匹配 __init__.py（已跟踪文件不受影响，但避免未来误忽略），
+# 故显式豁免 __init__.py。
+# 2026-08-22 修正：_*.py 误伤了 backend/handlers/ 下的正式业务 handler
+# （_notes/_tasks/_sync/_ai*/_inbox* 等 60 个生产代码，从未入库）。
+# 这些不是临时脚本，恢复跟踪，避免拆分/维护时反复踩坑。
+web_dist/
+claudejiaoben/
+acceptance_output/
+# 2026-08-22 T3.1 仓库瘦身：archive/ 是已归档历史（automation_hub 旧调度 + PyQt6 桌面 UI 等，
+# 244 个被跟踪文件 / 工作区 ~535MB），是 clone 体积主因（pack 551.92MiB）。
+# 先 gitignore 防回流，再 git rm --cached 停止跟踪（保留工作区文件，仅退出版本库）。
+archive/
+# 2026-08-24 修正：原 `_*.py` 无锚定、全仓递归匹配，吞掉 app_runtime/_context_*.py、
+# repositories/_*.py、ai/client/_*.py、data/ 源码等 90+ 个生产模块（HEAD 快照残缺）。
+# 现改为仅锚定顶层临时/诊断脚本（仓库根 + 思忆集app 根），生产 `_*.py` 全部恢复跟踪。
+/_*.py
+思忆集app/_*.py
+_old_*.*
+_kimi_capture/
+# T2.1 临时诊断脚本（一次性，2026-08-24 显式忽略）
+scripts/_t21_sites.py
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+
+# 2026-08-22 T3.1 补全：docs/archive/ 历史规划文档同样停止跟踪
+docs/archive/
+
+# 2026-08-22 补充：测试 mock 运行时产物（sqlite wal/shm）与工作区自身数据不入库
+思忆集app/MagicMock/
+.workbuddy/
+.workbuddy-ai/
+
+# 2026-09-02 T-batch2：七奈 Shimeji 桌宠与主项目零代码引用（前端桌宠已由 desk-notes xiaowen 承担），退库并删除
+desktop-pet-qinai/
+
+# 个人内容导出（不入库，2026-09-11）
+思忆集app/_kimi_export/
+
+# 取证/诊断临时目录（含隐私数据快照，不入库，2026-09-16）
+verify_tmp/
+
+# qoder 外部工具本地产物（agent-work-loop 报告，不入库）
+.qoder/

@@ -1,0 +1,85 @@
+# 未文档化方法基线（R2-3 原则 P-4）：存量未文档化不阻塞 CI；新增基线之外的方法将红。
+# 修复方式：在 AGENTS.md 方法表补齐文档后，从本文件移除该行。
+ai.generate_image
+ai.generate_image.status
+ai_chat.clear_token
+ai_chat.list_actions
+ai_chat.set_token
+ai_chat.status
+ai_chat.sync_deepseek
+auth.revoke
+auth.rotate
+chat.cancel
+chat.delete_conversation
+chat.resume
+confirmation.list
+confirmation.resolve
+confirmation.status
+external_content.configure_readwise
+external_content.import_browser_bookmarks
+external_content.import_kindle
+external_content.list_sources
+external_content.sync_readwise
+file.write
+inbox.list_confirmations
+inbox.respond_confirmation
+info.sources.add
+info.sources.list
+info.sources.remove
+info.sources.reset
+info.sources.toggle
+job_hunter.analyze
+job_hunter.analyze_stream
+job_hunter.cold_message.generate
+job_hunter.interview_prep
+job_hunter.jobs.fetch_detail
+job_hunter.jobs.get
+job_hunter.jobs.list
+job_hunter.jobs.set_status
+job_hunter.match
+job_hunter.platforms
+job_hunter.profile.extract_from_resume
+job_hunter.profile.get
+job_hunter.profile.set
+job_hunter.recommendations
+job_hunter.resume.diagnose
+job_hunter.resume.rewrite
+job_hunter.resume.rewrite_section
+job_hunter.resume.upload_and_parse
+job_hunter.resume_advice
+job_hunter.scrape.run
+job_hunter.scrape.status
+job_hunter.stats
+kernel.status
+# 2026-09-21（KG 域重扫）：knowledge.brief / cards / graph_for_viz / md_export / md_get /
+# md_list / md_save / md_stats / md_sync / mocs / synthesize 共 11 行已按 AGENTS.md
+# 「知识图谱」全表补文档后移除；knowledge.entity.delete 与 knowledge.brief.status
+# 同批补文档（原不在本基线）。graph_for_viz 仍属僵尸接口，继续留在
+# test_jsonrpc_contract.py 的 UNUSED_METHODS_BASELINE（不文档≠有调用方，两个基线不同语义）。
+memory.narrative.generate_monthly
+pairing.approve
+pairing.pending
+personal.profile.extract
+personal.profile.get
+personal.profile.update
+personal.raw_items.list
+personal.raw_items.set_sensitivity
+personal.raw_items.stats
+personal.review
+ping
+provider.health_check_now
+provider.health_reset
+provider.health_status
+rss.fetch_now
+rss.list
+rss.subscribe
+rss.test
+rss.unsubscribe
+sandbox.batch_approve
+skin.activate
+skin.active
+skin.list
+sync.reset_watermark
+tasks.list_trashed
+usage.budget.get
+usage.monthly_report

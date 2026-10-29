@@ -1,0 +1,31 @@
+{
+  "manifest_version": "1.0",
+  "id": "com.siyi.dedup",
+  "name": "信息去重器",
+  "version": "0.1.0",
+  "type": "tool",
+  "entry_point": "plugins.installed.dedup.plugin:DedupPlugin",
+  "description": "信息条目 URL/标题相似度去重与标题相似度计算。",
+  "author": "siyi",
+  "license": "MIT",
+  "permissions": [],
+  "capabilities": ["info.dedup", "info.title_similarity"],
+  "config_schema": {
+    "type": "object",
+    "properties": {
+      "action": {
+        "type": "string",
+        "description": "调用动作：dedup_items | title_similarity",
+        "enum": ["dedup_items", "title_similarity"]
+      },
+      "items": {
+        "type": "array",
+        "description": "dedup_items 用的条目列表（每项含 url/title）"
+      },
+      "a": { "type": "string", "description": "title_similarity 的标题 A" },
+      "b": { "type": "string", "description": "title_similarity 的标题 B" }
+    },
+    "required": ["action"]
+  },
+  "min_app_version": "0.1.0"
+}

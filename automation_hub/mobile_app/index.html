@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#4A90D9">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="思忆集">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<title>思忆集 - 手机伴侣</title>
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <div id="app">
+    <div id="app-header">
+      <button id="menu-btn" class="icon-btn">&#9776;</button>
+      <h1 id="app-title">思忆集</h1>
+      <span id="sync-dot" class="sync-dot" title="同步状态"></span>
+    </div>
+    <div id="app-content">
+      <div id="loading-screen" class="view active">
+        <div class="spinner"></div>
+        <p>加载中...</p>
+      </div>
+      <div id="view-container"></div>
+    </div>
+    <div id="app-nav">
+      <button class="nav-btn" data-route="dashboard">&#9776; 首页</button>
+      <button class="nav-btn" data-route="notes">&#9998; 笔记</button>
+      <button class="nav-btn" data-route="capture">&#43; 速记</button>
+      <button class="nav-btn" data-route="tasks">&#9744; 任务</button>
+      <button class="nav-btn" data-route="chat">&#128172; 对话</button>
+      <button class="nav-btn" data-route="settings">&#9881; 设置</button>
+    </div>
+  </div>
+  <script src="js/api.js"></script>
+  <script src="js/stores/offline.js"></script>
+  <script src="js/stores/notes.js"></script>
+  <script src="js/stores/tasks.js"></script>
+  <script src="js/stores/sync.js"></script>
+  <script src="js/router.js"></script>
+  <script src="js/views/pairing.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

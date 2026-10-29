@@ -1,0 +1,20 @@
+{
+  "factory": "思忆集app/services/http_client.py",
+  "files": {
+    "思忆集app/backend/handlers/_info_proxy.py": 2,
+    "思忆集app/backend/handlers/_system_settings.py": 1,
+    "思忆集app/core/provider_config.py": 2,
+    "思忆集app/integrations/kimi_sync.py": 2,
+    "思忆集app/services/image_generator_service.py": 1,
+    "思忆集app/services/info_collector_service.py": 1,
+    "思忆集app/services/platform_publisher_service.py": 4,
+    "思忆集app/services/rss_subscriber.py": 1,
+    "思忆集app/sync/_cloud_sync_crypto.py": 1,
+    "思忆集app/sync/cloud_sync_client.py": 1,
+    "思忆集app/sync/transport.py": 2
+  },
+  "generated_at": "2026-09-12T08:34:34+00:00",
+  "tool": "egress_ratchet",
+  "total_direct": 19,
+  "version": 1
+}

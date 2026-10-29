@@ -1,0 +1,19 @@
+# C-6 / V3-07：自动依赖升级 PR（web + 前端 npm）
+# 每周一检查；开 PR 由维护者审核合并。
+version: 2
+updates:
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels: ["dependencies"]
+
+  - package-ecosystem: "npm"
+    directory: "/desk-notes"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels: ["dependencies"]

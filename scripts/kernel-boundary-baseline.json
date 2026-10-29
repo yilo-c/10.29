@@ -1,0 +1,17 @@
+{
+  "app_runtime/_context_builder.py": {
+    "assistant": 10
+  },
+  "app_runtime/ai_manager.py": {
+    "assistant": 4
+  },
+  "app_runtime/providers/_tooling_provider.py": {
+    "assistant": 1
+  },
+  "app_runtime/service_registry_manager.py": {
+    "assistant": 7
+  },
+  "backend/handlers/chat_paths/pydantic_agent_path.py": {
+    "assistant": 6
+  }
+}

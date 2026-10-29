@@ -1,0 +1,15 @@
+{
+  "id": "moonlight",
+  "name": "月光灰",
+  "version": "1.0.0",
+  "description": "冷色调月光灰，低饱和耐看，适合夜间使用。",
+  "colors": {
+    "panelBg": "#2b2b33",
+    "panelBgSolid": "#383842",
+    "textPrimary": "#e6e6ea",
+    "textSecondary": "#9a9aa6",
+    "accent": "#818cf8",
+    "borderColor": "#40404a",
+    "bodyBg": "#1e1e24"
+  }
+}

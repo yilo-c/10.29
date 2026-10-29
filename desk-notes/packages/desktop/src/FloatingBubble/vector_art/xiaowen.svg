@@ -1,0 +1,258 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 640" width="512" height="640">
+  <!--
+    小问矢量立绘 v2 — 重点强化：大眼睛神韵 / 发丝层次 / 体积阴影
+    图层顺序（后→前）：hair_back → legs → skirt → torso → sash → arm_l(+sword) → arm_r → head
+  -->
+  <defs>
+    <linearGradient id="irisGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#BFE3FA"/>
+      <stop offset="0.5" stop-color="#6FB4E8"/>
+      <stop offset="1" stop-color="#3E7FC4"/>
+    </linearGradient>
+    <linearGradient id="hairGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#6E80A0"/>
+      <stop offset="1" stop-color="#4E5E7A"/>
+    </linearGradient>
+    <linearGradient id="ponyGrad" x1="0" y1="0" x2="0.3" y2="1">
+      <stop offset="0" stop-color="#62748F"/>
+      <stop offset="1" stop-color="#44536D"/>
+    </linearGradient>
+    <linearGradient id="topGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#D6EAF8"/>
+      <stop offset="1" stop-color="#AECFE8"/>
+    </linearGradient>
+    <linearGradient id="skirtGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#465070"/>
+      <stop offset="1" stop-color="#2E3550"/>
+    </linearGradient>
+    <radialGradient id="faceGrad" cx="0.5" cy="0.42" r="0.75">
+      <stop offset="0" stop-color="#FFE9D2"/>
+      <stop offset="1" stop-color="#F8D9B8"/>
+    </radialGradient>
+  </defs>
+
+  <!-- ══ 马尾（后层·蓬松大）══ -->
+  <g transform="translate(0,34)">
+  <g id="hair_back">
+    <path d="M 294 152
+             C 356 168 396 236 386 322
+             C 378 396 352 448 318 478
+             C 342 430 354 376 352 316
+             C 350 246 328 186 278 166 Z"
+          fill="url(#ponyGrad)" stroke="#3A4560" stroke-width="3" stroke-linejoin="round"/>
+    <!-- 发尾分叉 -->
+    <path d="M 318 478 C 320 496 312 512 300 520 C 308 502 306 488 304 474 Z"
+          fill="#44536D" stroke="#3A4560" stroke-width="2.5" stroke-linejoin="round"/>
+    <path d="M 322 470 C 330 488 330 506 322 520 C 322 502 318 488 312 474 Z"
+          fill="#52627E" stroke="#3A4560" stroke-width="2.5" stroke-linejoin="round"/>
+    <!-- 高光发丝 -->
+    <path d="M 322 196 C 352 240 362 300 356 360" fill="none" stroke="#9AA9C4" stroke-width="5" stroke-linecap="round" opacity="0.75"/>
+    <path d="M 300 180 C 316 204 326 236 330 268" fill="none" stroke="#9AA9C4" stroke-width="4" stroke-linecap="round" opacity="0.6"/>
+    <!-- 发圈 -->
+    <ellipse cx="297" cy="163" rx="16" ry="12" transform="rotate(28 297 163)"
+             fill="#52627E" stroke="#3A4560" stroke-width="2.5"/>
+    <!-- 小熊发饰 -->
+    <g id="bear">
+      <circle cx="303" cy="136" r="5.5" fill="#D3A86C" stroke="#8F6C3C" stroke-width="1.8"/>
+      <circle cx="321" cy="134" r="5.5" fill="#D3A86C" stroke="#8F6C3C" stroke-width="1.8"/>
+      <circle cx="312" cy="144" r="11" fill="#D3A86C" stroke="#8F6C3C" stroke-width="1.8"/>
+      <ellipse cx="312" cy="149" rx="4.5" ry="3.6" fill="#B1834A"/>
+      <circle cx="307" cy="142" r="1.5" fill="#3A2E1E"/>
+      <circle cx="317" cy="142" r="1.5" fill="#3A2E1E"/>
+    </g>
+  </g>
+  </g>
+
+  <!-- ══ 腿 ══ -->
+  <g id="legs">
+    <path id="sock_l" d="M 221 528 Q 228 518 235 527 Q 242 518 249 528 L 249 596 L 221 596 Z"
+          fill="#FFFFFF" stroke="#B7BCCF" stroke-width="2.5" stroke-linejoin="round"/>
+    <path d="M 244 532 L 244 592" stroke="#E4E7F0" stroke-width="6" stroke-linecap="round"/>
+    <path id="sock_r" d="M 263 528 Q 270 518 277 527 Q 284 518 291 528 L 291 596 L 263 596 Z"
+          fill="#FFFFFF" stroke="#B7BCCF" stroke-width="2.5" stroke-linejoin="round"/>
+    <path d="M 286 532 L 286 592" stroke="#E4E7F0" stroke-width="6" stroke-linecap="round"/>
+    <g id="shoes">
+      <path d="M 213 594 L 253 594 L 254 608 Q 254 618 244 618 L 221 618 Q 211 618 212 608 Z"
+            fill="#26262E" stroke="#141419" stroke-width="2.5" stroke-linejoin="round"/>
+      <path d="M 213 609 Q 233 613 254 609 L 254 613 Q 254 618 246 618 L 221 618 Q 213 618 213 612 Z" fill="#4A4A56"/>
+      <path d="M 259 594 L 299 594 L 300 608 Q 300 618 290 618 L 268 618 Q 258 618 258 608 Z"
+            fill="#26262E" stroke="#141419" stroke-width="2.5" stroke-linejoin="round"/>
+      <path d="M 258 609 Q 279 613 300 609 L 300 612 Q 300 618 292 618 L 268 618 Q 258 618 258 613 Z" fill="#4A4A56"/>
+    </g>
+  </g>
+
+  <!-- ══ 裙 ══ -->
+  <g id="skirt">
+    <path d="M 213 456 L 299 456
+             Q 320 492 330 524
+             Q 318 536 306 524
+             Q 294 538 282 525
+             Q 269 538 256 525
+             Q 243 538 230 525
+             Q 218 536 206 524
+             Q 192 492 213 456 Z"
+          fill="url(#skirtGrad)" stroke="#232941" stroke-width="3.5" stroke-linejoin="round"/>
+    <!-- 褶（宽、少、柔和）-->
+    <path d="M 238 462 Q 234 494 231 518" stroke="#232941" stroke-width="2.5" fill="none" opacity="0.55" stroke-linecap="round"/>
+    <path d="M 256 462 L 256 520" stroke="#232941" stroke-width="2.5" fill="none" opacity="0.55" stroke-linecap="round"/>
+    <path d="M 274 462 Q 278 494 281 518" stroke="#232941" stroke-width="2.5" fill="none" opacity="0.55" stroke-linecap="round"/>
+    <!-- 裙侧高光 -->
+    <path d="M 216 462 Q 208 490 210 512" stroke="#5A6688" stroke-width="3" fill="none" opacity="0.6" stroke-linecap="round"/>
+  </g>
+
+  <!-- ══ 躯干 ══ -->
+  <g id="torso">
+    <!-- 颈（下延至上衣，避免头身缝隙）-->
+    <path d="M 245 320 L 267 320 L 265 386 L 247 386 Z" fill="#F3CDA4"/>
+    <!-- 上衣（肩线抬高贴住下巴）-->
+    <path d="M 200 384 Q 256 356 312 384 L 301 458 L 211 458 Z"
+          fill="url(#topGrad)" stroke="#5B7A94" stroke-width="3.5" stroke-linejoin="round"/>
+    <!-- 衣身阴影 -->
+    <path d="M 211 458 L 230 458 Q 222 430 224 396 L 200 384 Z" fill="#9CC4E0" opacity="0.5"/>
+    <!-- 白色立领（衔接下巴与上衣）-->
+    <path d="M 222 356 Q 256 344 290 356 L 298 398 Q 256 412 214 398 Z"
+          fill="#FFFFFF" stroke="#D4E2EE" stroke-width="2" stroke-linejoin="round"/>
+    <!-- 交领（简洁 V）-->
+    <path d="M 240 392 L 262 424 L 252 431 L 230 399 Z" fill="#FFFFFF" stroke="#D4E2EE" stroke-width="1.5" stroke-linejoin="round"/>
+    <path d="M 272 392 L 250 426 L 260 433 L 282 399 Z" fill="#FFFFFF" stroke="#D4E2EE" stroke-width="1.5" stroke-linejoin="round"/>
+    <!-- 盘扣 -->
+    <circle cx="256" cy="440" r="3.2" fill="#2A2E3A"/>
+    <circle cx="256" cy="450" r="3.2" fill="#2A2E3A"/>
+    <!-- 肩侧云纹饰带 -->
+    <path d="M 211 404 Q 204 414 210 426" fill="none" stroke="#FFFFFF" stroke-width="4" stroke-linecap="round"/>
+    <path d="M 301 404 Q 308 414 302 426" fill="none" stroke="#FFFFFF" stroke-width="4" stroke-linecap="round"/>
+  </g>
+
+  <!-- ══ 腰带蝴蝶结 ══ -->
+  <g id="sash">
+    <rect x="207" y="452" width="98" height="15" rx="3" fill="#2E6FB8" stroke="#245C9C" stroke-width="2"/>
+    <path d="M 256 460 Q 226 445 222 460 Q 227 475 256 466 Z" fill="#2E6FB8" stroke="#245C9C" stroke-width="2" stroke-linejoin="round"/>
+    <path d="M 256 460 Q 286 445 290 460 Q 285 475 256 466 Z" fill="#2E6FB8" stroke="#245C9C" stroke-width="2" stroke-linejoin="round"/>
+    <path d="M 248 467 Q 241 492 245 512 L 254 509 Q 253 488 256 469 Z" fill="#245C9C"/>
+    <path d="M 264 467 Q 271 492 267 512 L 258 509 Q 259 488 256 469 Z" fill="#245C9C"/>
+    <circle cx="249" cy="514" r="3.8" fill="#FFFFFF" stroke="#C7D8E6" stroke-width="1"/>
+    <circle cx="263" cy="514" r="3.8" fill="#FFFFFF" stroke="#C7D8E6" stroke-width="1"/>
+    <circle cx="256" cy="460" r="7" fill="#FFFFFF" stroke="#C7D8E6" stroke-width="1.5"/>
+  </g>
+
+  <!-- ══ 左臂（角色右手·持剑）══ -->
+  <g id="arm_l">
+    <path d="M 214 386 Q 190 420 182 464 L 216 473 Q 219 430 231 402 Z"
+          fill="url(#topGrad)" stroke="#5B7A94" stroke-width="3.5" stroke-linejoin="round"/>
+    <path d="M 186 462 L 214 470" stroke="#FFFFFF" stroke-width="6" stroke-linecap="round"/>
+    <circle cx="198" cy="482" r="10" fill="#FDE3C8" stroke="#D9A87C" stroke-width="2.5"/>
+    <g id="sword">
+      <rect x="193.5" y="448" width="10" height="32" rx="4.5" fill="#2B3550" stroke="#1D2438" stroke-width="1.5"/>
+      <rect x="184" y="479" width="28" height="9" rx="4.5" fill="#8B6914" stroke="#6B5010" stroke-width="1.5"/>
+      <path d="M 192.5 488 L 205.5 488 L 205.5 592 Q 199 607 192.5 592 Z"
+            fill="#1B1E26" stroke="#0E1015" stroke-width="1.5"/>
+      <path d="M 196 491 L 196 590" stroke="#4A5266" stroke-width="2.5"/>
+      <path d="M 197 450 Q 182 438 178 422" fill="none" stroke="#3E8FD6" stroke-width="3" stroke-linecap="round"/>
+      <path d="M 178 422 L 171 404 M 178 422 L 179 402 M 178 422 L 186 406"
+            fill="none" stroke="#3E8FD6" stroke-width="2.2" stroke-linecap="round"/>
+    </g>
+  </g>
+
+  <!-- ══ 右臂 ══ -->
+  <g id="arm_r">
+    <path d="M 298 386 Q 322 420 330 464 L 296 473 Q 293 430 281 402 Z"
+          fill="url(#topGrad)" stroke="#5B7A94" stroke-width="3.5" stroke-linejoin="round"/>
+    <path d="M 326 462 L 298 470" stroke="#FFFFFF" stroke-width="6" stroke-linecap="round"/>
+    <circle cx="314" cy="482" r="10" fill="#FDE3C8" stroke="#D9A87C" stroke-width="2.5"/>
+  </g>
+
+  <!-- ══ 头（下沉 34px，下巴嵌入领口）══ -->
+  <g id="head" transform="translate(0,34)">
+    <!-- 后发（大轮廓，撑出蓬松感）-->
+    <path d="M 256 118
+             C 176 118 142 190 150 262
+             C 154 300 168 330 190 348
+             C 176 312 172 280 176 250
+             C 168 300 186 342 216 358
+             L 296 358
+             C 326 342 344 300 336 250
+             C 340 280 336 312 322 348
+             C 344 330 358 300 362 262
+             C 370 190 336 118 256 118 Z"
+          fill="url(#hairGrad)" stroke="#3A4560" stroke-width="3" stroke-linejoin="round"/>
+    <!-- 脸（圆润，宽颊收下巴）-->
+    <path d="M 163 244
+             C 163 168 202 134 256 134
+             C 310 134 349 168 349 244
+             C 349 290 328 324 256 340
+             C 184 324 163 290 163 244 Z"
+          fill="url(#faceGrad)" stroke="#E0B48C" stroke-width="2.5"/>
+    <!-- 脸颊阴影 -->
+    <path d="M 186 284 Q 256 342 326 284 Q 300 326 256 330 Q 212 326 186 284 Z" fill="#F0C49C" opacity="0.4"/>
+    <!-- 腮红 -->
+    <ellipse cx="196" cy="292" rx="16" ry="9" fill="#FF9DB0" opacity="0.5"/>
+    <ellipse cx="316" cy="292" rx="16" ry="9" fill="#FF9DB0" opacity="0.5"/>
+
+    <!-- ── 眼（灵魂，大而有神）── -->
+    <g id="eye_l" transform="translate(213, 258)">
+      <path d="M -22 -2 C -22 -22 -12 -30 0 -30 C 12 -30 22 -22 22 -2 C 22 16 12 26 0 26 C -12 26 -22 16 -22 -2 Z"
+            fill="#FFFFFF" stroke="#C4CBD9" stroke-width="1"/>
+      <ellipse cx="0" cy="0" rx="16.5" ry="23" fill="url(#irisGrad)"/>
+      <ellipse cx="0" cy="3" rx="8.5" ry="12" fill="#1E2A44"/>
+      <circle cx="-6" cy="-9" r="6" fill="#FFFFFF"/>
+      <circle cx="7" cy="8" r="3" fill="#FFFFFF" opacity="0.95"/>
+      <circle cx="-2" cy="14" r="1.6" fill="#FFFFFF" opacity="0.8"/>
+      <!-- 上睫毛（粗、收锋）-->
+      <path d="M -23 -6 C -18 -26 -6 -32 0 -32 C 10 -32 20 -24 23 -4"
+            fill="none" stroke="#232833" stroke-width="6" stroke-linecap="round"/>
+      <path d="M 20 -16 L 26 -22" stroke="#232833" stroke-width="4" stroke-linecap="round"/>
+      <!-- 下睫 -->
+      <path d="M -14 26 Q 0 30 14 26" fill="none" stroke="#2A2E3A" stroke-width="2.5" stroke-linecap="round" opacity="0.7"/>
+      <!-- 双眼皮 -->
+      <path d="M -16 -34 Q 0 -40 16 -34" fill="none" stroke="#C9A87C" stroke-width="2" stroke-linecap="round" opacity="0.6"/>
+    </g>
+    <g id="eye_r" transform="translate(299, 258)">
+      <path d="M -22 -2 C -22 -22 -12 -30 0 -30 C 12 -30 22 -22 22 -2 C 22 16 12 26 0 26 C -12 26 -22 16 -22 -2 Z"
+            fill="#FFFFFF" stroke="#C4CBD9" stroke-width="1"/>
+      <ellipse cx="0" cy="0" rx="16.5" ry="23" fill="url(#irisGrad)"/>
+      <ellipse cx="0" cy="3" rx="8.5" ry="12" fill="#1E2A44"/>
+      <circle cx="-6" cy="-9" r="6" fill="#FFFFFF"/>
+      <circle cx="7" cy="8" r="3" fill="#FFFFFF" opacity="0.95"/>
+      <circle cx="-2" cy="14" r="1.6" fill="#FFFFFF" opacity="0.8"/>
+      <path d="M -23 -6 C -18 -26 -6 -32 0 -32 C 10 -32 20 -24 23 -4"
+            fill="none" stroke="#232833" stroke-width="6" stroke-linecap="round"/>
+      <path d="M -20 -16 L -26 -22" stroke="#232833" stroke-width="4" stroke-linecap="round"/>
+      <path d="M -14 26 Q 0 30 14 26" fill="none" stroke="#2A2E3A" stroke-width="2.5" stroke-linecap="round" opacity="0.7"/>
+      <path d="M -16 -34 Q 0 -40 16 -34" fill="none" stroke="#C9A87C" stroke-width="2" stroke-linecap="round" opacity="0.6"/>
+    </g>
+    <!-- 眉 -->
+    <path id="brow_l" d="M 196 214 Q 213 205 230 211" fill="none" stroke="#4A5A74" stroke-width="4" stroke-linecap="round"/>
+    <path id="brow_r" d="M 282 211 Q 299 205 316 214" fill="none" stroke="#4A5A74" stroke-width="4" stroke-linecap="round"/>
+    <!-- 嘴 -->
+    <path id="mouth" d="M 246 306 Q 256 315 266 306" fill="none" stroke="#C4566A" stroke-width="3.5" stroke-linecap="round"/>
+
+    <!-- ── 刘海（分层发束，流畅下垂）── -->
+    <g id="bangs">
+      <path d="M 164 244
+               C 152 150 200 116 256 116
+               C 312 116 360 150 348 244
+               C 344 220 338 200 330 188
+               C 330 208 326 226 318 240
+               C 314 214 306 190 296 178
+               C 294 200 290 222 282 240
+               C 276 210 268 184 258 172
+               C 250 196 246 222 240 242
+               C 232 214 224 190 214 180
+               C 212 202 208 224 200 240
+               C 194 218 186 200 176 192
+               C 174 210 170 228 164 244 Z"
+            fill="url(#hairGrad)" stroke="#3A4560" stroke-width="2.5" stroke-linejoin="round"/>
+      <!-- 侧发绺 -->
+      <path d="M 168 220 C 152 268 158 318 176 344 C 182 352 190 356 196 356
+               C 184 318 182 278 190 240 C 182 236 174 228 168 220 Z"
+            fill="url(#hairGrad)" stroke="#3A4560" stroke-width="2.5" stroke-linejoin="round"/>
+      <path d="M 344 220 C 360 268 354 318 336 344 C 330 352 322 356 316 356
+               C 328 318 330 278 322 240 C 330 236 338 228 344 220 Z"
+            fill="url(#hairGrad)" stroke="#3A4560" stroke-width="2.5" stroke-linejoin="round"/>
+      <!-- 高光发束 -->
+      <path d="M 206 148 C 238 128 274 128 300 142" fill="none" stroke="#A5B4CE" stroke-width="6" stroke-linecap="round" opacity="0.85"/>
+      <path d="M 314 152 C 326 160 334 172 338 186" fill="none" stroke="#A5B4CE" stroke-width="4.5" stroke-linecap="round" opacity="0.8"/>
+      <path d="M 176 178 C 172 196 172 214 176 228" fill="none" stroke="#8FA0BC" stroke-width="4" stroke-linecap="round" opacity="0.7"/>
+    </g>
+  </g>
+</svg>

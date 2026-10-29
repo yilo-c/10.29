@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>小问 · R3 轻绑骨原型（平涂插画 + 程序化运动）</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #0f1117; color: #d8dde8; font-family: system-ui, "Microsoft YaHei", sans-serif;
+    min-height: 100vh; display: flex; flex-direction: column; align-items: center; padding: 20px; gap: 12px;
+  }
+  h1 { font-size: 19px; color: #7fd0ff; }
+  .sub { font-size: 12px; color: #66707e; }
+  #stage {
+    width: 320px; height: 320px; border-radius: 14px; overflow: hidden; position: relative;
+    cursor: grab; user-select: none; border: 1px solid #2a2f3d; box-shadow: 0 10px 34px rgba(0,0,0,.45);
+    background: repeating-conic-gradient(#1d1e28 0% 25%, #14151d 0% 50%) 0 0 / 36px 36px, #14151d;
+  }
+  #stage.drag { cursor: grabbing; }
+  canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .controls { display: flex; gap: 7px; flex-wrap: wrap; justify-content: center; max-width: 760px; }
+  button { padding: 7px 13px; background: #1a2230; color: #a9d7f5; font-size: 12.5px; cursor: pointer; border: 1px solid #2c3b52; border-radius: 8px; transition: all .15s; }
+  button:hover { background: #24364d; border-color: #3e5a7d; }
+  button.on { background: #3b6ea5; color: #fff; border-color: #6aa9e8; }
+  .status { min-height: 19px; font-size: 12.5px; color: #8b96a6; background: #141821; border: 1px solid #232a38; border-radius: 8px; padding: 5px 14px; text-align: center; }
+  .status b { color: #7fd0ff; }
+  .legend { font-size: 11px; color: #5a6472; text-align: center; line-height: 1.9; max-width: 700px; }
+  kbd { background: #222a38; border: 1px solid #33405a; border-radius: 4px; padding: 0 5px; font-size: 11px; }
+</style>
+</head>
+<body>
+  <h1>⚔️ 小问 · R3 轻绑骨原型</h1>
+  <div class="sub">平涂插画基帧切成 头/马尾/身体/闭眼 四层 · 程序化变换驱动 · 无帧无生成</div>
+
+  <div id="stage"><canvas id="c" width="256" height="256"></canvas></div>
+
+  <div class="controls">
+    <button data-a="idle">待机</button>
+    <button data-a="click_defend">单击受惊</button>
+    <button data-a="shy">双击害羞</button>
+    <button data-a="combo3">三连击剑势</button>
+    <button data-a="drag_fly">御剑飞行</button>
+    <button data-a="notice">侧耳听</button>
+    <button data-a="sleepy">犯困</button>
+  </div>
+  <div class="status" id="st">待机 · 头/马尾/身体参数驱动中</div>
+
+  <div class="legend">
+    <kbd>单击</kbd>受惊 · <kbd>双击</kbd>害羞 · <kbd>三连击</kbd>剑势 · <kbd>按住拖拽</kbd>御剑飞行<br>
+    身体呼吸=bob/squash 正弦 · 头部=绕颈旋转 · 马尾=绕发结滞后摆 · 眨眼=闭眼覆盖层 · 剑势=剑弧特效
+  </div>
+
+<script>
+const canvas = document.getElementById('c'), ctx = canvas.getContext('2d')
+const st = document.getElementById('st')
+const RIG = { neck:[127,113], knot:[149,45], eyeL:[118,89], eyeR:[136,89], eyeW:13, cheekL:[111,106], cheekR:[143,106] }
+
+const imgs = {}
+;['ponytail','head','body'].forEach(k => {
+  imgs[k] = new Image(); imgs[k].src = 'r3_layers/' + k + '.png'
+})
+
+// ── 参数引擎 ──
+let cur='idle', t0=performance.now()/1000
+const DUR={ idle:Infinity, click_defend:1000, shy:2100, combo3:750, drag_fly:Infinity, notice:1600, sleepy:Infinity }
+let ponySmooth=0
+const drag={active:false,dx:0}
+let blinkPhase=0  // 0=开，1=正在闭
+
+function setAction(name){ cur=name; t0=performance.now()/1000; st.innerHTML='<b>'+name+'</b> · 参数变换中' }
+
+function blink(t){ const period=3.4+((Math.sin(t*0.6)+1)*0.8), ph=t%period, bl=0.16
+  return ph<bl ? Math.sin(ph/bl*Math.PI) : 0 }  // 1=正在闭
+
+function frame(){
+  const t=performance.now()/1000, at=t-t0
+  let bob=0, squash=1, headTilt=0, pony=0, eyeBlink=0, blush=0, shock=0, slash=0, lean=0, fly=false
+
+  const flyNow = cur==='drag_fly'
+  if(!flyNow){ bob=Math.sin(t*1.6)*2.2; squash=1+Math.sin(t*1.6)*0.03 }
+  eyeBlink = cur==='sleepy' ? 0.5 : blink(t)
+  ponySmooth += ((flyNow?0.4:(headTilt*0.6)) - ponySmooth)*0.10
+  pony = (flyNow?0.55:0.20)*Math.sin(t*(flyNow?3.1:0.8)) + ponySmooth
+
+  switch(cur){
+    case 'click_defend': {
+      const att=ease(clamp(at/0.10,0,1)), rel=ease(clamp((at-0.10)/0.28,0,1))
+      headTilt=-0.06*(1-rel); squash=0.96+0.04*rel; shock=0.9*(1-rel); eyeBlink=0
+      break }
+    case 'shy': {
+      const rise=ease(clamp(at/0.30,0,1)), fall=ease(clamp((at-1.6)/0.4,0,1))
+      blush=(1-fall); headTilt=0.10*(1-fall); break }
+    case 'combo3': {
+      const p1=ease(clamp(at/0.12,0,1)), p2=ease(clamp((at-0.12)/0.2,0,1)), p3=ease(clamp((at-0.32)/0.3,0,1))
+      headTilt=-0.05*p1+0.05*p2; slash=Math.max(p1,p2*(1-p3)); break }
+    case 'drag_fly': {
+      fly=true; lean=drag.dx; bob=Math.sin(t*3.4)*4; break }
+    case 'notice': {
+      const k=ease(clamp(at/0.3,0,1))*(1-ease(clamp((at-0.9)/0.5,0,1)))
+      headTilt=0.14*k; break }
+    case 'sleepy': { bob=Math.sin(t*0.9)*1.4; headTilt=0.05; break }
+  }
+  drawLayer(t,{bob,squash,headTilt,pony,eyeBlink,blush,shock,slash,lean,fly})
+  if(at>DUR[cur] && DUR[cur]!==Infinity) setAction('idle')
+  requestAnimationFrame(frame)
+}
+
+function drawLayer(t,P){
+  ctx.clearRect(0,0,256,256)
+  const {bob,squash,headTilt,pony,eyeBlink,blush,shock,slash,lean,fly}=P
+  const neck=RIG.neck
+  // 身体：以脚底 (128,244) 缩放呼吸，绕脚底 bob
+  const footY=244
+  ctx.save()
+  ctx.translate(128, footY+bob)
+  ctx.scale(2-squash, squash)   // 保面积 squash
+  ctx.translate(-128, -footY)
+  if(imgs.body.complete) ctx.drawImage(imgs.body, 0, 0)
+  ctx.restore()
+  // 马尾：绕发结旋转
+  ctx.save()
+  ctx.translate(RIG.knot[0], RIG.knot[1]+bob)
+  ctx.rotate(pony)
+  ctx.translate(-RIG.knot[0], -RIG.knot[1])
+  if(imgs.ponytail.complete) ctx.drawImage(imgs.ponytail, 0, 0)
+  ctx.restore()
+  // 头：绕颈旋转 + 跟随 bob
+  ctx.save()
+  ctx.translate(neck[0], neck[1]+bob)
+  ctx.rotate(headTilt)
+  ctx.translate(-neck[0], -neck[1])
+  if(imgs.head.complete) ctx.drawImage(imgs.head, 0, 0)
+  // 眼睛覆盖（按锚点画，保证与头层对齐）：闭眼弧 / 大眼 / 腮红
+  const R=RIG
+  if(shock>0.05){ drawWideEyes(R, shock) }
+  else if(eyeBlink>0.03){ drawClosedEyes(R, Math.min(1,eyeBlink*2)) }
+  if(blush>0.03){ drawBlush(R, blush) }
+  ctx.restore()
+  if(slash>0.02) drawSlashArc(slash)
+}
+
+function drawClosedEyes(R,a){
+  ctx.strokeStyle='rgba(42,46,58,'+a+')'; ctx.lineWidth=3.2; ctx.lineCap='round'
+  for(const [ex,ey] of [R.eyeL,R.eyeR]){
+    ctx.beginPath(); ctx.arc(ex, ey, 6, Math.PI*0.15, Math.PI*0.85); ctx.stroke()
+  }
+}
+function drawWideEyes(R,s){
+  for(const [ex,ey] of [R.eyeL,R.eyeR]){
+    ctx.fillStyle='#fff'; ctx.beginPath(); ctx.ellipse(ex, ey, 8, 7*s+3, 0,0,7); ctx.fill()
+    ctx.fillStyle='#1E2A44'; ctx.beginPath(); ctx.ellipse(ex, ey+1.5, 4.5, 5*s+2, 0,0,7); ctx.fill()
+    ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(ex-1.5, ey-2, 1.7, 0,7); ctx.fill()
+  }
+}
+function drawBlush(R,s){
+  ctx.fillStyle=`rgba(255,157,176,${0.5*s})`
+  ctx.beginPath(); ctx.ellipse(R.cheekL[0], R.cheekL[1], 6,4,0,0,7); ctx.fill()
+  ctx.beginPath(); ctx.ellipse(R.cheekR[0], R.cheekR[1], 6,4,0,0,7); ctx.fill()
+}
+function drawSlashArc(s){
+  const a=Math.sin(Math.PI*Math.min(1,s))*0.7
+  ctx.strokeStyle=`rgba(159,219,255,${a})`; ctx.lineCap='round'; ctx.lineWidth=4
+  ctx.beginPath(); ctx.arc(128,200,90,-2.2+s*2.6, -0.8+s*2.6); ctx.stroke()
+}
+
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v))
+const ease=t=>t<0.5?2*t*t:1-Math.pow(-2*t+2,2)/2
+
+// ── 交互 ──
+const stage=document.getElementById('stage')
+let mDown=false, mPos={x:0,y:0}, lastClick=0, combo=0
+stage.addEventListener('mousedown',e=>{ mDown=true; mPos={x:e.clientX,y:e.clientY} })
+stage.addEventListener('mousemove',e=>{
+  if(!mDown)return; const dx=e.clientX-mPos.x, dy=e.clientY-mPos.y
+  if(!drag.active && Math.hypot(dx,dy)>8){ drag.active=true; stage.classList.add('drag'); setAction('drag_fly') }
+  if(drag.active) drag.dx=(e.clientX-mPos.x)/90
+})
+window.addEventListener('mouseup',()=>{
+  if(drag.active){ drag.active=false; stage.classList.remove('drag'); setAction('idle') }
+  mDown=false
+})
+stage.addEventListener('click',()=>{
+  if(drag.active)return
+  const now=Date.now(), dt=now-lastClick
+  if(dt<280){ combo=0; setAction('shy'); lastClick=0; return }
+  lastClick=now
+  setTimeout(()=>{ if(lastClick===now){ combo++
+    if(combo>=3){ setAction('combo3'); combo=0 }
+    else setAction('click_defend')
+    setTimeout(()=>{combo=0},900) }
+    lastClick=0 },280)
+})
+document.querySelectorAll('[data-a]').forEach(b=>b.addEventListener('click',()=>{ drag.active=false; setAction(b.dataset.a) }))
+
+requestAnimationFrame(frame)
+</script>
+</body>
+</html>

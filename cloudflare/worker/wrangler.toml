@@ -1,0 +1,19 @@
+name = "siyi-sync"
+main = "src/index.ts"
+compatibility_date = "2026-06-01"
+
+[[d1_databases]]
+binding = "SYNC_DB"
+database_name = "siyi-sync"
+database_id = "d8ae2dbd-78a6-4e77-8bce-c68062f0478d"
+
+# H1/H3 安全配置 — 通过 wrangler secret 设置：
+# wrangler secret put REGISTER_SECRET
+# wrangler secret put ALLOWED_ORIGINS
+# ALLOWED_ORIGINS 示例: "https://siyi.app,https://desktop.siyi.app,capacitor://localhost,http://localhost:5173"
+
+# Phase 3: R2 个人网盘
+# 开通 R2 后取消注释
+# [[r2_buckets]]
+# binding = "SIYI_FILES"
+# bucket_name = "siyi-files"

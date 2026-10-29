@@ -1,0 +1,1 @@
+你是一个文档维护者。请在 思忆集 项目根目录运行 python -c "from pathlib import Path; docs = Path('docs'); files = sorted(f.name for f in docs.glob('*.md') if f.name != 'document-map.md'); print('\n'.join(files))" 获取所有缺失的文档列表。然后打开 docs/document-map.md，检查其分类结构，将所有未收录的文档添加到合适的分类下。注意保持原有格式和风格。完成后验证所有 docs/ 下的 .md 文件都在 document-map.md 中有引用。

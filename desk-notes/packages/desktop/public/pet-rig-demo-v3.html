@@ -1,0 +1,759 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>小灵 v3 — AI 驱动骨骼桌宠</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: #060a10; color: #e6edf3; font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  display: flex; justify-content: center; align-items: center; min-height: 100vh; overflow: hidden; user-select: none;
+}
+.container { display: flex; gap: 24px; align-items: flex-start; padding: 20px; }
+
+/* Canvas */
+.canvas-wrap {
+  position: relative; border-radius: 24px; padding: 12px;
+  background: linear-gradient(145deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02));
+  border: 1px solid rgba(121,207,255,0.15);
+  box-shadow: 0 24px 80px rgba(0,0,0,0.6), inset 0 0 40px rgba(121,207,255,0.03);
+}
+canvas {
+  display: block; border-radius: 16px; cursor: pointer;
+  background: radial-gradient(ellipse at 50% 30%, rgba(80,160,255,0.06) 0%, transparent 70%);
+  box-shadow: inset 0 0 60px rgba(0,0,0,0.3);
+}
+
+/* Panel */
+.panel {
+  width: 340px; max-height: 700px; overflow-y: auto;
+  background: rgba(255,255,255,0.02); border-radius: 20px;
+  border: 1px solid rgba(121,207,255,0.07); padding: 20px;
+  font-size: 13px; line-height: 1.5; scrollbar-width: thin;
+}
+.panel::-webkit-scrollbar { width: 3px; }
+.panel::-webkit-scrollbar-track { background: transparent; }
+.panel::-webkit-scrollbar-thumb { background: rgba(121,207,255,0.15); border-radius: 2px; }
+
+.section-title {
+  font-size: 10px; color: #8b949e; text-transform: uppercase; letter-spacing: 1px;
+  margin: 14px 0 6px; padding-bottom: 4px; border-bottom: 1px solid rgba(255,255,255,0.04);
+  display: flex; align-items: center; gap: 6px;
+}
+.section-title:first-of-type { margin-top: 0; }
+
+.row { display: flex; justify-content: space-between; align-items: center; padding: 2px 0; font-size: 11px; }
+.row .l { color: #8b949e; }
+.row .v { color: #e6edf3; font-weight: 500; }
+.row .v.hl { color: #79cfff; }
+.row .v.hi { color: #7ee787; }
+.row .v.lo { color: #f0888e; }
+
+/* Mood bar */
+.mood-bar { display: flex; gap: 3px; margin: 6px 0; height: 4px; }
+.mood-bar .seg { flex: 1; border-radius: 2px; background: rgba(255,255,255,0.05); transition: all 0.3s; }
+.mood-bar .seg.on { background: #79cfff; box-shadow: 0 0 6px rgba(121,207,255,0.3); }
+
+/* Candidates */
+.clist { display: flex; flex-direction: column; gap: 3px; margin: 4px 0; }
+.citem {
+  display: flex; align-items: center; gap: 6px; padding: 3px 8px; border-radius: 6px;
+  background: rgba(255,255,255,0.015); font-size: 11px; border-left: 2px solid transparent; transition: all 0.2s;
+}
+.citem.pick { background: rgba(121,207,255,0.05); border-left-color: #79cfff; }
+.citem .cbar { height: 3px; border-radius: 2px; flex: 1; min-width: 30px; background: rgba(255,255,255,0.05); overflow: hidden; }
+.citem .cbar-fill { height: 100%; border-radius: 2px; transition: width 0.3s; }
+.citem .cs { color: #8b949e; font-size: 10px; width: 26px; text-align: right; }
+
+/* Modes */
+.modes { display: flex; gap: 5px; flex-wrap: wrap; margin: 6px 0; }
+.mb {
+  padding: 4px 12px; border-radius: 12px; border: 1px solid rgba(121,207,255,0.12);
+  background: rgba(255,255,255,0.02); color: #c9d1d9; font-size: 10px;
+  cursor: pointer; transition: all 0.2s; font-family: inherit;
+}
+.mb:hover { border-color: rgba(121,207,255,0.25); color: #fff; }
+.mb.on { background: rgba(121,207,255,0.08); border-color: #79cfff; color: #79cfff; }
+
+/* Log */
+.log { margin-top: 6px; max-height: 80px; overflow-y: auto; font-size: 10px; color: #6e7681; line-height: 1.5; }
+.log::-webkit-scrollbar { width: 2px; }
+.log::-webkit-scrollbar-thumb { background: rgba(121,207,255,0.1); border-radius: 2px; }
+.log .ln { padding: 1px 0; opacity: 0.6; }
+.log .ln.fresh { opacity: 1; color: #b1bac4; }
+
+/* State bar */
+.sbar {
+  display: flex; gap: 8px; margin-top: 10px; padding-top: 8px;
+  border-top: 1px solid rgba(255,255,255,0.03); font-size: 9px; color: #6e7681; flex-wrap: wrap;
+}
+.sdot { width: 5px; height: 5px; border-radius: 50%; display: inline-block; margin-right: 3px; }
+.sdot.g { background: #3fb950; box-shadow: 0 0 5px rgba(63,185,80,0.3); }
+.sdot.p { background: #bc8cff; box-shadow: 0 0 5px rgba(188,140,255,0.3); }
+
+/* Body viz */
+.bviz { display: grid; grid-template-columns: 1fr 1fr; gap: 1px 12px; margin: 4px 0; }
+.bviz .pr { display: flex; justify-content: space-between; font-size: 9px; padding: 1px 0; }
+.bviz .pr .pl { color: #8b949e; }
+.bviz .pr .pv { color: #79cfff; font-family: 'Cascadia Code', monospace; font-size: 9px; }
+
+/* Hint */
+.hint { text-align: center; margin-top: 8px; font-size: 9px; color: rgba(139,148,158,0.35); letter-spacing: 0.3px; transition: opacity 0.3s; }
+</style>
+</head>
+<body>
+
+<div class="container">
+  <div class="canvas-wrap">
+    <canvas id="c" width="500" height="540"></canvas>
+    <div class="hint" id="hintText">✦ 单击 · 双击 · 拖拽 · 悬停 — 每种操作 AI 都会实时决策</div>
+  </div>
+
+  <div class="panel">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:2px;">
+      <span style="font-size:20px;">🦊</span>
+      <span style="font-weight:600;font-size:14px;color:#e6edf3;">小灵 · 骨骼系统</span>
+      <span style="font-size:9px;color:#6e7681;margin-left:auto;" id="fpsD">-- fps</span>
+    </div>
+    <div style="font-size:9px;color:#6e7681;margin-bottom:6px;">16 关节 · AI 实时驱动 · 平滑骨骼插值</div>
+
+    <div class="section-title"><span>🧠</span> 场景感知</div>
+    <div id="sceneP">
+      <div class="row"><span class="l">AI 人格</span><span class="v hl" id="modeD">正常</span></div>
+      <div class="row"><span class="l">当前情绪</span><span class="v" id="moodD">平静</span></div>
+      <div class="row"><span class="l">精力</span><span class="v" id="energyD">100%</span></div>
+      <div class="row"><span class="l">用户操作</span><span class="v" id="actD">—</span></div>
+      <div class="row"><span class="l">空闲</span><span class="v" id="idleD">0s</span></div>
+      <div class="mood-bar" id="moodBar"><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div></div>
+    </div>
+
+    <div class="section-title"><span>🎯</span> 姿态决策</div>
+    <div class="row"><span class="l">当前</span><span class="v hl" id="poseD">待机</span></div>
+    <div class="clist" id="candL"></div>
+
+    <div style="display:flex;gap:8px;">
+      <div class="row" style="flex:1;"><span class="l">置信</span><span class="v" id="confD">--</span></div>
+      <div class="row" style="flex:1;"><span class="l">过渡</span><span class="v" id="transD">稳定</span></div>
+    </div>
+
+    <div class="section-title"><span>🔧</span> 16 关节参数 (AI 实时)</div>
+    <div class="bviz" id="paramV"></div>
+
+    <div class="section-title"><span>🎭</span> AI 人格</div>
+    <div class="modes" id="modeB">
+      <button class="mb on" data-mode="normal">🎯 正常</button>
+      <button class="mb" data-mode="playful">🌸 活泼</button>
+      <button class="mb" data-mode="lazy">😴 慵懒</button>
+      <button class="mb" data-mode="curious">🔍 好奇</button>
+      <button class="mb" data-mode="energetic">⚡ 精力</button>
+    </div>
+
+    <div class="section-title"><span>📜</span> 决策日志</div>
+    <div class="log" id="logD"></div>
+
+    <div class="sbar">
+      <span><span class="sdot g"></span>AI 驱动</span>
+      <span id="skelInfo">骨骼: 16 关节</span>
+      <span id="blendInfo">平滑: 100%</span>
+    </div>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════════
+// 小灵 v3 — 完全 Canvas 骨骼桌宠 · 16 关节 · AI 实时驱动
+// ═══════════════════════════════════════════════════════════════════════
+
+const canvas = document.getElementById('c'), ctx = canvas.getContext('2d')
+const W = 500, H = 540, GY = 440  // ground Y
+
+// ─── 16 关节参数 ───
+const PARAMS = [
+  'bodyAngle','bodyStretch','bodySquash',
+  'headTilt','headAngle','headNod',
+  'earL','earR',
+  'eyeOpen','eyeHappy','eyeLookX','eyeLookY','blinkPhase',
+  'browL','browR',
+  'mouth','mouthOpen',
+  'armLAngle','armLReach','armRAngle','armRReach',
+  'legLAngle','legLStep','legRAngle','legRStep',
+  'tailAngle','tailWag','tailCurl',
+  'floatY','breatheAmp','glowSize','earFlutter',
+]
+
+// ─── 姿态库 (17 个姿态) ───
+const POSES = {
+  idle: {
+    label:'静立',icon:'🌙',
+    tag:['calm'], energy:0.08, dur:0, loop:true,
+    t: { bodyAngle:0,bodyStretch:0,bodySquash:0, headTilt:0,headAngle:0,headNod:0, earL:0.7,earR:0.7, eyeOpen:0.85,eyeHappy:0,eyeLookX:0,eyeLookY:0,blinkPhase:0, browL:0,browR:0, mouth:0,mouthOpen:0, armLAngle:-0.5,armLReach:0,armRAngle:-0.5,armRReach:0, legLAngle:0,legLStep:0,legRAngle:0,legRStep:0, tailAngle:0.2,tailWag:0.25,tailCurl:0.3, floatY:0,breatheAmp:1,glowSize:0.8,earFlutter:0 },
+  },
+  happy: {
+    label:'开心',icon:'✨',
+    tag:['happy'], energy:0.35, dur:2000, loop:false,
+    t: { bodyAngle:0.04,bodyStretch:0.15,bodySquash:-0.1, headTilt:-0.04,headAngle:0,headNod:0, earL:0.9,earR:0.9, eyeOpen:0.65,eyeHappy:0.8,eyeLookX:0,eyeLookY:-0.1,blinkPhase:0, browL:0.2,browR:0.2, mouth:1,mouthOpen:0.4, armLAngle:0.2,armLReach:0.3,armRAngle:0.2,armRReach:0.3, legLAngle:-0.15,legLStep:0.1,legRAngle:0.15,legRStep:-0.1, tailAngle:0.5,tailWag:1.2,tailCurl:0.6, floatY:3,breatheAmp:1.3,glowSize:1.3,earFlutter:0.5 },
+  },
+  curious: {
+    label:'好奇',icon:'🔍',
+    tag:['curious'], energy:0.25, dur:2200, loop:false,
+    t: { bodyAngle:0.06,bodyStretch:0.25,bodySquash:0, headTilt:0.18,headAngle:-0.06,headNod:0.05, earL:1,earR:0.85, eyeOpen:1,eyeHappy:0,eyeLookX:0.5,eyeLookY:-0.1,blinkPhase:0, browL:0.3,browR:-0.1, mouth:0.2,mouthOpen:0, armLAngle:-0.1,armLReach:0.4,armRAngle:-0.3,armRReach:0.1, legLAngle:0.1,legLStep:0,legRAngle:-0.1,legRStep:0, tailAngle:0.3,tailWag:0.5,tailCurl:0.2, floatY:1,breatheAmp:0.8,glowSize:1.1,earFlutter:0.3 },
+  },
+  sleepy: {
+    label:'困倦',icon:'💤',
+    tag:['calm','low'], energy:0.04, dur:3500, loop:false,
+    t: { bodyAngle:-0.02,bodyStretch:-0.15,bodySquash:0.1, headTilt:0.2,headAngle:0.08,headNod:0.15, earL:-0.2,earR:-0.2, eyeOpen:0.15,eyeHappy:0,eyeLookX:0,eyeLookY:0.3,blinkPhase:0, browL:-0.2,browR:-0.2, mouth:3,mouthOpen:0, armLAngle:-0.7,armLReach:-0.2,armRAngle:-0.7,armRReach:-0.2, legLAngle:0,legLStep:0,legRAngle:0,legRStep:0, tailAngle:-0.3,tailWag:0.08,tailCurl:-0.1, floatY:-3,breatheAmp:1.6,glowSize:0.5,earFlutter:0 },
+  },
+  excited: {
+    label:'兴奋',icon:'⭐',
+    tag:['happy','high'], energy:0.65, dur:1800, loop:false,
+    t: { bodyAngle:0.08,bodyStretch:0.4,bodySquash:-0.15, headTilt:-0.06,headAngle:0,headNod:-0.05, earL:1,earR:1, eyeOpen:0.9,eyeHappy:1,eyeLookX:0.15,eyeLookY:-0.2,blinkPhase:0, browL:0.4,browR:0.4, mouth:1,mouthOpen:0.6, armLAngle:0.7,armLReach:0.6,armRAngle:0.7,armRReach:0.6, legLAngle:-0.25,legLStep:0.2,legRAngle:0.25,legRStep:-0.2, tailAngle:0.7,tailWag:1.8,tailCurl:0.8, floatY:5,breatheAmp:1.5,glowSize:1.6,earFlutter:0.8 },
+  },
+  surprised: {
+    label:'惊讶',icon:'❗',
+    tag:['surprise'], energy:0.5, dur:1000, loop:false,
+    t: { bodyAngle:-0.06,bodyStretch:0.35,bodySquash:-0.2, headTilt:-0.02,headAngle:0,headNod:-0.1, earL:1,earR:1, eyeOpen:1.3,eyeHappy:0,eyeLookX:0,eyeLookY:0,blinkPhase:0, browL:0.6,browR:0.6, mouth:2,mouthOpen:0.7, armLAngle:0.6,armLReach:-0.2,armRAngle:0.6,armRReach:-0.2, legLAngle:-0.2,legLStep:0,legRAngle:0.2,legRStep:0, tailAngle:0.1,tailWag:0.6,tailCurl:0.1, floatY:4,breatheAmp:0.4,glowSize:1.4,earFlutter:1 },
+  },
+  listening: {
+    label:'倾听',icon:'👂',
+    tag:['curious'], energy:0.15, dur:1800, loop:false,
+    t: { bodyAngle:0.03,bodyStretch:0.1,bodySquash:0, headTilt:0.22,headAngle:-0.12,headNod:0, earL:1,earR:0.4, eyeOpen:0.75,eyeHappy:0,eyeLookX:0.5,eyeLookY:-0.05,blinkPhase:0, browL:0.2,browR:0.1, mouth:0.1,mouthOpen:0, armLAngle:-0.25,armLReach:0.2,armRAngle:-0.4,armRReach:0, legLAngle:0,legLStep:0,legRAngle:0,legRStep:0, tailAngle:0.15,tailWag:0.3,tailCurl:0.2, floatY:0,breatheAmp:0.7,glowSize:0.85,earFlutter:0.2 },
+  },
+  dance: {
+    label:'跳舞',icon:'💃',
+    tag:['happy','high'], energy:0.7, dur:2500, loop:false,
+    t: { bodyAngle:0.12,bodyStretch:0.5,bodySquash:-0.1, headTilt:-0.08,headAngle:0.05,headNod:0.1, earL:0.9,earR:0.9, eyeOpen:0.7,eyeHappy:0.9,eyeLookX:0.2,eyeLookY:-0.15,blinkPhase:0, browL:0.3,browR:0.3, mouth:1,mouthOpen:0.5, armLAngle:0.9,armLReach:0.5,armRAngle:-0.3,armRReach:-0.3, legLAngle:-0.3,legLStep:0.4,legRAngle:0.3,legRStep:-0.4, tailAngle:0.6,tailWag:2,tailCurl:0.7, floatY:6,breatheAmp:1.6,glowSize:1.5,earFlutter:0.6 },
+  },
+  stretch: {
+    label:'伸懒腰',icon:'🌅',
+    tag:['calm'], energy:0.1, dur:2200, loop:false,
+    t: { bodyAngle:-0.03,bodyStretch:0.6,bodySquash:-0.3, headTilt:0.1,headAngle:0,headNod:0.2, earL:0.3,earR:0.3, eyeOpen:0.3,eyeHappy:0,eyeLookX:0,eyeLookY:0.4,blinkPhase:0, browL:0.1,browR:0.1, mouth:3,mouthOpen:0.3, armLAngle:1.2,armLReach:-0.4,armRAngle:1.2,armRReach:-0.4, legLAngle:0.1,legLStep:0,legRAngle:-0.1,legRStep:0, tailAngle:-0.1,tailWag:0.15,tailCurl:0, floatY:-2,breatheAmp:1.4,glowSize:0.7,earFlutter:0.1 },
+  },
+  play: {
+    label:'玩耍',icon:'🧶',
+    tag:['happy','high'], energy:0.6, dur:2000, loop:false,
+    t: { bodyAngle:0.1,bodyStretch:0.3,bodySquash:-0.1, headTilt:0.08,headAngle:-0.04,headNod:0.08, earL:1,earR:0.9, eyeOpen:0.9,eyeHappy:0.7,eyeLookX:0.3,eyeLookY:-0.1,blinkPhase:0, browL:0.3,browR:0.2, mouth:1,mouthOpen:0.3, armLAngle:0.5,armLReach:0.8,armRAngle:0.3,armRReach:0.5, legLAngle:-0.2,legLStep:0.2,legRAngle:0.1,legRStep:-0.1, tailAngle:0.5,tailWag:1.5,tailCurl:0.6, floatY:3,breatheAmp:1.2,glowSize:1.3,earFlutter:0.5 },
+  },
+  think: {
+    label:'思考',icon:'🤔',
+    tag:['curious'], energy:0.15, dur:2500, loop:false,
+    t: { bodyAngle:0.02,bodyStretch:0,bodySquash:0, headTilt:0.15,headAngle:-0.05,headNod:0.02, earL:0.6,earR:0.7, eyeOpen:0.6,eyeHappy:0,eyeLookX:-0.1,eyeLookY:0.2,blinkPhase:0, browL:-0.3,browR:0.3, mouth:0.3,mouthOpen:0, armLAngle:0.3,armLReach:0.4,armRAngle:-0.5,armRReach:-0.1, legLAngle:0,legLStep:0,legRAngle:0,legRStep:0, tailAngle:0.1,tailWag:0.2,tailCurl:0.4, floatY:0,breatheAmp:0.7,glowSize:0.9,earFlutter:0.1 },
+  },
+  laugh: {
+    label:'大笑',icon:'😂',
+    tag:['happy'], energy:0.45, dur:1500, loop:false,
+    t: { bodyAngle:0.08,bodyStretch:0.2,bodySquash:-0.1, headTilt:-0.06,headAngle:0,headNod:0.15, earL:0.7,earR:0.7, eyeOpen:0.4,eyeHappy:1,eyeLookX:0,eyeLookY:0,blinkPhase:0, browL:0.3,browR:0.3, mouth:1,mouthOpen:0.8, armLAngle:0.1,armLReach:0.2,armRAngle:0.1,armRReach:0.2, legLAngle:-0.1,legLStep:0,legRAngle:0.1,legRStep:0, tailAngle:0.4,tailWag:1,tailCurl:0.5, floatY:2,breatheAmp:1.8,glowSize:1.2,earFlutter:0.4 },
+  },
+  sniff: {
+    label:'嗅探',icon:'👃',
+    tag:['curious'], energy:0.12, dur:1600, loop:false,
+    t: { bodyAngle:0.04,bodyStretch:0.2,bodySquash:0, headTilt:0.08,headAngle:0,headNod:0.2, earL:0.6,earR:0.6, eyeOpen:0.5,eyeHappy:0,eyeLookX:0.1,eyeLookY:0.1,blinkPhase:0, browL:0.1,browR:0.1, mouth:0.2,mouthOpen:0.15, armLAngle:-0.3,armLReach:0.1,armRAngle:-0.4,armRReach:0.1, legLAngle:0.05,legLStep:0,legRAngle:-0.05,legRStep:0, tailAngle:0.2,tailWag:0.35,tailCurl:0.2, floatY:0,breatheAmp:0.9,glowSize:0.8,earFlutter:0.1 },
+  },
+  proud: {
+    label:'得意',icon:'😏',
+    tag:['happy'], energy:0.25, dur:2000, loop:false,
+    t: { bodyAngle:0.05,bodyStretch:0.1,bodySquash:0, headTilt:-0.1,headAngle:0,headNod:-0.02, earL:0.8,earR:0.8, eyeOpen:0.6,eyeHappy:0.6,eyeLookX:0,eyeLookY:-0.1,blinkPhase:0, browL:0.4,browR:0.4, mouth:0.1,mouthOpen:0, armLAngle:-0.2,armLReach:0.1,armRAngle:-0.2,armRReach:0.1, legLAngle:0,legLStep:0,legRAngle:0,legRStep:0, tailAngle:0.6,tailWag:0.8,tailCurl:0.7, floatY:1,breatheAmp:1,glowSize:1.1,earFlutter:0.2 },
+  },
+  comfort: {
+    label:'求摸',icon:'🥺',
+    tag:['calm'], energy:0.15, dur:2200, loop:false,
+    t: { bodyAngle:0.02,bodyStretch:0.1,bodySquash:0.05, headTilt:0.12,headAngle:0.03,headNod:0.05, earL:0.5,earR:0.5, eyeOpen:0.5,eyeHappy:0.3,eyeLookX:0.15,eyeLookY:0.1,blinkPhase:0, browL:0.2,browR:0.1, mouth:0.5,mouthOpen:0, armLAngle:0.1,armLReach:0.5,armRAngle:-0.3,armRReach:0.1, legLAngle:0,legLStep:0,legRAngle:0,legRStep:0, tailAngle:0.15,tailWag:0.4,tailCurl:0.3, floatY:0,breatheAmp:0.9,glowSize:0.9,earFlutter:0.1 },
+  },
+}
+
+// ─── AI ───
+const AI = {
+  mode:'normal', energy:0.9, lastAct:'none', idleFrames:0, cd:0,
+  curPose:'idle', prevPose:'idle', candidates:[], conf:0,
+  log:[], logs:0, moodHist:[],
+
+  addLog(m){ const d=new Date(); this.log.unshift(`[${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}:${String(d.getSeconds()).padStart(2,'0')}] ${m}`); if(this.log.length>20)this.log.pop() },
+
+  decide(){
+    this.idleFrames++; if(this.cd>0)this.cd--
+    if(this.lastAct==='none') this.energy=Math.min(1,this.energy+0.004)
+
+    const cand=[]
+    for(const [n,p]of Object.entries(POSES)){
+      let s=0.1+Math.random()*0.12
+
+      if(this.lastAct==='click'){
+        if(n==='surprised') s+=1.3
+        else if(n==='curious') s+=0.7
+        else if(n==='happy') s+=0.3
+        else if(n==='comfort') s+=0.5
+        else if(n==='idle') s-=0.3
+      }else if(this.lastAct==='doubleClick'){
+        if(n==='excited') s+=1.6
+        else if(n==='happy') s+=0.7
+        else if(n==='dance') s+=1.0
+        else if(n==='laugh') s+=0.6
+        else if(n==='idle') s-=0.4
+      }else if(this.lastAct==='hover'){
+        if(n==='curious') s+=1.0
+        else if(n==='listening') s+=0.7
+        else if(n==='sniff') s+=0.5
+        else if(n==='idle') s-=0.15
+      }else if(this.lastAct==='drag'){
+        if(n==='excited') s+=0.6
+        else if(n==='play') s+=0.8
+        else if(n==='surprised') s+=0.2
+      }
+
+      // personality
+      if(this.mode==='playful'){
+        if(n==='happy') s+=0.4; if(n==='dance') s+=0.6; if(n==='play') s+=0.5; if(n==='laugh') s+=0.4; if(n==='sleepy') s-=0.4
+      }else if(this.mode==='lazy'){
+        if(n==='sleepy') s+=1.0; if(n==='stretch') s+=0.5; if(n==='idle') s+=0.3; if(n==='excited') s-=0.5; if(n==='dance') s-=0.4
+      }else if(this.mode==='curious'){
+        if(n==='curious') s+=0.9; if(n==='listening') s+=0.6; if(n==='sniff') s+=0.6; if(n==='think') s+=0.5; if(n==='sleepy') s-=0.3
+      }else if(this.mode==='energetic'){
+        if(n==='excited') s+=0.8; if(n==='dance') s+=0.7; if(n==='play') s+=0.6; if(n==='surprised') s+=0.3; if(n==='sleepy') s-=0.8; if(n==='idle') s-=0.3
+      }
+
+      // energy
+      if(this.energy<0.3&&p.energy>0.4) s-=0.7
+      if(this.energy<0.5&&p.tag.includes('high')) s-=0.4
+      if(this.energy>0.8&&p.tag.includes('low')) s-=0.3
+
+      // idle drift
+      if(this.idleFrames>200&&this.lastAct==='none'&&n==='sleepy') s+=this.idleFrames>350?1.2:0.4
+      if(this.idleFrames>150&&this.lastAct==='none'&&n==='stretch') s+=0.5
+      if(this.idleFrames>100&&this.lastAct==='none'&&n==='think') s+=0.3
+
+      // avoid repeat
+      if(n===this.curPose&&!p.loop) s-=0.8
+      if(n===this.prevPose&&n!=='idle') s-=0.3
+
+      cand.push({n,l:p.label,ic:p.icon,sc:s,...p})
+    }
+
+    cand.sort((a,b)=>b.sc-a.sc)
+    this.candidates=cand.slice(0,3)
+    const best=cand[0]
+    this.conf=best.sc/(cand[1]?.sc||1)
+
+    if(best.n!==this.curPose&&best.sc>0.35){
+      this.prevPose=this.curPose
+      this.curPose=best.n
+      this.addLog(`${best.ic} ${best.l} (${best.sc.toFixed(2)})`)
+    }
+    return this.curPose
+  },
+
+  getTargets(time){
+    const p=POSES[this.curPose]||POSES.idle
+    const t={...p.t}
+    if(this.curPose==='idle'){
+      t.tailWag=0.25+Math.sin(time*0.0025)*0.15
+      t.tailAngle=0.2+Math.sin(time*0.0018)*0.1
+      t.earL=0.7+Math.sin(time*0.0035)*0.12
+      t.earR=0.7+Math.cos(time*0.0035+1)*0.12
+      t.eyeLookX=Math.sin(time*0.001)*0.3
+      t.eyeLookY=Math.cos(time*0.0012)*0.2
+      t.blinkPhase=time
+      if(this.energy<0.3){ t.eyeOpen=0.5; t.breatheAmp=1.3 }
+    }
+    if(this.mode==='playful') t.glowSize*=1.3
+    if(this.mode==='lazy') t.breatheAmp*=1.25
+    if(this.mode==='curious'){ t.eyeLookX*=1.5; t.headTilt*=1.2 }
+    if(this.mode==='energetic'){ t.tailWag*=1.3; t.glowSize*=1.2 }
+    return t
+  },
+}
+
+// ─── 骨骼状态 ───
+const cur={}, tgt={}
+for(const k of PARAMS){ cur[k]=POSES.idle.t[k]??0; tgt[k]=POSES.idle.t[k]??0 }
+let curPose='idle', trans=false, transP=0, prevPose='idle'
+
+function lerp(a,b,t){return a+(b-a)*t}
+function clamp(v,mn,mx){return Math.max(mn,Math.min(mx,v))}
+function ease(t){return t<0.5?4*t*t*t:1-Math.pow(-2*t+2,3)/2}
+
+// ─── 绘制 ───
+function draw(par,ti){
+  const {bodyAngle,bodyStretch,bodySquash,headTilt,headAngle,headNod,earL,earR,eyeOpen,eyeHappy,eyeLookX,eyeLookY,blinkPhase,browL,browR,mouth,mouthOpen,armLAngle,armLReach,armRAngle,armRReach,legLAngle,legLStep,legRAngle,legRStep,tailAngle,tailWag,tailCurl,floatY,breatheAmp,glowSize,earFlutter}=par
+  const breathe=Math.sin(ti*0.004)*2.5*breatheAmp
+  const fl=floatY+breathe
+  const blink=Math.max(0.1,eyeOpen-Math.max(0,Math.sin((blinkPhase+4000)/6000)*0.8*(blinkPhase%6000<100?1:0)))
+
+  ctx.clearRect(0,0,W,H)
+  ctx.save()
+
+  // ─── 夜空 ───
+  const sky=ctx.createRadialGradient(250,0,50,250,0,400)
+  sky.addColorStop(0,'#1a3a5a'); sky.addColorStop(0.4,'#0f1f35'); sky.addColorStop(1,'#0a1018')
+  ctx.fillStyle=sky; ctx.fillRect(0,0,W,H)
+
+  // ─── 星星 ───
+  for(let i=0;i<50;i++){
+    const sx=(i*137.5+43)%W,sy=(i*97.3+17)%(H*0.5),ss=0.8+Math.sin(ti*0.001+i*2.1)*0.6
+    ctx.beginPath(); ctx.arc(sx,sy,ss*1.2,0,Math.PI*2)
+    ctx.fillStyle=`rgba(255,255,255,${0.3+Math.sin(ti*0.002+i*1.7)*0.15})`
+    ctx.fill()
+  }
+
+  // ─── 地面 ───
+  const gGrad=ctx.createLinearGradient(0,GY+10,0,H)
+  gGrad.addColorStop(0,'rgba(40,70,100,0.35)'); gGrad.addColorStop(1,'rgba(15,30,50,0.5)')
+  ctx.fillStyle=gGrad; ctx.fillRect(0,GY+10,W,H-GY-10)
+
+  // 地平线发光
+  const hGrad=ctx.createRadialGradient(W/2,GY,5,W/2,GY,50)
+  hGrad.addColorStop(0,'rgba(121,207,255,0.1)'); hGrad.addColorStop(1,'rgba(121,207,255,0)')
+  ctx.fillStyle=hGrad; ctx.fillRect(0,GY-20,W,60)
+
+  // 草叶
+  for(let i=0;i<40;i++){
+    const gx=(i*31+17)%W,gh=5+Math.sin(ti*0.002+i*0.7)*3,gs=0.5+Math.sin(ti*0.003+i*1.1)*0.3
+    ctx.beginPath(); ctx.moveTo(gx,GY+2); ctx.quadraticCurveTo(gx+gs*2,GY-gh,gx+gs*4,GY+2)
+    ctx.strokeStyle='rgba(100,200,140,0.25)'; ctx.lineWidth=1.2; ctx.stroke()
+  }
+
+  // ─── 角色 (放大 1.8x 确保可见) ───
+  ctx.translate(W/2,GY+fl)
+  ctx.scale(1.8,1.8)
+
+  // 光晕
+  const gL=ctx.createRadialGradient(0,-55,5,0,-55,65*glowSize)
+  gL.addColorStop(0,`rgba(255,230,150,${0.15*glowSize})`)
+  gL.addColorStop(0.5,`rgba(255,200,120,${0.08*glowSize})`)
+  gL.addColorStop(1,'rgba(255,200,120,0)')
+  ctx.fillStyle=gL; ctx.beginPath(); ctx.arc(0,-55,65*glowSize,0,Math.PI*2); ctx.fill()
+
+  // 地面阴影 (使用默认阴影，不需要另存)
+  ctx.shadowColor='rgba(0,0,0,0.25)'; ctx.shadowBlur=20; ctx.shadowOffsetY=4
+
+  // ─── 身体 ───
+  ctx.save()
+  ctx.rotate(bodyAngle)
+  const bsY=1+bodyStretch*0.12-bodySquash*0.06
+  const bsX=1+bodySquash*0.04
+  ctx.scale(bsX,bsY)
+
+  // 身体阴影
+  ctx.beginPath(); ctx.ellipse(0,-50,30,38,0,0,Math.PI*2)
+  ctx.fillStyle='rgba(0,0,0,0.08)'; ctx.fill()
+
+  // 身体主体
+  ctx.beginPath(); ctx.ellipse(0,-50,28,36*(1+bodyStretch*0.06),0,0,Math.PI*2)
+  const bG=ctx.createRadialGradient(-4,-58,4,0,-50,36)
+  bG.addColorStop(0,'#fcd8a8'); bG.addColorStop(0.3,'#f8b870'); bG.addColorStop(0.7,'#e89848'); bG.addColorStop(1,'#d08038')
+  ctx.fillStyle=bG; ctx.fill()
+  ctx.strokeStyle='rgba(180,120,60,0.25)'; ctx.lineWidth=1; ctx.stroke()
+
+  // 腹部 (随呼吸起伏)
+  const bellyS=1+Math.sin(ti*0.004)*0.04*breatheAmp
+  ctx.save(); ctx.scale(1,bellyS)
+  ctx.beginPath(); ctx.ellipse(0,-46,20,28,0,0,Math.PI*2)
+  const belG=ctx.createRadialGradient(0,-50,3,0,-46,26)
+  belG.addColorStop(0,'rgba(255,248,240,0.7)'); belG.addColorStop(1,'rgba(255,240,225,0.3)')
+  ctx.fillStyle=belG; ctx.fill()
+  ctx.restore()
+
+  ctx.restore() // body transform
+
+  // ─── 尾巴 ───
+  ctx.save()
+  const tBA=-0.25+tailAngle,wO=Math.sin(ti*0.006*tailWag*5)*0.25*tailWag,tTA=tBA+wO
+  const tCur=tailCurl*0.5
+  ctx.translate(0,-58); ctx.rotate(tTA)
+  ctx.beginPath()
+  ctx.moveTo(0,0)
+  ctx.quadraticCurveTo(18+tailWag*8,-12,32*(1+tailWag*0.2)-tCur*8,-38*(1+tailWag*0.15)-tCur*10)
+  ctx.quadraticCurveTo(32*(1+tailWag*0.2)-tCur*12,-46*(1+tailWag*0.15)-tCur*8,28*(1+tailWag*0.2)-tCur*16,-50*(1+tailWag*0.15)-tCur*6)
+  ctx.strokeStyle='#e8944a'; ctx.lineWidth=12+tailWag*3; ctx.lineCap='round'; ctx.lineJoin='round'; ctx.stroke()
+  // 尾巴尖
+  const tx=26*(1+tailWag*0.2)-tCur*14,ty=-45*(1+tailWag*0.15)-tCur*8
+  ctx.beginPath(); ctx.arc(tx,ty,7+tailWag*2,0,Math.PI*2)
+  ctx.fillStyle='rgba(255,248,240,0.6)'; ctx.fill()
+  ctx.restore()
+
+  // ─── 腿 ───
+  drawLimb(ctx,-14,-28,legLAngle,legLStep,'leg','left',ti)
+  drawLimb(ctx,14,-28,legRAngle,legRStep,'leg','right',ti)
+
+  // ─── 手臂 ───
+  drawLimb(ctx,-26,-42,armLAngle,armLReach,'arm','left',ti)
+  drawLimb(ctx,26,-42,armRAngle,armRReach,'arm','right',ti)
+
+  // ─── 头 ───
+  ctx.save()
+  ctx.translate(0,-70); ctx.rotate(headAngle); ctx.translate(headTilt*10,headNod*6)
+
+  // 头阴影
+  ctx.beginPath(); ctx.arc(0,0,27,0,Math.PI*2)
+  ctx.fillStyle='rgba(0,0,0,0.06)'; ctx.fill()
+
+  // 头主体
+  const hG=ctx.createRadialGradient(-3,-5,3,0,0,27)
+  hG.addColorStop(0,'#fce0b8'); hG.addColorStop(0.5,'#f0b060'); hG.addColorStop(1,'#e09848')
+  ctx.beginPath(); ctx.arc(0,0,26,0,Math.PI*2); ctx.fillStyle=hG; ctx.fill()
+  ctx.strokeStyle='rgba(200,160,100,0.2)'; ctx.lineWidth=0.8; ctx.stroke()
+
+  // 脸颊 (蓬松)
+  ctx.beginPath(); ctx.ellipse(-20,4,10,8,0.2,0,Math.PI*2); ctx.fillStyle='#f0b060'; ctx.fill()
+  ctx.beginPath(); ctx.ellipse(20,4,10,8,-0.2,0,Math.PI*2); ctx.fillStyle='#f0b060'; ctx.fill()
+
+  // 白色面部下半
+  ctx.beginPath(); ctx.ellipse(0,7,19,14,0,0,Math.PI*2)
+  ctx.fillStyle='rgba(255,248,240,0.5)'; ctx.fill()
+
+  // ─── 耳朵 ───
+  drawEar(ctx,-20,-14,earL+Math.sin(ti*0.006+earFlutter*2)*0.05*earFlutter,'left',ti)
+  drawEar(ctx,20,-14,earR+Math.sin(ti*0.006+1+earFlutter*2)*0.05*earFlutter,'right',ti)
+
+  // ─── 眉毛 ───
+  ctx.save()
+  ctx.strokeStyle='#b08050'; ctx.lineWidth=2; ctx.lineCap='round'
+  for(let s=-1;s<=1;s+=2){
+    const b=browL*(s<0?1:0.8)
+    ctx.beginPath()
+    ctx.moveTo(s*12, -16+b*2)
+    ctx.quadraticCurveTo(s*15, -18-b*3, s*18, -16+b*2)
+    ctx.stroke()
+  }
+  ctx.restore()
+
+  // ─── 眼睛 ───
+  const eOpen=blink
+  // 眼白
+  ctx.save()
+  for(let s=-1;s<=1;s+=2){
+    ctx.beginPath(); ctx.ellipse(s*10,-2,10,13*eOpen,0,0,Math.PI*2)
+    ctx.fillStyle='rgba(255,255,255,0.9)'; ctx.fill()
+    ctx.strokeStyle='rgba(180,150,120,0.4)'; ctx.lineWidth=0.5; ctx.stroke()
+    // 瞳孔
+    if(eOpen>0.2){
+      const px=s*10+eyeLookX*3,py=-2+eyeLookY*2
+      // 虹膜 (外层)
+      ctx.beginPath(); ctx.ellipse(px,py,5,7*eOpen,0,0,Math.PI*2)
+      ctx.fillStyle='#2a1508'; ctx.fill()
+      // 瞳孔 (内层)
+      ctx.beginPath(); ctx.ellipse(px,py,3.5,5*eOpen,0,0,Math.PI*2)
+      ctx.fillStyle='#0a0500'; ctx.fill()
+      // 瞳孔高光
+      ctx.beginPath(); ctx.arc(px+2,py-2.5,2.2,0,Math.PI*2)
+      ctx.fillStyle='rgba(255,255,255,0.95)'; ctx.fill()
+      ctx.beginPath(); ctx.arc(px+4.5,py-4.5,1.2,0,Math.PI*2)
+      ctx.fillStyle='rgba(255,255,255,0.5)'; ctx.fill()
+      // 开心眼 (弯月)
+      if(eyeHappy>0.3){
+        ctx.beginPath(); ctx.arc(s*10,-2+2*eyeHappy,9*eyeHappy,0.2+eyeHappy*0.5,Math.PI-0.2-eyeHappy*0.5)
+        ctx.strokeStyle=`rgba(255,150,100,${eyeHappy*0.4})`; ctx.lineWidth=1.5; ctx.stroke()
+      }
+    }
+  }
+  ctx.restore()
+
+  // 腮红
+  for(let s=-1;s<=1;s+=2){
+    ctx.beginPath(); ctx.ellipse(s*16,7,6,4,0,0,Math.PI*2)
+    ctx.fillStyle='rgba(255,160,140,0.2)'; ctx.fill()
+  }
+
+  // ─── 鼻子 ───
+  ctx.beginPath(); ctx.moveTo(0,2); ctx.lineTo(-3,5); ctx.lineTo(3,5); ctx.closePath()
+  ctx.fillStyle='#b08068'; ctx.fill()
+  ctx.beginPath(); ctx.arc(0,4,1.5,0,Math.PI*2)
+  ctx.fillStyle='#c09078'; ctx.fill()
+
+  // ─── 嘴巴 ───
+  ctx.save()
+  if(mouth===0){
+    ctx.beginPath(); ctx.arc(0,9+mouthOpen*2,5+mouthOpen*3,0.15,Math.PI-0.15)
+    ctx.strokeStyle='#b08060'; ctx.lineWidth=1.5; ctx.stroke()
+  }else if(mouth===1){
+    ctx.beginPath(); ctx.ellipse(0,10+mouthOpen*2,6+mouthOpen*5,3+mouthOpen*4,0,0,Math.PI*2)
+    ctx.fillStyle='#6a4030'; ctx.fill()
+    if(mouthOpen>0.3){ ctx.beginPath(); ctx.arc(-1,12,1.5,0,Math.PI*2); ctx.fillStyle='#c06050'; ctx.fill() }
+  }else if(mouth===2){
+    ctx.beginPath(); ctx.ellipse(0,10,4+mouthOpen*3,5+mouthOpen*5,0,0,Math.PI*2)
+    ctx.fillStyle='#4a3020'; ctx.fill()
+  }else if(mouth===3){
+    ctx.beginPath(); ctx.arc(0,12,4,Math.PI,0); ctx.strokeStyle='#b08060'; ctx.lineWidth=2; ctx.stroke()
+  }
+  ctx.restore()
+
+  ctx.restore() // head transform
+
+  // ─── 胡须 ───
+  ctx.save()
+  ctx.translate(0,-66+headNod*4)
+  for(let s=-1;s<=1;s+=2){
+    for(let i=0;i<3;i++){
+      ctx.beginPath()
+      ctx.moveTo(s*14,-1+i*3); ctx.lineTo(s*(26+i*5),-3+i*4)
+      ctx.strokeStyle=`rgba(200,180,160,${0.25-i*0.04})`; ctx.lineWidth=1; ctx.stroke()
+    }
+  }
+  ctx.restore()
+
+  ctx.restore() // root
+
+  // ─── 粒子 ───
+  if(glowSize>0.4) drawParticles(ctx,ti,glowSize,fl)
+}
+
+function drawEar(ctx,x,y,ang,side,ti){
+  ctx.save(); ctx.translate(x,y); ctx.rotate(-0.3+ang*0.9)
+  ctx.beginPath(); ctx.moveTo(-7,0); ctx.lineTo(0,-25*(0.45+Math.abs(ang)*0.55)); ctx.lineTo(7,0); ctx.closePath()
+  const eg=ctx.createLinearGradient(0,0,0,-25)
+  eg.addColorStop(0,'#f0a858'); eg.addColorStop(1,'#e09048')
+  ctx.fillStyle=eg; ctx.fill(); ctx.strokeStyle='#c87838'; ctx.lineWidth=1; ctx.stroke()
+  // 内耳
+  ctx.beginPath(); ctx.moveTo(-3.5,-3); ctx.lineTo(0,-18*(0.45+Math.abs(ang)*0.55)); ctx.lineTo(3.5,-3); ctx.closePath()
+  ctx.fillStyle='rgba(255,200,200,0.25)'; ctx.fill()
+  ctx.restore()
+}
+
+function drawLimb(ctx,x,y,angle,reach,type,side,ti){
+  ctx.save(); ctx.translate(x,y)
+  const rot=type==='leg'?angle*0.3:angle*0.4
+  ctx.rotate(rot)
+  const len=type==='leg'?26:22
+  const w=type==='leg'?7:5.5
+  ctx.strokeStyle=type==='leg'?'#d4823a':'#e8944a'
+  ctx.lineWidth=w; ctx.lineCap='round'
+  ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(0,len+reach*6); ctx.stroke()
+  // 末端
+  const endY=len+reach*6+2
+  ctx.beginPath(); ctx.arc(0,endY,w*0.7,0,Math.PI*2)
+  ctx.fillStyle=type==='leg'?'#c87830':'#e8944a'; ctx.fill()
+  ctx.restore()
+}
+
+// ─── 粒子 ───
+let particles=[]
+function drawParticles(ctx,ti,gs,fl){
+  if(Math.random()<0.1*gs&&particles.length<30){
+    particles.push({
+      x:(Math.random()-0.5)*90,y:-20-Math.random()*80,
+      vx:(Math.random()-0.5)*0.3,vy:-Math.random()*0.4-0.1,
+      life:0,maxL:50+Math.random()*40,sz:1.5+Math.random()*3,
+      h:200+Math.random()*40,
+    })
+  }
+  ctx.save(); ctx.translate(W/2,GY+fl)
+  for(let i=particles.length-1;i>=0;i--){
+    const p=particles[i]; p.x+=p.vx; p.y+=p.vy; p.life++
+    const a=0.5*(1-p.life/p.maxL)
+    ctx.beginPath(); ctx.arc(p.x,p.y,p.sz*(1-p.life/p.maxL*0.4),0,Math.PI*2)
+    ctx.fillStyle=`rgba(255,225,180,${a})`; ctx.fill()
+    if(p.life>=p.maxL) particles.splice(i,1)
+  }
+  ctx.restore()
+}
+
+// ─── 交互 ───
+let md=false,mS={x:0,y:0},drag=false,hover=false,lastC=0,clickCount=0,clickTimer=0
+canvas.addEventListener('mousedown',e=>{md=true;mS={x:e.clientX,y:e.clientY}})
+canvas.addEventListener('mousemove',e=>{
+  if(md){
+    const dx=e.clientX-mS.x,dy=e.clientY-mS.y
+    if(dx*dx+dy*dy>100&&!drag){drag=true;AI.lastAct='drag';AI.idleFrames=0;AI.cd=20;AI.addLog('🖱️ 拖拽中')}
+  }else if(!hover){
+    hover=true;AI.lastAct='hover';AI.idleFrames=0;AI.cd=15;AI.addLog('👆 悬停')
+  }
+})
+canvas.addEventListener('mouseleave',()=>{hover=false;md=false;drag=false})
+canvas.addEventListener('mouseup',e=>{
+  if(drag){drag=false;AI.lastAct='none';AI.cd=10;AI.addLog('✓ 拖拽结束');return}
+  const now=Date.now()
+  if(now-lastC<350){
+    clickCount++;lastC=now
+    if(clickCount>=2){
+      AI.lastAct='doubleClick';AI.idleFrames=0;AI.cd=30;AI.addLog('👆👆 双击！');clickCount=0;clearTimeout(clickTimer)
+    }
+  }else{
+    clickCount=1;lastC=now
+    clickTimer=setTimeout(()=>{
+      if(clickCount===1&&Date.now()-lastC>=350){
+        AI.lastAct='click';AI.idleFrames=0;AI.cd=25;AI.addLog('👆 单击');clickCount=0
+      }
+    },360)
+  }
+  md=false
+})
+
+// ─── UI ───
+function updateUI(){
+  const p=POSES[AI.curPose]
+  document.getElementById('fpsD').textContent=currentFps+' fps'
+  const modeNames={normal:'正常',playful:'活泼',lazy:'慵懒',curious:'好奇',energetic:'精力'}
+  document.getElementById('modeD').textContent=modeNames[AI.mode]||'正常'
+  const moodNames={none:'平静',click:'受惊',doubleClick:'兴奋',hover:'好奇',drag:'玩耍'}
+  document.getElementById('moodD').textContent=moodNames[AI.lastAct]||'平静'
+  document.getElementById('energyD').textContent=Math.round(AI.energy*100)+'%'
+  document.getElementById('energyD').className='v '+(AI.energy>0.6?'hi':AI.energy>0.3?'':'lo')
+  document.getElementById('actD').textContent=
+    AI.lastAct==='none'?'—':AI.lastAct==='click'?'单击':AI.lastAct==='doubleClick'?'双击':
+    AI.lastAct==='hover'?'悬停':AI.lastAct==='drag'?'拖拽':AI.lastAct
+  document.getElementById('idleD').textContent=Math.floor(AI.idleFrames/60)+'s'
+  // mood bar
+  const moodVal=AI.energy
+  document.querySelectorAll('.mood-bar .seg').forEach((el,i)=>{el.className='seg'+(i/4<moodVal?' on':'')})
+
+  document.getElementById('poseD').textContent=(p?.icon||'')+' '+p?.label||'待机'
+
+  const cl=document.getElementById('candL')
+  cl.innerHTML=AI.candidates.map(c=>{
+    const pick=c.n===AI.curPose,ms=AI.candidates[0]?.sc||1,bw=Math.min(100,(c.sc/ms)*100)
+    return `<div class="citem ${pick?'pick':''}"><span>${c.ic}</span><span style="flex:1">${c.l}</span><span class="cbar"><span class="cbar-fill" style="width:${bw}%;background:${pick?'#79cfff':'#30363d'}"></span></span><span class="cs">${c.sc.toFixed(2)}</span></div>`
+  }).join('')
+
+  document.getElementById('confD').textContent=AI.conf.toFixed(2)
+  const isTrans=trans&&transP<1
+  document.getElementById('transD').textContent=isTrans?Math.round(transP*100)+'%':'稳定'
+
+  // params
+  const pk=[{k:'headTilt',l:'头歪'},{k:'headNod',l:'点头'},{k:'earL',l:'左耳'},{k:'earR',l:'右耳'},{k:'eyeOpen',l:'睁眼'},{k:'eyeHappy',l:'笑眼'},{k:'mouth',l:'嘴型'},{k:'mouthOpen',l:'张嘴'},{k:'armLAngle',l:'左臂'},{k:'armRAngle',l:'右臂'},{k:'tailWag',l:'摇尾'},{k:'tailCurl',l:'卷尾'},{k:'breatheAmp',l:'呼吸'},{k:'floatY',l:'浮动'},{k:'glowSize',l:'光晕'},{k:'earFlutter',l:'耳颤'}]
+  document.getElementById('paramV').innerHTML=pk.map(({k,l})=>
+    `<div class="pr"><span class="pl">${l}</span><span class="pv">${(cur[k]??0).toFixed(2)}</span></div>`
+  ).join('')
+
+  document.getElementById('logD').innerHTML=AI.log.map((l,i)=>`<div class="ln ${i===0?'fresh':''}">${l}</div>`).join('')
+  document.getElementById('blendInfo').textContent=`平滑: ${(LERP_SPEED*100).toFixed(0)}%`
+}
+
+// ─── 主循环 ───
+let ti=0,fc=0,fpsT=0,currentFps=60,aiT=0
+const LERP_SPEED=0.055
+
+function loop(ts){
+  ti+=16;fc++;fpsT+=16
+  if(fpsT>=1000){currentFps=fc;fc=0;fpsT=0}
+
+  aiT++
+  if(aiT%3===0){
+    const p=POSES[AI.curPose]
+    if(p&&p.energy>0&&AI.cd>0) AI.energy=Math.max(0,AI.energy-p.energy*0.015)
+    AI.decide()
+  }
+
+  const nt=AI.getTargets(ti)
+  for(const k of PARAMS){ tgt[k]=nt[k]??0; const d=tgt[k]-cur[k]; cur[k]+=d*LERP_SPEED; if(Math.abs(d)<0.002)cur[k]=tgt[k] }
+
+  draw(cur,ti)
+  updateUI()
+  requestAnimationFrame(loop)
+}
+
+// ─── 模式 ───
+document.querySelectorAll('#modeB .mb').forEach(b=>{
+  b.addEventListener('click',()=>{
+    document.querySelectorAll('#modeB .mb').forEach(x=>x.classList.remove('on'))
+    b.classList.add('on');AI.mode=b.dataset.mode;AI.addLog(`🎭 人格: ${b.textContent.trim()}`)
+  })
+})
+
+// ─── 启动 ───
+for(const k of PARAMS){const v=POSES.idle.t[k]??0;cur[k]=v;tgt[k]=v}
+AI.addLog('🦊 小灵骨骼系统启动 · 16 关节')
+AI.addLog('🧠 AI 决策引擎在线')
+AI.addLog('💫 等待你的互动...')
+requestAnimationFrame(loop)
+</script>
+</body>
+</html>

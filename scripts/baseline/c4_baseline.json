@@ -1,0 +1,1941 @@
+{
+ "meta": {
+  "task": "C-4 机器 diff 基线（唯一真源）",
+  "generated_at": "2026-09-12T14:43:51+08:00",
+  "python": "3.11.15",
+  "read_only": true,
+  "script": "scripts/c4_diff.py",
+  "scopes": {
+   "backend_rpc_registry": "思忆集app/backend/**/*.py",
+   "backend_events": "思忆集app/**/*.py (排除 tests)",
+   "frontend": [
+    "desk-notes/packages",
+    "思忆集手机端app/src"
+   ],
+   "ts_exclude_dirs": [
+    ".git",
+    ".mypy_cache",
+    ".next",
+    ".pytest_cache",
+    ".venv",
+    "__pycache__",
+    "archive",
+    "assets",
+    "build",
+    "chroma",
+    "coverage",
+    "dist",
+    "e2e-report",
+    "font-awesome",
+    "generated-images",
+    "node_modules",
+    "web_dist"
+   ],
+   "wrapper_layer_files": [
+    "shared/src/store/backendEventBus.ts",
+    "shared/src/sync/persistence.ts",
+    "shared/src/sync/wsClient.ts",
+    "shared/src/utils/ai.ts",
+    "shared/src/utils/syncCall.ts",
+    "shared/src/ws-client/ws-client.ts"
+   ]
+  },
+  "rules": {
+   "rpc_registered": "AST 腿为判定真源：Call(func.attr ∈ {register,register_with_schema}) 且 args[0] 为字符串常量并匹配 ^[a-z]\\w*(\\.\\w+)+$；docstring/注释里的示例注册点不计入（正则腿只在 AST 解析失败的文件上兜底，独占命中入 registered_regex_only_extra）；args[0] 非纯静态的注册点记入 dynamic_registration_sites，其静态前缀用于豁免「幻觉」误报",
+   "rpc_called": "两腿都在剥注释后的源码上跑：正则腿 `.call/.stream/.streamTyped/.notify('域.方法')` 与 `syncCall/callRpc/rpcCall/sendRequest/invoke/request('域.方法')`；结构腿自实现 TS 注释/字符串剥离 + callee 后括号参数位 0 必须整体是字符串字面量（模板插值串判非静态即弃）。两腿并集；仅注释里出现的串登记为 comment_only_mentions；首段不在后端已注册域/动态前缀内的串判为同形噪声入 unknown_namespace_hits（i18n key、文件名、capacitor 插件名）。`.bak`/`__tests__`/`*.test.*`/`*.spec.*`/`*.d.ts` 不计入生产口径",
+   "events_emitted": "Python 侧以 AST 腿为真源（callee 名含 emit/fire/publish/broadcast/notify/send_event/dispatch_event/push_event 或 AppEvent(...)，取参数位 0-1 的点号常量串与 event_type/type 关键字），docstring 里的示例发射不计入；正则腿仅对 AST 解析失败文件兜底，其独占命中入 regex_only_mentions 供复核；tests 目录不扫",
+   "events_subscribed": "API 腿（判定订阅的唯一依据）：结构腿 callee ∈ {on,once,onEvent,subscribe,onBackendEvent,onWsEvent} + 正则腿 `.on/.once('域.事件')`/`onBackendEvent('域.事件')`；启发式腿 `case/===('域.事件')` 仅用于**抑制假零订阅**（单列 heuristic_only），不参与反向 diff；测试文件订阅单列 test_only",
+   "bare_rpc": "裸调 = 非封装层文件（WRAPPER_FILES 之外）+ 该文件自身直接引用 getWsClient() 单例 + 至少 1 个剥注释后且通过命名空间接地的 `('域.方法')` RPC 调用点；V1~V7 七种口径并列给出以定位历史争议数字来源",
+   "info_items": "sqlite3 URI mode=ro；表 kv_store（列实地核对见 kv_columns）；SQL length(value) 返回**字符数**，length(cast(value as blob)) 才是 **UTF-8 字节数**——争议数字源于此二者与 MiB/十进制 MB 的单位混用"
+  },
+  "warnings": []
+ },
+ "rpc": {
+  "registered_total": 372,
+  "registered_ast_only": 372,
+  "registered_regex_only_extra": [],
+  "dynamic_registration_sites": [
+   {
+    "file": "思忆集app/backend/method_registry.py",
+    "line": 149,
+    "static_prefix": ""
+   },
+   {
+    "file": "思忆集app/backend/handlers/_tools.py",
+    "line": 80,
+    "static_prefix": ""
+   },
+   {
+    "file": "思忆集app/backend/handlers/__init__.py",
+    "line": 152,
+    "static_prefix": ""
+   },
+   {
+    "file": "思忆集app/backend/handlers/__init__.py",
+    "line": 171,
+    "static_prefix": ""
+   },
+   {
+    "file": "思忆集app/backend/handlers/__init__.py",
+    "line": 172,
+    "static_prefix": ""
+   }
+  ],
+  "dynamic_prefixes": [],
+  "frontend_called_total": 219,
+  "frontend_call_sites_total": 434,
+  "frontend_per_root": {
+   "desk-notes/packages": {
+    "files": 67,
+    "sites": 271
+   },
+   "思忆集手机端app/src": {
+    "files": 23,
+    "sites": 163
+   }
+  },
+  "frontend_regex_only_names": {
+   "notes.update": 1,
+   "notes.create": 1,
+   "notes.delete": 1,
+   "tasks.create": 1,
+   "tasks.update": 1,
+   "tasks.toggle": 1,
+   "tasks.delete": 1
+  },
+  "frontend_structural_only_names": {
+   "sandbox.batch_approve": 1,
+   "sandbox.approve": 1,
+   "sandbox.reject": 1,
+   "sandbox.preview": 1,
+   "sandbox.list_pending": 1,
+   "system.active_tasks": 1
+  },
+  "frontend_comment_only_mentions": {
+   "notes.create": 1
+  },
+  "frontend_unknown_namespace_hits_top": {},
+  "backend_internal_dispatch_refs": [
+   "chat.send"
+  ],
+  "dynamic_forwarding_sinks": [
+   {
+    "file": "desk-notes/packages/desktop/src/App.tsx",
+    "line": 199,
+    "snippet": ".call(m, p)).catch(() => {}) } }) return unsub"
+   },
+   {
+    "file": "desk-notes/packages/desktop/src/components/Modules/FlashcardModule.tsx",
+    "line": 94,
+    "snippet": ".call<T>(method, params || {}) }, []) const loadDecks ="
+   },
+   {
+    "file": "desk-notes/packages/desktop/src/components/Modules/JobHunterModule.tsx",
+    "line": 237,
+    "snippet": ".call<{ success?: boolean; text?: string; content?: string;"
+   },
+   {
+    "file": "desk-notes/packages/desktop/src/components/Modules/JobHunterModule.tsx",
+    "line": 279,
+    "snippet": ".call<{ success?: boolean; advice?: string; content?: string"
+   },
+   {
+    "file": "desk-notes/packages/desktop/src/components/Modules/ManagementModule.tsx",
+    "line": 136,
+    "snippet": ".call<{ error?: string }>(method, { name }) if (res?.e"
+   },
+   {
+    "file": "desk-notes/packages/desktop/src/components/Search/QuickSearchModal.tsx",
+    "line": 312,
+    "snippet": ".call(def.method, def.params ?? {}) } } ca"
+   },
+   {
+    "file": "desk-notes/packages/desktop/src/components/Wordbank/WordbankModule.tsx",
+    "line": 94,
+    "snippet": ".call<T>(method, params || {}, timeoutMs) }, [t]) const"
+   },
+   {
+    "file": "desk-notes/packages/desktop/src/FloatingBubble/ClipboardPopupApp.tsx",
+    "line": 24,
+    "snippet": ".call<T>(method, params) } catch (e) {"
+   },
+   {
+    "file": "desk-notes/packages/desktop/src/FloatingBubble/ClipboardPopupApp.tsx",
+    "line": 33,
+    "snippet": ".rpcCall(method, params) if (resp.success) return resp.d"
+   },
+   {
+    "file": "desk-notes/packages/desktop/src/FloatingBubble/ClipboardPopupApp.tsx",
+    "line": 40,
+    "snippet": ".call<T>(method, params) } throw new Error('Not connecte"
+   },
+   {
+    "file": "desk-notes/packages/desktop/src/FloatingBubble/useSandbox.ts",
+    "line": 49,
+    "snippet": ".call(method, params) return (result ?? {}) as Record<"
+   },
+   {
+    "file": "desk-notes/packages/shared/src/sync/wsClient.ts",
+    "line": 185,
+    "snippet": "call<T = unknown>(method: string, params?: unknown): Promise"
+   },
+   {
+    "file": "desk-notes/packages/shared/src/utils/pluginSystem.ts",
+    "line": 47,
+    "snippet": ".call(plugin, ...args) } catch (e: unknown) {"
+   },
+   {
+    "file": "desk-notes/packages/shared/src/utils/syncCall.ts",
+    "line": 23,
+    "snippet": "syncCall(method: string, params: Record<string, unknown>): v"
+   },
+   {
+    "file": "desk-notes/packages/shared/src/utils/syncCall.ts",
+    "line": 27,
+    "snippet": ".call(method, params).catch((e: unknown) => { consol"
+   },
+   {
+    "file": "desk-notes/packages/shared/src/utils/syncQueue.ts",
+    "line": 120,
+    "snippet": ".call(op.method, op.params) queue.shift() pe"
+   },
+   {
+    "file": "desk-notes/packages/shared/src/ws-client/ws-client.ts",
+    "line": 224,
+    "snippet": "call<T = unknown>(method: string, params?: Record<string, un"
+   },
+   {
+    "file": "desk-notes/packages/shared/src/ws-client/ws-client.ts",
+    "line": 267,
+    "snippet": "stream<T = string>( method: string, params?: Record<"
+   },
+   {
+    "file": "desk-notes/packages/shared/src/ws-client/ws-client.ts",
+    "line": 391,
+    "snippet": "streamTyped( method: string, params?: Record<string,"
+   },
+   {
+    "file": "思忆集手机端app/src/lib/rpcClient.ts",
+    "line": 153,
+    "snippet": "callRpc<T = unknown>(method: string, params: Record<string,"
+   },
+   {
+    "file": "思忆集手机端app/src/lib/rpcClient.ts",
+    "line": 159,
+    "snippet": ".call<T>(method, params) } catch (err) { const msg"
+   },
+   {
+    "file": "思忆集手机端app/src/lib/rpcClient.ts",
+    "line": 185,
+    "snippet": ".streamTyped(method, params) } e"
+   }
+  ],
+  "orphans_caveat": "孤儿清单为静态上界：存在 22 处首参非字面量的 RPC 转发点（syncCall/队列/命令面板/桌宠桥），经它们可达的方法静态扫不出，需以运行时 system.status 或人工复核收敛",
+  "orphans": {
+   "registered_but_never_called_by_frontend": [
+    "agent.cancel",
+    "agent.history",
+    "agent.run_now",
+    "agent.schedule",
+    "agent.state.context",
+    "aggregation.config",
+    "aggregation.logs",
+    "aggregation.stats",
+    "ai.generate_image",
+    "ai.generate_image.status",
+    "ai_chat.clear_token",
+    "ai_chat.set_token",
+    "ai_chat.status",
+    "ai_chat.sync_deepseek",
+    "api_keys.rotation.add_backup",
+    "api_keys.rotation.get",
+    "api_keys.rotation.history",
+    "api_keys.rotation.list",
+    "api_keys.rotation.remove_key",
+    "api_keys.rotation.rotate",
+    "api_keys.rotation.set_policy",
+    "api_keys.test",
+    "assistant.unfinished_tasks",
+    "audit.batch_rollback",
+    "audit.can_rollback",
+    "audit.get",
+    "audit.list_rollbackable",
+    "audit.rollback",
+    "audit.stats",
+    "auth.revoke",
+    "auth.rotate",
+    "chat.feedback.aggregate",
+    "chat.feedback.delete",
+    "chat.feedback.list",
+    "chat.feedback.preference.get",
+    "chat.feedback.preference.set",
+    "chat.feedback.stats",
+    "confirmation.list",
+    "confirmation.status",
+    "cron.remove",
+    "cron.update",
+    "evolution.confirm_upgrade",
+    "evolution.final_apply",
+    "evolution.get_result",
+    "evolution.is_redline",
+    "evolution.list_results",
+    "evolution.sandbox_recent",
+    "evolution.skip_upgrade",
+    "external_content.configure_readwise",
+    "external_content.import_browser_bookmarks",
+    "external_content.import_kindle",
+    "external_content.list_sources",
+    "external_content.sync_readwise",
+    "file.find",
+    "file.read",
+    "file.write",
+    "inbox.list_confirmations",
+    "inbox.respond_confirmation",
+    "info.get_section_keywords",
+    "info.items.get",
+    "info.items.sources",
+    "info.items.stats",
+    "info.items.update",
+    "info.set_section_keywords",
+    "info.sources.add",
+    "info.sources.remove",
+    "info.sources.reset",
+    "info.sources.toggle",
+    "job_hunter.analyze",
+    "job_hunter.cold_message.generate",
+    "job_hunter.interview_prep",
+    "job_hunter.jobs.fetch_detail",
+    "job_hunter.jobs.get",
+    "job_hunter.resume.diagnose",
+    "job_hunter.resume.rewrite",
+    "job_hunter.resume.rewrite_section",
+    "job_hunter.resume_advice",
+    "job_hunter.scrape.status",
+    "kimi.sync_once",
+    "knowledge.brief",
+    "knowledge.graph_for_viz",
+    "knowledge.md_export",
+    "knowledge.md_stats",
+    "maintenance.proposals.approve",
+    "maintenance.proposals.list",
+    "maintenance.proposals.reject",
+    "memory.narrative.generate_monthly",
+    "notes.ai_assist",
+    "notes.batch_delete",
+    "notification.get",
+    "notification.preferences.get",
+    "notification.preferences.set",
+    "notification.test",
+    "personal.profile.extract",
+    "personal.raw_items.stats",
+    "personal.review",
+    "process.list",
+    "process.output",
+    "process.status",
+    "process.terminate",
+    "provider.health_check_now",
+    "provider.health_reset",
+    "provider.health_status",
+    "provider.routing.get",
+    "provider.routing.preview",
+    "provider.routing.set",
+    "provider.routing.stats",
+    "reminder.create",
+    "remote.agent.execute",
+    "report.daily_summary",
+    "rss.fetch_now",
+    "rss.test",
+    "settings.get_auto_tag",
+    "settings.get_daily_summary",
+    "settings.set_auto_tag",
+    "settings.set_daily_summary",
+    "sync.reset_watermark",
+    "task_queue.enqueue",
+    "task_queue.get",
+    "task_queue.stats",
+    "timeline.by_type",
+    "timeline.list",
+    "timeline.range",
+    "timeline.stats",
+    "tool.health_check",
+    "tool.list",
+    "tool.refresh",
+    "tool.register",
+    "tool.samples",
+    "tool.unregister",
+    "tool.validate",
+    "trae.diff",
+    "trae.install_extension",
+    "trae.list_extensions",
+    "trae.open",
+    "trae.open_file",
+    "trae.status",
+    "trae.uninstall_extension",
+    "transcribe.transcribe_file",
+    "transfer.delete",
+    "transfer.files",
+    "translations.list",
+    "usage.budget.set",
+    "usage.check_budget",
+    "usage.monthly_report",
+    "usage.purge",
+    "usage.records",
+    "vocab.rollback_fsrs",
+    "web.fetch",
+    "word.quiz_cloze",
+    "word.quiz_meaning",
+    "word.quiz_word",
+    "word.review_fsrs"
+   ],
+   "count_frontend": 153,
+   "count_effective_excl_internal_refs": 153,
+   "effective_list": [
+    "agent.cancel",
+    "agent.history",
+    "agent.run_now",
+    "agent.schedule",
+    "agent.state.context",
+    "aggregation.config",
+    "aggregation.logs",
+    "aggregation.stats",
+    "ai.generate_image",
+    "ai.generate_image.status",
+    "ai_chat.clear_token",
+    "ai_chat.set_token",
+    "ai_chat.status",
+    "ai_chat.sync_deepseek",
+    "api_keys.rotation.add_backup",
+    "api_keys.rotation.get",
+    "api_keys.rotation.history",
+    "api_keys.rotation.list",
+    "api_keys.rotation.remove_key",
+    "api_keys.rotation.rotate",
+    "api_keys.rotation.set_policy",
+    "api_keys.test",
+    "assistant.unfinished_tasks",
+    "audit.batch_rollback",
+    "audit.can_rollback",
+    "audit.get",
+    "audit.list_rollbackable",
+    "audit.rollback",
+    "audit.stats",
+    "auth.revoke",
+    "auth.rotate",
+    "chat.feedback.aggregate",
+    "chat.feedback.delete",
+    "chat.feedback.list",
+    "chat.feedback.preference.get",
+    "chat.feedback.preference.set",
+    "chat.feedback.stats",
+    "confirmation.list",
+    "confirmation.status",
+    "cron.remove",
+    "cron.update",
+    "evolution.confirm_upgrade",
+    "evolution.final_apply",
+    "evolution.get_result",
+    "evolution.is_redline",
+    "evolution.list_results",
+    "evolution.sandbox_recent",
+    "evolution.skip_upgrade",
+    "external_content.configure_readwise",
+    "external_content.import_browser_bookmarks",
+    "external_content.import_kindle",
+    "external_content.list_sources",
+    "external_content.sync_readwise",
+    "file.find",
+    "file.read",
+    "file.write",
+    "inbox.list_confirmations",
+    "inbox.respond_confirmation",
+    "info.get_section_keywords",
+    "info.items.get",
+    "info.items.sources",
+    "info.items.stats",
+    "info.items.update",
+    "info.set_section_keywords",
+    "info.sources.add",
+    "info.sources.remove",
+    "info.sources.reset",
+    "info.sources.toggle",
+    "job_hunter.analyze",
+    "job_hunter.cold_message.generate",
+    "job_hunter.interview_prep",
+    "job_hunter.jobs.fetch_detail",
+    "job_hunter.jobs.get",
+    "job_hunter.resume.diagnose",
+    "job_hunter.resume.rewrite",
+    "job_hunter.resume.rewrite_section",
+    "job_hunter.resume_advice",
+    "job_hunter.scrape.status",
+    "kimi.sync_once",
+    "knowledge.brief",
+    "knowledge.graph_for_viz",
+    "knowledge.md_export",
+    "knowledge.md_stats",
+    "maintenance.proposals.approve",
+    "maintenance.proposals.list",
+    "maintenance.proposals.reject",
+    "memory.narrative.generate_monthly",
+    "notes.ai_assist",
+    "notes.batch_delete",
+    "notification.get",
+    "notification.preferences.get",
+    "notification.preferences.set",
+    "notification.test",
+    "personal.profile.extract",
+    "personal.raw_items.stats",
+    "personal.review",
+    "process.list",
+    "process.output",
+    "process.status",
+    "process.terminate",
+    "provider.health_check_now",
+    "provider.health_reset",
+    "provider.health_status",
+    "provider.routing.get",
+    "provider.routing.preview",
+    "provider.routing.set",
+    "provider.routing.stats",
+    "reminder.create",
+    "remote.agent.execute",
+    "report.daily_summary",
+    "rss.fetch_now",
+    "rss.test",
+    "settings.get_auto_tag",
+    "settings.get_daily_summary",
+    "settings.set_auto_tag",
+    "settings.set_daily_summary",
+    "sync.reset_watermark",
+    "task_queue.enqueue",
+    "task_queue.get",
+    "task_queue.stats",
+    "timeline.by_type",
+    "timeline.list",
+    "timeline.range",
+    "timeline.stats",
+    "tool.health_check",
+    "tool.list",
+    "tool.refresh",
+    "tool.register",
+    "tool.samples",
+    "tool.unregister",
+    "tool.validate",
+    "trae.diff",
+    "trae.install_extension",
+    "trae.list_extensions",
+    "trae.open",
+    "trae.open_file",
+    "trae.status",
+    "trae.uninstall_extension",
+    "transcribe.transcribe_file",
+    "transfer.delete",
+    "transfer.files",
+    "translations.list",
+    "usage.budget.set",
+    "usage.check_budget",
+    "usage.monthly_report",
+    "usage.purge",
+    "usage.records",
+    "vocab.rollback_fsrs",
+    "web.fetch",
+    "word.quiz_cloze",
+    "word.quiz_meaning",
+    "word.quiz_word",
+    "word.review_fsrs"
+   ],
+   "registered_files": {
+    "agent.cancel": [
+     "思忆集app/backend/handlers/_agent_tasks.py:112"
+    ],
+    "agent.history": [
+     "思忆集app/backend/handlers/_agent_tasks.py:180"
+    ],
+    "agent.run_now": [
+     "思忆集app/backend/handlers/_agent_tasks.py:161"
+    ],
+    "agent.schedule": [
+     "思忆集app/backend/handlers/_agent_tasks.py:93"
+    ],
+    "agent.state.context": [
+     "思忆集app/backend/handlers/_narrative.py:95"
+    ],
+    "aggregation.config": [
+     "思忆集app/backend/handlers/_ai_usage.py:88"
+    ],
+    "aggregation.logs": [
+     "思忆集app/backend/handlers/_ai_usage.py:62"
+    ],
+    "aggregation.stats": [
+     "思忆集app/backend/handlers/_ai_usage.py:37"
+    ],
+    "ai.generate_image": [
+     "思忆集app/backend/handlers/_image.py:97"
+    ],
+    "ai.generate_image.status": [
+     "思忆集app/backend/handlers/_image.py:98"
+    ],
+    "ai_chat.clear_token": [
+     "思忆集app/backend/handlers/_ai_chat.py:100"
+    ],
+    "ai_chat.set_token": [
+     "思忆集app/backend/handlers/_ai_chat.py:99"
+    ],
+    "ai_chat.status": [
+     "思忆集app/backend/handlers/_ai_chat.py:101"
+    ],
+    "ai_chat.sync_deepseek": [
+     "思忆集app/backend/handlers/_ai_chat.py:96"
+    ],
+    "api_keys.rotation.add_backup": [
+     "思忆集app/backend/handlers/_api_keys.py:154"
+    ],
+    "api_keys.rotation.get": [
+     "思忆集app/backend/handlers/_api_keys.py:122"
+    ],
+    "api_keys.rotation.history": [
+     "思忆集app/backend/handlers/_api_keys.py:219"
+    ],
+    "api_keys.rotation.list": [
+     "思忆集app/backend/handlers/_api_keys.py:133"
+    ],
+    "api_keys.rotation.remove_key": [
+     "思忆集app/backend/handlers/_api_keys.py:169"
+    ],
+    "api_keys.rotation.rotate": [
+     "思忆集app/backend/handlers/_api_keys.py:187"
+    ],
+    "api_keys.rotation.set_policy": [
+     "思忆集app/backend/handlers/_api_keys.py:202"
+    ],
+    "api_keys.test": [
+     "思忆集app/backend/handlers/_api_keys.py:102"
+    ],
+    "assistant.unfinished_tasks": [
+     "思忆集app/backend/handlers/_trace.py:102"
+    ],
+    "audit.batch_rollback": [
+     "思忆集app/backend/handlers/_audit.py:180"
+    ],
+    "audit.can_rollback": [
+     "思忆集app/backend/handlers/_audit.py:178"
+    ],
+    "audit.get": [
+     "思忆集app/backend/handlers/_audit.py:176"
+    ],
+    "audit.list_rollbackable": [
+     "思忆集app/backend/handlers/_audit.py:177"
+    ],
+    "audit.rollback": [
+     "思忆集app/backend/handlers/_audit.py:179"
+    ],
+    "audit.stats": [
+     "思忆集app/backend/handlers/_audit.py:181"
+    ],
+    "auth.revoke": [
+     "思忆集app/backend/headless_main.py:466"
+    ],
+    "auth.rotate": [
+     "思忆集app/backend/headless_main.py:464"
+    ],
+    "chat.feedback.aggregate": [
+     "思忆集app/backend/handlers/_feedback.py:258"
+    ],
+    "chat.feedback.delete": [
+     "思忆集app/backend/handlers/_feedback.py:255"
+    ],
+    "chat.feedback.list": [
+     "思忆集app/backend/handlers/_feedback.py:253"
+    ],
+    "chat.feedback.preference.get": [
+     "思忆集app/backend/handlers/_feedback.py:256"
+    ],
+    "chat.feedback.preference.set": [
+     "思忆集app/backend/handlers/_feedback.py:257"
+    ],
+    "chat.feedback.stats": [
+     "思忆集app/backend/handlers/_feedback.py:254"
+    ],
+    "confirmation.list": [
+     "思忆集app/backend/handlers/_confirmations.py:127"
+    ],
+    "confirmation.status": [
+     "思忆集app/backend/handlers/_confirmations.py:128"
+    ],
+    "cron.remove": [
+     "思忆集app/backend/handlers/_cron.py:214"
+    ],
+    "cron.update": [
+     "思忆集app/backend/handlers/_cron.py:216"
+    ],
+    "evolution.confirm_upgrade": [
+     "思忆集app/backend/handlers/_evolution.py:81"
+    ],
+    "evolution.final_apply": [
+     "思忆集app/backend/handlers/_evolution.py:100"
+    ],
+    "evolution.get_result": [
+     "思忆集app/backend/handlers/_evolution.py:144"
+    ],
+    "evolution.is_redline": [
+     "思忆集app/backend/handlers/_evolution.py:176"
+    ],
+    "evolution.list_results": [
+     "思忆集app/backend/handlers/_evolution.py:129"
+    ],
+    "evolution.sandbox_recent": [
+     "思忆集app/backend/handlers/_evolution.py:193"
+    ],
+    "evolution.skip_upgrade": [
+     "思忆集app/backend/handlers/_evolution.py:115"
+    ],
+    "external_content.configure_readwise": [
+     "思忆集app/backend/handlers/_external_content.py:594"
+    ],
+    "external_content.import_browser_bookmarks": [
+     "思忆集app/backend/handlers/_external_content.py:714"
+    ],
+    "external_content.import_kindle": [
+     "思忆集app/backend/handlers/_external_content.py:672"
+    ],
+    "external_content.list_sources": [
+     "思忆集app/backend/handlers/_external_content.py:557"
+    ],
+    "external_content.sync_readwise": [
+     "思忆集app/backend/handlers/_external_content.py:630"
+    ],
+    "file.find": [
+     "思忆集app/backend/handlers/__init__.py:662"
+    ],
+    "file.read": [
+     "思忆集app/backend/handlers/__init__.py:658"
+    ],
+    "file.write": [
+     "思忆集app/backend/handlers/__init__.py:660"
+    ],
+    "inbox.list_confirmations": [
+     "思忆集app/backend/handlers/_inbox_crud.py:328"
+    ],
+    "inbox.respond_confirmation": [
+     "思忆集app/backend/handlers/_inbox_crud.py:273"
+    ],
+    "info.get_section_keywords": [
+     "思忆集app/backend/handlers/_inbox_info.py:298"
+    ],
+    "info.items.get": [
+     "思忆集app/backend/handlers/_info_items.py:246"
+    ],
+    "info.items.sources": [
+     "思忆集app/backend/handlers/_info_items.py:250"
+    ],
+    "info.items.stats": [
+     "思忆集app/backend/handlers/_info_items.py:251"
+    ],
+    "info.items.update": [
+     "思忆集app/backend/handlers/_info_items.py:249"
+    ],
+    "info.set_section_keywords": [
+     "思忆集app/backend/handlers/_inbox_info.py:289"
+    ],
+    "info.sources.add": [
+     "思忆集app/backend/handlers/_info_sources.py:114"
+    ],
+    "info.sources.remove": [
+     "思忆集app/backend/handlers/_info_sources.py:115"
+    ],
+    "info.sources.reset": [
+     "思忆集app/backend/handlers/_info_sources.py:116"
+    ],
+    "info.sources.toggle": [
+     "思忆集app/backend/handlers/_info_sources.py:113"
+    ],
+    "job_hunter.analyze": [
+     "思忆集app/backend/handlers/_job_hunter.py:320"
+    ],
+    "job_hunter.cold_message.generate": [
+     "思忆集app/backend/handlers/_job_hunter.py:323"
+    ],
+    "job_hunter.interview_prep": [
+     "思忆集app/backend/handlers/_job_hunter.py:325"
+    ],
+    "job_hunter.jobs.fetch_detail": [
+     "思忆集app/backend/handlers/_job_hunter.py:318"
+    ],
+    "job_hunter.jobs.get": [
+     "思忆集app/backend/handlers/_job_hunter.py:316"
+    ],
+    "job_hunter.resume.diagnose": [
+     "思忆集app/backend/handlers/_job_hunter.py:309"
+    ],
+    "job_hunter.resume.rewrite": [
+     "思忆集app/backend/handlers/_job_hunter.py:310"
+    ],
+    "job_hunter.resume.rewrite_section": [
+     "思忆集app/backend/handlers/_job_hunter.py:311"
+    ],
+    "job_hunter.resume_advice": [
+     "思忆集app/backend/handlers/_job_hunter.py:324"
+    ],
+    "job_hunter.scrape.status": [
+     "思忆集app/backend/handlers/_job_hunter.py:314"
+    ],
+    "kimi.sync_once": [
+     "思忆集app/backend/handlers/__init__.py:483"
+    ],
+    "knowledge.brief": [
+     "思忆集app/backend/handlers/_inbox_knowledge.py:319"
+    ],
+    "knowledge.graph_for_viz": [
+     "思忆集app/backend/handlers/_inbox_knowledge.py:207"
+    ],
+    "knowledge.md_export": [
+     "思忆集app/backend/handlers/_inbox_knowledge.py:337"
+    ],
+    "knowledge.md_stats": [
+     "思忆集app/backend/handlers/_inbox_knowledge.py:459"
+    ],
+    "maintenance.proposals.approve": [
+     "思忆集app/backend/handlers/_maintenance.py:59"
+    ],
+    "maintenance.proposals.list": [
+     "思忆集app/backend/handlers/_maintenance.py:44"
+    ],
+    "maintenance.proposals.reject": [
+     "思忆集app/backend/handlers/_maintenance.py:74"
+    ],
+    "memory.narrative.generate_monthly": [
+     "思忆集app/backend/handlers/_narrative.py:62"
+    ],
+    "notes.ai_assist": [
+     "思忆集app/backend/handlers/_notes.py:622"
+    ],
+    "notes.batch_delete": [
+     "思忆集app/backend/handlers/_notes.py:511"
+    ],
+    "notification.get": [
+     "思忆集app/backend/handlers/_notifications.py:100"
+    ],
+    "notification.preferences.get": [
+     "思忆集app/backend/handlers/_notifications.py:225"
+    ],
+    "notification.preferences.set": [
+     "思忆集app/backend/handlers/_notifications.py:273"
+    ],
+    "notification.test": [
+     "思忆集app/backend/handlers/_notifications.py:190"
+    ],
+    "personal.profile.extract": [
+     "思忆集app/backend/handlers/_personal.py:66"
+    ],
+    "personal.raw_items.stats": [
+     "思忆集app/backend/handlers/_personal.py:130"
+    ],
+    "personal.review": [
+     "思忆集app/backend/handlers/_personal.py:214"
+    ],
+    "process.list": [
+     "思忆集app/backend/handlers/_process.py:101"
+    ],
+    "process.output": [
+     "思忆集app/backend/handlers/_process.py:103"
+    ],
+    "process.status": [
+     "思忆集app/backend/handlers/_process.py:102"
+    ],
+    "process.terminate": [
+     "思忆集app/backend/handlers/_process.py:104"
+    ],
+    "provider.health_check_now": [
+     "思忆集app/backend/handlers/_provider_health.py:208"
+    ],
+    "provider.health_reset": [
+     "思忆集app/backend/handlers/_provider_health.py:209"
+    ],
+    "provider.health_status": [
+     "思忆集app/backend/handlers/_provider_health.py:207"
+    ],
+    "provider.routing.get": [
+     "思忆集app/backend/handlers/_system_settings.py:575"
+    ],
+    "provider.routing.preview": [
+     "思忆集app/backend/handlers/_system_settings.py:661"
+    ],
+    "provider.routing.set": [
+     "思忆集app/backend/handlers/_system_settings.py:636"
+    ],
+    "provider.routing.stats": [
+     "思忆集app/backend/handlers/_system_settings.py:688"
+    ],
+    "reminder.create": [
+     "思忆集app/backend/handlers/_reminder.py:82"
+    ],
+    "remote.agent.execute": [
+     "思忆集app/backend/handlers/_remote.py:80"
+    ],
+    "report.daily_summary": [
+     "思忆集app/backend/handlers/_info_proxy.py:203"
+    ],
+    "rss.fetch_now": [
+     "思忆集app/backend/handlers/_rss.py:141"
+    ],
+    "rss.test": [
+     "思忆集app/backend/handlers/_rss.py:142"
+    ],
+    "settings.get_auto_tag": [
+     "思忆集app/backend/handlers/_system_settings.py:208"
+    ],
+    "settings.get_daily_summary": [
+     "思忆集app/backend/handlers/_system_settings.py:269"
+    ],
+    "settings.set_auto_tag": [
+     "思忆集app/backend/handlers/_system_settings.py:177"
+    ],
+    "settings.set_daily_summary": [
+     "思忆集app/backend/handlers/_system_settings.py:238"
+    ],
+    "sync.reset_watermark": [
+     "思忆集app/backend/handlers/_sync.py:340"
+    ],
+    "task_queue.enqueue": [
+     "思忆集app/backend/handlers/_task_queue.py:213"
+    ],
+    "task_queue.get": [
+     "思忆集app/backend/handlers/_task_queue.py:215"
+    ],
+    "task_queue.stats": [
+     "思忆集app/backend/handlers/_task_queue.py:217"
+    ],
+    "timeline.by_type": [
+     "思忆集app/backend/handlers/_timeline.py:533"
+    ],
+    "timeline.list": [
+     "思忆集app/backend/handlers/_timeline.py:468"
+    ],
+    "timeline.range": [
+     "思忆集app/backend/handlers/_timeline.py:497"
+    ],
+    "timeline.stats": [
+     "思忆集app/backend/handlers/_timeline.py:584"
+    ],
+    "tool.health_check": [
+     "思忆集app/backend/handlers/_tools.py:382"
+    ],
+    "tool.list": [
+     "思忆集app/backend/handlers/_tools.py:379"
+    ],
+    "tool.refresh": [
+     "思忆集app/backend/handlers/_tools.py:381"
+    ],
+    "tool.register": [
+     "思忆集app/backend/handlers/_tools.py:378"
+    ],
+    "tool.samples": [
+     "思忆集app/backend/handlers/_tools.py:383"
+    ],
+    "tool.unregister": [
+     "思忆集app/backend/handlers/_tools.py:380"
+    ],
+    "tool.validate": [
+     "思忆集app/backend/handlers/_tools.py:384"
+    ],
+    "trae.diff": [
+     "思忆集app/backend/handlers/_trae.py:146"
+    ],
+    "trae.install_extension": [
+     "思忆集app/backend/handlers/_trae.py:190"
+    ],
+    "trae.list_extensions": [
+     "思忆集app/backend/handlers/_trae.py:170"
+    ],
+    "trae.open": [
+     "思忆集app/backend/handlers/_trae.py:102"
+    ],
+    "trae.open_file": [
+     "思忆集app/backend/handlers/_trae.py:131"
+    ],
+    "trae.status": [
+     "思忆集app/backend/handlers/_trae.py:73"
+    ],
+    "trae.uninstall_extension": [
+     "思忆集app/backend/handlers/_trae.py:206"
+    ],
+    "transcribe.transcribe_file": [
+     "思忆集app/backend/handlers/_transcription.py:151"
+    ],
+    "transfer.delete": [
+     "思忆集app/backend/handlers/_transfer.py:577"
+    ],
+    "transfer.files": [
+     "思忆集app/backend/handlers/_transfer.py:536"
+    ],
+    "translations.list": [
+     "思忆集app/backend/handlers/_ai_translate.py:455"
+    ],
+    "usage.budget.set": [
+     "思忆集app/backend/handlers/_ai_usage.py:180"
+    ],
+    "usage.check_budget": [
+     "思忆集app/backend/handlers/_ai_usage.py:192"
+    ],
+    "usage.monthly_report": [
+     "思忆集app/backend/handlers/_ai_usage.py:431"
+    ],
+    "usage.purge": [
+     "思忆集app/backend/handlers/_ai_usage.py:363"
+    ],
+    "usage.records": [
+     "思忆集app/backend/handlers/_ai_usage.py:143"
+    ],
+    "vocab.rollback_fsrs": [
+     "思忆集app/backend/handlers/_wordbook.py:272"
+    ],
+    "web.fetch": [
+     "思忆集app/backend/handlers/_inbox_web.py:61"
+    ],
+    "word.quiz_cloze": [
+     "思忆集app/backend/handlers/_wordbook.py:772"
+    ],
+    "word.quiz_meaning": [
+     "思忆集app/backend/handlers/_wordbook.py:651"
+    ],
+    "word.quiz_word": [
+     "思忆集app/backend/handlers/_wordbook.py:708"
+    ],
+    "word.review_fsrs": [
+     "思忆集app/backend/handlers/_wordbook.py:255"
+    ]
+   }
+  },
+  "hallucinations": {
+   "called_but_not_registered": [],
+   "count": 0,
+   "matched_by_dynamic_prefix_only": []
+  }
+ },
+ "events": {
+  "backend_emitted_total": 70,
+  "backend_emit_sites": 99,
+  "backend_py_wildcard_subscribers": [
+   "思忆集app/backend/event_bridge.py"
+  ],
+  "frontend_subscribed_total": 30,
+  "frontend_wildcard_subscribers": [
+   "desk-notes/packages/desktop/src/FloatingBubble/useBackendEvents.ts",
+   "desk-notes/packages/shared/src/store/backendEventsStore.ts",
+   "思忆集手机端app/src/lib/eventBridge.ts"
+  ],
+  "backend_regex_only_mentions": {
+   "browser.summarized": 1,
+   "feedback.aggregated": 1
+  },
+  "emitted_detail": {
+   "action.confirm_required": {
+    "sites": 3,
+    "files": [
+     "思忆集app/backend/confirmation_watcher.py",
+     "思忆集app/services/confirmation_flow.py"
+    ]
+   },
+   "action.confirm_resolved": {
+    "sites": 1,
+    "files": [
+     "思忆集app/services/confirmation_flow.py"
+    ]
+   },
+   "agent.chain.completed": {
+    "sites": 1,
+    "files": [
+     "思忆集app/assistant/chain/_runner.py"
+    ]
+   },
+   "agent.chain.node.completed": {
+    "sites": 1,
+    "files": [
+     "思忆集app/assistant/chain/_runner.py"
+    ]
+   },
+   "agent.chain.node.failed": {
+    "sites": 3,
+    "files": [
+     "思忆集app/assistant/chain/_runner.py"
+    ]
+   },
+   "agent.chain.node.started": {
+    "sites": 1,
+    "files": [
+     "思忆集app/assistant/chain/_runner.py"
+    ]
+   },
+   "agent.chain.notification": {
+    "sites": 1,
+    "files": [
+     "思忆集app/assistant/judge_mixin.py"
+    ]
+   },
+   "agent.chain.started": {
+    "sites": 1,
+    "files": [
+     "思忆集app/assistant/chain/_runner.py"
+    ]
+   },
+   "capability.executed": {
+    "sites": 1,
+    "files": [
+     "思忆集app/assistant/capability_router.py"
+    ]
+   },
+   "chat.artifact": {
+    "sites": 2,
+    "files": [
+     "思忆集app/assistant/agents/butler_agent.py"
+    ]
+   },
+   "copilot.response": {
+    "sites": 1,
+    "files": [
+     "思忆集app/services/copilot_engine.py"
+    ]
+   },
+   "crash.recovery": {
+    "sites": 1,
+    "files": [
+     "思忆集app/app_entry/main.py"
+    ]
+   },
+   "cron.job_alert": {
+    "sites": 1,
+    "files": [
+     "思忆集app/services/cron_service.py"
+    ]
+   },
+   "cron.job_exhausted": {
+    "sites": 2,
+    "files": [
+     "思忆集app/services/cron_service.py"
+    ]
+   },
+   "cron.job_failed": {
+    "sites": 2,
+    "files": [
+     "思忆集app/services/cron_service.py"
+    ]
+   },
+   "cron.job_succeeded": {
+    "sites": 1,
+    "files": [
+     "思忆集app/services/cron_service.py"
+    ]
+   },
+   "daily_summary.ready": {
+    "sites": 1,
+    "files": [
+     "思忆集app/backend/weekly_report_scheduler.py"
+    ]
+   },
+   "dashboard.show": {
+    "sites": 1,
+    "files": [
+     "思忆集app/assistant/capability_router.py"
+    ]
+   },
+   "exec.step": {
+    "sites": 1,
+    "files": [
+     "思忆集app/backend/handlers/chat_paths/_exec_step.py"
+    ]
+   },
+   "execution.complete": {
+    "sites": 2,
+    "files": [
+     "思忆集app/assistant/bridging/computer_use.py",
+     "思忆集app/assistant/execution/execution.py"
+    ]
+   },
+   "execution.step.step_end": {
+    "sites": 1,
+    "files": [
+     "思忆集app/assistant/bridging/computer_use.py"
+    ]
+   },
+   "execution.step.step_start": {
+    "sites": 1,
+    "files": [
+     "思忆集app/assistant/bridging/computer_use.py"
+    ]
+   },
+   "external_content.sync_completed": {
+    "sites": 3,
+    "files": [
+     "思忆集app/backend/handlers/_external_content.py"
+    ]
+   },
+   "feedback.aggregated": {
+    "sites": 1,
+    "files": [
+     "思忆集app/services/feedback_service.py"
+    ]
+   },
+   "feedback.recorded": {
+    "sites": 1,
+    "files": [
+     "思忆集app/services/feedback_service.py"
+    ]
+   },
+   "inbox.delivered": {
+    "sites": 1,
+    "files": [
+     "思忆集app/assistant/delivery/inbox.py"
+    ]
+   },
+   "inbox.item_read": {
+    "sites": 1,
+    "files": [
+     "思忆集app/assistant/delivery/inbox.py"
+    ]
+   },
+   "info.collected": {
+    "sites": 2,
+    "files": [
+     "思忆集app/backend/info_scheduler.py",
+     "思忆集app/backend/handlers/_inbox_info.py"
+    ]
+   },
+   "job_hunter.new_jobs": {
+    "sites": 1,
+    "files": [
+     "思忆集app/services/job_hunter/scheduler.py"
+    ]
+   },
+   "job_hunter.scheduler_disabled": {
+    "sites": 1,
+    "files": [
+     "思忆集app/services/job_hunter/scheduler.py"
+    ]
+   },
+   "job_hunter.scrape.completed": {
+    "sites": 2,
+    "files": [
+     "思忆集app/backend/handlers/_job_hunter.py",
+     "思忆集app/services/cron_actions.py"
+    ]
+   },
+   "memory.auto_extract": {
+    "sites": 1,
+    "files": [
+     "思忆集app/backend/handlers/_chat_memory.py"
+    ]
+   },
+   "mention.selected": {
+    "sites": 2,
+    "files": [
+     "思忆集app/assistant/chat_ui.py"
+    ]
+   },
+   "mood.changed": {
+    "sites": 2,
+    "files": [
+     "思忆集app/backend/vocab_mood.py"
+    ]
+   },
+   "note.auto_tag_suggested": {
+    "sites": 2,
+    "files": [
+     "思忆集app/backend/handlers/_notes.py"
+    ]
+   },
+   "notes.changed": {
+    "sites": 1,
+    "files": [
+     "思忆集app/backend/handlers/_notes.py"
+    ]
+   },
+   "notes.related_memories": {
+    "sites": 1,
+    "files": [
+     "思忆集app/backend/handlers/_notes.py"
+    ]
+   },
+   "notification.delivered": {
+    "sites": 1,
+    "files": [
+     "思忆集app/services/notification_dispatcher.py"
+    ]
+   },
+   "notification.toast": {
+    "sites": 1,
+    "files": [
+     "思忆集app/services/notification_dispatcher.py"
+    ]
+   },
+   "proactive.suggestion": {
+    "sites": 1,
+    "files": [
+     "思忆集app/services/suggestion_engine.py"
+    ]
+   },
+   "proactive.triggered": {
+    "sites": 2,
+    "files": [
+     "思忆集app/backend/weekly_report_scheduler.py",
+     "思忆集app/services/proactive_triggers.py"
+    ]
+   },
+   "provider.degraded": {
+    "sites": 1,
+    "files": [
+     "思忆集app/ai/provider_health_monitor.py"
+    ]
+   },
+   "provider.recovered": {
+    "sites": 2,
+    "files": [
+     "思忆集app/ai/provider_health_monitor.py"
+    ]
+   },
+   "reading.words_proposed": {
+    "sites": 1,
+    "files": [
+     "思忆集app/backend/handlers/_word_extract.py"
+    ]
+   },
+   "sandbox.approved": {
+    "sites": 4,
+    "files": [
+     "思忆集app/backend/handlers/_sandbox.py",
+     "思忆集app/services/sandbox_manager.py"
+    ]
+   },
+   "sandbox.evicted": {
+    "sites": 1,
+    "files": [
+     "思忆集app/services/sandbox_manager.py"
+    ]
+   },
+   "sandbox.pending_added": {
+    "sites": 1,
+    "files": [
+     "思忆集app/services/sandbox_manager.py"
+    ]
+   },
+   "sandbox.rejected": {
+    "sites": 1,
+    "files": [
+     "思忆集app/services/sandbox_manager.py"
+    ]
+   },
+   "sandbox.timeout": {
+    "sites": 1,
+    "files": [
+     "思忆集app/services/sandbox_manager.py"
+    ]
+   },
+   "sandbox.timeout_warning": {
+    "sites": 1,
+    "files": [
+     "思忆集app/services/sandbox_manager.py"
+    ]
+   },
+   "search.completed": {
+    "sites": 1,
+    "files": [
+     "思忆集app/services/hybrid_search_service.py"
+    ]
+   },
+   "sqlite.lock_wait": {
+    "sites": 1,
+    "files": [
+     "思忆集app/data/sqlite_store.py"
+    ]
+   },
+   "startup.begin": {
+    "sites": 1,
+    "files": [
+     "思忆集app/app_entry/main.py"
+    ]
+   },
+   "startup.window_shown": {
+    "sites": 1,
+    "files": [
+     "思忆集app/app_entry/main.py"
+    ]
+   },
+   "supertag.created": {
+    "sites": 1,
+    "files": [
+     "思忆集app/memory/structured_store.py"
+    ]
+   },
+   "supertag.deleted": {
+    "sites": 1,
+    "files": [
+     "思忆集app/memory/structured_store.py"
+    ]
+   },
+   "supertag.updated": {
+    "sites": 3,
+    "files": [
+     "思忆集app/memory/structured_store.py"
+    ]
+   },
+   "sync.completed": {
+    "sites": 1,
+    "files": [
+     "思忆集app/sync/cloud_sync_client.py"
+    ]
+   },
+   "sync.conflict": {
+    "sites": 4,
+    "files": [
+     "思忆集app/sync/_cloud_sync_entity_handlers.py"
+    ]
+   },
+   "sync.failed": {
+    "sites": 4,
+    "files": [
+     "思忆集app/sync/cloud_sync_client.py"
+    ]
+   },
+   "sync.pull_failed": {
+    "sites": 1,
+    "files": [
+     "思忆集app/sync/cloud_sync_client.py"
+    ]
+   },
+   "task.resumable": {
+    "sites": 1,
+    "files": [
+     "思忆集app/backend/headless_main.py"
+    ]
+   },
+   "task.waiting_approval": {
+    "sites": 1,
+    "files": [
+     "思忆集app/backend/handlers/chat_paths/pydantic_agent_path.py"
+    ]
+   },
+   "transfer.received": {
+    "sites": 2,
+    "files": [
+     "思忆集app/backend/handlers/_transfer.py",
+     "思忆集app/services/react_executor.py"
+    ]
+   },
+   "vocabulary.dictation.checked": {
+    "sites": 1,
+    "files": [
+     "思忆集app/backend/handlers/_dictation.py"
+    ]
+   },
+   "vocabulary.due_reminder": {
+    "sites": 1,
+    "files": [
+     "思忆集app/backend/due_reminder.py"
+    ]
+   },
+   "vocabulary.session.summary": {
+    "sites": 1,
+    "files": [
+     "思忆集app/backend/vocab_mood.py"
+    ]
+   },
+   "vocabulary.word_added": {
+    "sites": 1,
+    "files": [
+     "思忆集app/backend/handlers/_wordbook.py"
+    ]
+   },
+   "workflow.completed": {
+    "sites": 1,
+    "files": [
+     "思忆集app/assistant/capability_router.py"
+    ]
+   },
+   "workflow.progress": {
+    "sites": 1,
+    "files": [
+     "思忆集app/assistant/capability_router.py"
+    ]
+   }
+  },
+  "frontend_subscriptions": {
+   "action.confirm_required": [
+    "desk-notes/packages/desktop/src/components/chat/ChatView.tsx"
+   ],
+   "action.confirm_resolved": [
+    "desk-notes/packages/desktop/src/components/chat/ChatView.tsx"
+   ],
+   "agent.state.changed": [
+    "思忆集手机端app/src/lib/eventBridge.ts"
+   ],
+   "capability.requested": [
+    "思忆集手机端app/src/lib/eventBridge.ts"
+   ],
+   "chat.artifact": [
+    "desk-notes/packages/desktop/src/components/chat/ChatView.tsx"
+   ],
+   "cron.job_alert": [
+    "desk-notes/packages/shared/src/store/backendEventsStore.ts"
+   ],
+   "exec.step": [
+    "desk-notes/packages/shared/src/store/backendEventsStore.ts"
+   ],
+   "inbox.new": [
+    "思忆集手机端app/src/lib/bridges/inboxBridge.ts",
+    "思忆集手机端app/src/lib/eventBridge.ts"
+   ],
+   "info.collected": [
+    "desk-notes/packages/desktop/src/FloatingBubble/useDesktopNotifications.ts"
+   ],
+   "memory.surface": [
+    "思忆集手机端app/src/lib/eventBridge.ts"
+   ],
+   "mood.changed": [
+    "思忆集手机端app/src/hooks/useFloatingBall.ts",
+    "思忆集手机端app/src/lib/eventBridge.ts"
+   ],
+   "notification.delivered": [
+    "desk-notes/packages/desktop/src/components/Modules/NotificationModule.tsx"
+   ],
+   "notification.toast": [
+    "desk-notes/packages/desktop/src/FloatingBubble/useDesktopNotifications.ts"
+   ],
+   "proactive.suggestion": [
+    "desk-notes/packages/desktop/src/FloatingBubble/useDesktopNotifications.ts"
+   ],
+   "proactive.triggered": [
+    "desk-notes/packages/shared/src/store/backendEventsStore.ts"
+   ],
+   "reminder.fired": [
+    "思忆集手机端app/src/lib/eventBridge.ts"
+   ],
+   "sandbox.approved": [
+    "desk-notes/packages/desktop/src/FloatingBubble/useSandbox.ts",
+    "desk-notes/packages/shared/src/hooks/useProviderManager.ts"
+   ],
+   "sandbox.pending_added": [
+    "desk-notes/packages/desktop/src/FloatingBubble/useSandbox.ts"
+   ],
+   "sandbox.rejected": [
+    "desk-notes/packages/desktop/src/FloatingBubble/useSandbox.ts"
+   ],
+   "sandbox.requested": [
+    "思忆集手机端app/src/lib/eventBridge.ts"
+   ],
+   "sandbox.timeout": [
+    "desk-notes/packages/shared/src/store/backendEventsStore.ts"
+   ],
+   "sandbox.timeout_warning": [
+    "desk-notes/packages/shared/src/store/backendEventsStore.ts"
+   ],
+   "settings.changed": [
+    "思忆集手机端app/src/lib/bridges/settingsBridge.ts",
+    "思忆集手机端app/src/lib/eventBridge.ts"
+   ],
+   "sync.completed": [
+    "desk-notes/packages/desktop/src/components/Common/CloudSyncPanel.tsx",
+    "desk-notes/packages/desktop/src/components/MainWindow/StatusBar.tsx",
+    "思忆集手机端app/src/lib/eventBridge.ts"
+   ],
+   "sync.conflict": [
+    "desk-notes/packages/shared/src/store/backendEventsStore.ts"
+   ],
+   "sync.failed": [
+    "desk-notes/packages/desktop/src/components/Common/CloudSyncPanel.tsx",
+    "desk-notes/packages/desktop/src/components/MainWindow/StatusBar.tsx",
+    "思忆集手机端app/src/lib/eventBridge.ts"
+   ],
+   "task.resumable": [
+    "desk-notes/packages/shared/src/store/backendEventsStore.ts"
+   ],
+   "transfer.received": [
+    "desk-notes/packages/desktop/src/components/Modules/TransferView.tsx"
+   ],
+   "usage.stats.updated": [
+    "思忆集手机端app/src/lib/eventBridge.ts"
+   ],
+   "weather.refreshed": [
+    "思忆集手机端app/src/lib/eventBridge.ts"
+   ]
+  },
+  "test_only_subscriptions": {},
+  "py_internal_subscriptions": {
+   "capability.executed": [
+    "思忆集app/services/copilot_engine.py"
+   ],
+   "exec.step": [
+    "思忆集app/services/trace_recorder.py"
+   ],
+   "inbox.delivered": [
+    "思忆集app/services/copilot_engine.py"
+   ],
+   "input.captured": [
+    "思忆集app/services/copilot_engine.py"
+   ],
+   "memory.auto_extract": [
+    "思忆集app/backend/handlers/_chat_memory.py"
+   ],
+   "search.completed": [
+    "思忆集app/services/copilot_engine.py"
+   ],
+   "supertag.created": [
+    "思忆集app/memory/context.py"
+   ],
+   "supertag.deleted": [
+    "思忆集app/memory/context.py"
+   ],
+   "supertag.updated": [
+    "思忆集app/memory/context.py"
+   ],
+   "vocabulary.review.recorded": [
+    "思忆集app/backend/vocab_mood.py"
+   ]
+  },
+  "zero_frontend_subscribers_API": {
+   "list": [
+    "agent.chain.completed",
+    "agent.chain.node.completed",
+    "agent.chain.node.failed",
+    "agent.chain.node.started",
+    "agent.chain.notification",
+    "agent.chain.started",
+    "capability.executed",
+    "copilot.response",
+    "crash.recovery",
+    "cron.job_exhausted",
+    "cron.job_failed",
+    "cron.job_succeeded",
+    "daily_summary.ready",
+    "dashboard.show",
+    "execution.complete",
+    "execution.step.step_end",
+    "execution.step.step_start",
+    "external_content.sync_completed",
+    "feedback.aggregated",
+    "feedback.recorded",
+    "inbox.delivered",
+    "inbox.item_read",
+    "job_hunter.new_jobs",
+    "job_hunter.scheduler_disabled",
+    "job_hunter.scrape.completed",
+    "memory.auto_extract",
+    "mention.selected",
+    "note.auto_tag_suggested",
+    "notes.changed",
+    "notes.related_memories",
+    "provider.degraded",
+    "provider.recovered",
+    "reading.words_proposed",
+    "sandbox.evicted",
+    "search.completed",
+    "sqlite.lock_wait",
+    "startup.begin",
+    "startup.window_shown",
+    "supertag.created",
+    "supertag.deleted",
+    "supertag.updated",
+    "sync.pull_failed",
+    "task.waiting_approval",
+    "vocabulary.dictation.checked",
+    "vocabulary.due_reminder",
+    "vocabulary.session.summary",
+    "vocabulary.word_added",
+    "workflow.completed",
+    "workflow.progress"
+   ],
+   "count": 49
+  },
+  "zero_frontend_subscribers": {
+   "list": [
+    "agent.chain.completed",
+    "agent.chain.node.completed",
+    "agent.chain.node.failed",
+    "agent.chain.node.started",
+    "agent.chain.notification",
+    "agent.chain.started",
+    "capability.executed",
+    "copilot.response",
+    "crash.recovery",
+    "cron.job_exhausted",
+    "cron.job_failed",
+    "cron.job_succeeded",
+    "daily_summary.ready",
+    "dashboard.show",
+    "execution.complete",
+    "execution.step.step_end",
+    "execution.step.step_start",
+    "external_content.sync_completed",
+    "feedback.aggregated",
+    "feedback.recorded",
+    "inbox.delivered",
+    "inbox.item_read",
+    "job_hunter.new_jobs",
+    "job_hunter.scheduler_disabled",
+    "job_hunter.scrape.completed",
+    "memory.auto_extract",
+    "mention.selected",
+    "note.auto_tag_suggested",
+    "notes.changed",
+    "notes.related_memories",
+    "provider.degraded",
+    "provider.recovered",
+    "reading.words_proposed",
+    "sandbox.evicted",
+    "search.completed",
+    "sqlite.lock_wait",
+    "startup.begin",
+    "startup.window_shown",
+    "supertag.created",
+    "supertag.deleted",
+    "supertag.updated",
+    "sync.pull_failed",
+    "task.waiting_approval",
+    "vocabulary.dictation.checked",
+    "vocabulary.due_reminder",
+    "vocabulary.session.summary",
+    "vocabulary.word_added",
+    "workflow.completed",
+    "workflow.progress"
+   ],
+   "count": 49,
+   "note": "已用启发式腿（case/===）抑制假零订阅后的保守清单（重点）",
+   "heuristic_suppressed": []
+  },
+  "zero_subscriber_anywhere": {
+   "list": [
+    "agent.chain.completed",
+    "agent.chain.node.completed",
+    "agent.chain.node.failed",
+    "agent.chain.node.started",
+    "agent.chain.notification",
+    "agent.chain.started",
+    "copilot.response",
+    "crash.recovery",
+    "cron.job_exhausted",
+    "cron.job_failed",
+    "cron.job_succeeded",
+    "daily_summary.ready",
+    "dashboard.show",
+    "execution.complete",
+    "execution.step.step_end",
+    "execution.step.step_start",
+    "external_content.sync_completed",
+    "feedback.aggregated",
+    "feedback.recorded",
+    "inbox.item_read",
+    "job_hunter.new_jobs",
+    "job_hunter.scheduler_disabled",
+    "job_hunter.scrape.completed",
+    "mention.selected",
+    "note.auto_tag_suggested",
+    "notes.changed",
+    "notes.related_memories",
+    "provider.degraded",
+    "provider.recovered",
+    "reading.words_proposed",
+    "sandbox.evicted",
+    "sqlite.lock_wait",
+    "startup.begin",
+    "startup.window_shown",
+    "sync.pull_failed",
+    "task.waiting_approval",
+    "vocabulary.dictation.checked",
+    "vocabulary.due_reminder",
+    "vocabulary.session.summary",
+    "vocabulary.word_added",
+    "workflow.completed",
+    "workflow.progress"
+   ],
+   "count": 42
+  },
+  "subscribed_but_never_emitted": {
+   "list": [
+    "agent.state.changed",
+    "capability.requested",
+    "inbox.new",
+    "memory.surface",
+    "reminder.fired",
+    "sandbox.requested",
+    "settings.changed",
+    "usage.stats.updated",
+    "weather.refreshed"
+   ],
+   "count": 9
+  },
+  "heuristic_subscriptions": {
+   "ai_chat.collect": [
+    "desk-notes/packages/desktop/src/components/Modules/AutomationModule.tsx"
+   ],
+   "inbox.add": [
+    "desk-notes/packages/desktop/src/components/chat/IdeaPanel.tsx"
+   ],
+   "translate.full": [
+    "desk-notes/packages/desktop/electron/backend-relay.cjs"
+   ]
+  }
+ },
+ "bare_rpc": {
+  "scope": "desk-notes/packages",
+  "V1_symbol_grep_files_incl_bak": {
+   "files": 95,
+   "occurrences": 303
+  },
+  "V2_symbol_grep_files_excl_bak_test": {
+   "files": 75
+  },
+  "V3_callsite_files_excl_wrapper": {
+   "files": 61,
+   "sites": 223
+  },
+  "V4_bare_callsite_files_FINAL": {
+   "files": 56,
+   "sites": 205,
+   "distinct_methods": 156
+  },
+  "V5_bare_desktop_only": {
+   "files": 53,
+   "sites": 195
+  },
+  "V6_bare_excl_layer2_service": {
+   "files": 55,
+   "sites": 195
+  },
+  "V7_wrapped_callsite_control": {
+   "files": 5,
+   "sites": 42
+  },
+  "top_bare_files": [
+   {
+    "file": "desk-notes/packages/desktop/src/components/Modules/JobHunterModule.tsx",
+    "sites": 12
+   },
+   {
+    "file": "desk-notes/packages/desktop/src/components/Graph/graphService.ts",
+    "sites": 10
+   },
+   {
+    "file": "desk-notes/packages/desktop/src/components/Modules/InboxModule.tsx",
+    "sites": 9
+   },
+   {
+    "file": "desk-notes/packages/desktop/src/components/chat/IdeaPanel.tsx",
+    "sites": 9
+   },
+   {
+    "file": "desk-notes/packages/desktop/src/components/Modules/InfoLibraryView.tsx",
+    "sites": 8
+   },
+   {
+    "file": "desk-notes/packages/desktop/src/components/chat/AgentContextPanel.tsx",
+    "sites": 8
+   },
+   {
+    "file": "desk-notes/packages/desktop/src/components/Modules/AutomationModule.tsx",
+    "sites": 7
+   },
+   {
+    "file": "desk-notes/packages/desktop/src/components/Modules/InfoModule.tsx",
+    "sites": 7
+   },
+   {
+    "file": "desk-notes/packages/desktop/src/components/Common/AISettingsPanel.tsx",
+    "sites": 6
+   },
+   {
+    "file": "desk-notes/packages/desktop/src/components/Common/CloudSyncPanel.tsx",
+    "sites": 6
+   },
+   {
+    "file": "desk-notes/packages/desktop/src/components/Modules/ChatModule.tsx",
+    "sites": 6
+   },
+   {
+    "file": "desk-notes/packages/desktop/src/components/Modules/InfoSectionConfig.tsx",
+    "sites": 6
+   },
+   {
+    "file": "desk-notes/packages/shared/src/hooks/useProviderManager.ts",
+    "sites": 6
+   },
+   {
+    "file": "desk-notes/packages/desktop/src/components/Modules/NotificationModule.tsx",
+    "sites": 5
+   },
+   {
+    "file": "desk-notes/packages/desktop/src/components/Modules/TaskQueueModule.tsx",
+    "sites": 5
+   }
+  ],
+  "verdict": "唯一口径 = V4（裸调 RPC 文件数 / 调用点数 / 去重方法数）",
+  "reconciliation": {
+   "为何历史上出现 85 文件 与 64 文件/195 处 两个数": "两者口径不同且都不可直接引用：①「85 文件」来自 `grep getWsClient` 的**标识符出现文件面**（含 import 行、类型注解、注释、.bak 目录、非调用用途），对应本表 V1/V2，不是裸调文件数；②「64 文件/195 处」混用了两个作用域——文件数取自**全 packages 含调用点的文件**（本表 V3），处数取自**仅 desktop 包**的调用点（本表 V5），拼接后成为一个既不存在的分子也不存在的分母的复合数。③此外源码自审计当时又有改动，同一规则今天重跑本身就会漂移。定谳：一律引用 V4，并附作用域=desk-notes/packages、排除封装层与 .bak/测试、命名空间接地四条规则。"
+  }
+ },
+ "info_items": {
+  "probes": [
+   {
+    "db": "思忆集app/data/data/local_storage.db",
+    "file_bytes": 34766848,
+    "kv_columns": [
+     "key",
+     "value",
+     "updated_at",
+     "schema_version"
+    ],
+    "keys_total": 53,
+    "value_chars_total": 23852700,
+    "value_bytes_total": 30746210,
+    "pages": 8488,
+    "page_size": 4096,
+    "free_pages": null,
+    "user_version": 0,
+    "free_pages_ratio": null,
+    "info_items": {
+     "chars_length_value": 16405210,
+     "bytes_utf8": 20986661,
+     "MiB_from_chars": 15.645,
+     "MB_decimal_from_chars": 16.405,
+     "MiB_from_bytes": 20.014,
+     "MB_decimal_from_bytes": 20.987,
+     "share_of_db_file": 0.6036
+    }
+   },
+   {
+    "db": "思忆集app/data/local_storage.db",
+    "file_bytes": 90112,
+    "kv_columns": [
+     "key",
+     "value",
+     "updated_at",
+     "schema_version"
+    ],
+    "keys_total": 3,
+    "value_chars_total": 63802,
+    "value_bytes_total": 77412,
+    "pages": 22,
+    "page_size": 4096,
+    "free_pages": null,
+    "user_version": 0,
+    "free_pages_ratio": null,
+    "info_items": null
+   }
+  ],
+  "authoritative_db": "思忆集app/data/data/local_storage.db",
+  "result": {
+   "chars_length_value": 16405210,
+   "bytes_utf8": 20986661,
+   "MiB_from_chars": 15.645,
+   "MB_decimal_from_chars": 16.405,
+   "MiB_from_bytes": 20.014,
+   "MB_decimal_from_bytes": 20.987,
+   "share_of_db_file": 0.6036
+  },
+  "picked_rule": "取真正含 info_items 键且 value 最长的 kv_store 库（运行时主库）"
+ },
+ "verdicts": {
+  "裸调RPC": "56 文件 / 205 处（口径 V4，见 bare_rpc.reconciliation）",
+  "info_items体积": "16405210 字符 = 15.645 MiB = 16.405 MB(十进制)；UTF-8 真实字节 20986661 = 20.014 MiB →「15.62 vs 16.4」是同一 length(value) 的 MiB/十进制 MB 单位差",
+  "事件零订阅": "零前端 API 订阅 49 个（启发式腿再抑制 0 个后）；含后端内部订阅仍零订阅 42 个",
+  "RPC孤儿": "已注册未被前端调用 153 个；其中后端内部也无引用 153 个",
+  "RPC幻觉": "被前端调用但未注册 0 个"
+ }
+}

@@ -1,0 +1,21 @@
+你是一个 FastAPI 后端开发者。请在 automation-hub/api/routes/ 下创建 proposals.py，实现提案管理 API。
+
+## 参考
+- 路由风格参考 automation-hub/api/routes/agent.py
+- 桌面端思忆集app/repositories/_proposal.py 有 LocalImprovementProposalRepository:
+  - list_proposals(sort_by_updated) → list[dict] (含 id, title, content, status, created_at, updated_at)
+  - add_proposal(proposal_info) → int (new_id)
+  - update_proposal(proposal_id, new_info) → None
+  - get_proposal(proposal_id) → dict or None
+
+## 端点
+1. GET /proposals — 列提案（?status=pending_review）
+2. POST /proposals — 创建提案（body: {title, content, tags?}）
+3. GET /proposals/{id} — 查询提案
+4. PUT /proposals/{id} — 更新提案（body: {title?, content?, status?, tags?}）
+5. DELETE /proposals/{id} — 删除提案
+
+## 约束
+- 内存 dict 存储，TODO 替换为数据库
+- APIRouter(prefix="/proposals", tags=["proposals"]), require_scope("proposals:admin")
+- 错误处理同 agent.py

@@ -1,0 +1,29 @@
+versioning:
+  scheme: calendar-semver
+  stable:
+    cadence: weekly
+    format: "{year}.{week}.0"
+    channel: stable
+  dev:
+    cadence: daily
+    format: "{year}.{month}{day}-dev.{build}"
+    channel: dev
+
+release_channels:
+  - name: dev
+    audience: internal
+    rollout: "10% -> 30% -> 100%"
+  - name: stable
+    audience: all
+    rollout: "20% -> 50% -> 100%"
+
+gray_release:
+  rules:
+    - "关键链路错误率 > 2% 时停止扩容并回滚"
+    - "阻断级错误出现立即回滚"
+    - "降级级错误连续 2 个观测窗口上升则暂停发布"
+
+required_release_sections:
+  - 功能变化
+  - 已知问题
+  - 回滚步骤

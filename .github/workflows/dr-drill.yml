@@ -1,0 +1,52 @@
+name: DR Drill (七维-数C8)
+
+# 2026-08-30（W5-takeover）注明：本 workflow 仅完成静态编写 + 本地等价
+# 命令验证（pytest 与 CLI 在本地全绿，见 deliverables/dr-drill-log.md），
+# 本地无法验证 GitHub Actions 实际运行；首次触发后需人工确认跑绿。
+# 惯例对齐 .github/workflows/python-tests.yml（windows-latest + Py3.11 +
+# pip install -e ".[dev]"，pytest workdir 思忆集app）。
+
+on:
+  schedule:
+    # 每月 1 日 02:17 UTC 例行 DR 演练（错开整点高峰）
+    - cron: '17 2 1 * *'
+  workflow_dispatch: {}   # 支持手动触发（首次上线请手动跑一次确认）
+
+jobs:
+  dr-drill:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        working-directory: 思忆集app
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      # 契约测试（DR-1 往返 + 篡改门禁 + DR-2 单库损坏 + DR-3 回滚 +
+      # SIYI_DATA_DIR 环境恢复 + CLI 端到端），全部在 pytest tmp_path 沙箱内
+      - name: DR drill contract tests (pytest)
+        working-directory: 思忆集app
+        run: python -m pytest tests/test_dr_drill.py -p no:cacheprovider -q
+        timeout-minutes: 10
+
+      # 独立 CLI 全量演练：--sandbox 指定 runner TEMP 目录，绝不触碰真实数据
+      # （退出码约定：0=DRILL_OK / 1=DRILL_PARTIAL / 3=DRILL_FAILED）
+      - name: DR drill CLI (sandboxed)
+        run: python scripts/dr_drill.py --sandbox "${{ runner.temp }}\siyi-dr-drill"
+        timeout-minutes: 10
+
+      - name: Upload drill report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: drill-report
+          path: ${{ runner.temp }}/siyi-dr-drill/drill_report.json
+          if-no-files-found: ignore

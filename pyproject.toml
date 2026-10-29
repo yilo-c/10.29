@@ -1,0 +1,165 @@
+[project]
+name = "siyi-collection"
+version = "0.2.0"
+description = "思忆集 — 个人 AI 助手桌面应用 + 自动化执行底座"
+requires-python = ">=3.11"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [
+    { name = "思忆集团队" }
+]
+
+# 根项目不直接安装依赖；思忆集app 的依赖见 思忆集app/pyproject.toml 和 requirements-desktop.txt
+# 这里仅声明各子项目的可选依赖分组，便于按需安装
+dependencies = []
+
+[project.optional-dependencies]
+# automation_hub 子项目依赖（独立 FastAPI 服务）
+automation_hub = [
+    "fastapi>=0.115.0,<0.120.0",
+    "uvicorn[standard]>=0.27.0,<0.35.0",
+    "pydantic>=2.0,<3.0",
+    "sqlalchemy>=2.0,<3.0",
+    "alembic>=1.12,<2.0",
+    "redis>=5.0,<6.0",
+    "rq>=1.16,<2.0",
+    "httpx>=0.27,<1.0",
+    "PyYAML>=6.0,<7.0",
+    "python-multipart>=0.0.6,<1.0",
+    "python-jose[cryptography]>=3.3,<4.0",
+    "passlib[bcrypt]>=1.7,<2.0",
+]
+dev = [
+    "pytest>=7.4,<9.0",
+    "pytest-cov>=4.1,<7.0",
+    "pytest-asyncio>=0.23,<1.0",
+    "mypy>=1.5,<2.0",
+    "ruff>=0.1,<0.15.0",
+    "pip-audit>=2.7,<3.0",
+    "bandit>=1.7,<2.0",
+]
+desktop = [
+    "PyQt6>=6.5,<7.0",
+    "PyQt6-WebEngine>=6.5,<7.0",
+]
+worker = [
+    "docker>=7.0,<8.0",
+]
+
+[tool.setuptools]
+# 当前主项目不通过标准打包安装（使用 requirements-desktop.txt + .venv3.11/）
+# pyproject.toml 作为统一依赖声明和开发工具配置入口
+packages = []
+
+[tool.setuptools.package-dir]
+"" = "."
+
+[tool.pytest.ini_options]
+minversion = "7.4"
+testpaths = ["思忆集app/tests"]
+asyncio_mode = "auto"
+pythonpath = [
+    "思忆集app",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]
+addopts = "--tb=short"
+# 2026-09-18 补注册：从仓库根跑 pytest 时 rootdir 落到本文件，marker 未登记会刷
+# PytestUnknownMarkWarning（env-drill 三演练）。与 思忆集app/pyproject.toml 的
+# markers 列表保持一致——两处并存是 pytest 配置不继承的既有限制，改一处须同步另一处。
+markers = [
+    "integration: WebSocket RPC 集成测试（需要后端运行/隔离临时后端）",
+    "smoke: 核心入口健康冒烟",
+    "unit: 纯单元测试（不依赖后端/网络）",
+    "slow: 慢测，需显式启用（如 SIYI_RUN_SLOW_VENV=1）",
+    "env_drill_t1: env-drill T1 —— kill -9 数据一致性（原子写/半写检测/句柄占用退避）",
+    "env_drill_t2: env-drill T2 —— 时钟跳变（回拨/前进对 cron、TTL、lease 的影响）",
+    "env_drill_t3: env-drill T3 —— 磁盘故障注入（OSError 下的数据完整性与错误上报）",
+]
+
+[tool.ruff]
+line-length = 150
+target-version = "py311"
+exclude = [
+    ".venv3.11/",
+    ".venv3.11.broken-*/",
+    "七奈桌宠软件/",
+    "小问桌宠文件/",
+    ".publish_3_25_repo/",
+]
+
+[tool.ruff.lint]
+select = [
+    "F",      # Pyflakes - only syntax and undefined names
+    "TID251", # flake8-tidy-imports — banned-api 跨层规则（仅启用 251，不启用 252 相对导入禁令）
+]
+ignore = []
+fixable = ["ALL"]
+unfixable = []
+
+# P0-12: assistant/ 必须保持单向依赖 → 不允许 `from backend.*` 或
+# `import backend.*`，以免编排层重新跨越业务/服务层。
+# 实际跨层归属由 services.react_executor / services.react_tool_catalog 承接。
+# 注：不启用 ban-relative-imports，避免误伤包内 `from ..models` 等合法相对导入。
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"backend".msg = "assistant/* 不得反向依赖 backend/*；将跨层共享代码下沉至 services/。"
+
+[tool.ruff.lint.per-file-ignores]
+# 只在 assistant/ 启用 TID251 跨层禁止，其他目录全部豁免。
+# 注：ruff per-file-ignores 为多模式并集语义（空列表盖不回已豁免规则），
+# 故必须逐目录枚举——新增顶层目录若出现 TID251 误报，在此补一行。
+# 2026-09-16（S2 棘轮治理）补 scripts/：v1_acceptance/kernel_drill 属验收/演练
+# 工具，按路径直调 backend 入口是有意为之，不受编排层禁令约束。
+"思忆集app/scripts/**" = ["TID251"]
+"思忆集app/backend/**" = ["TID251"]
+"思忆集app/services/**" = ["TID251"]
+"思忆集app/tests/**" = ["TID251"]
+"思忆集app/app_entry/**" = ["TID251"]
+"思忆集app/app_runtime/**" = ["TID251"]
+"思忆集app/ai/**" = ["TID251"]
+"思忆集app/ui/**" = ["TID251"]
+"思忆集app/core/**" = ["TID251"]
+"思忆集app/memory/**" = ["TID251"]
+"思忆集app/data/**" = ["TID251"]
+"思忆集app/domain/**" = ["TID251"]
+"思忆集app/build/**" = ["TID251"]
+"思忆集app/cross_device/**" = ["TID251"]
+"思忆集app/integrations/**" = ["TID251"]
+"思忆集app/browser/**" = ["TID251"]
+"思忆集app/desktop/**" = ["TID251"]
+"思忆集app/evolution/**" = ["TID251"]
+"思忆集app/adapters/**" = ["TID251"]
+"思忆集app/plugins/**" = ["TID251"]
+"思忆集app/workflow/**" = ["TID251"]
+"思忆集app/sync/**" = ["TID251"]
+"思忆集app/repositories/**" = ["TID251"]
+"思忆集app/knowledge/**" = ["TID251"]
+"思忆集app/knowledge_base/**" = ["TID251"]
+"思忆集app/workbench/**" = ["TID251"]
+"思忆集app/assets/**" = ["TID251"]
+
+[tool.mypy]
+python_version = "3.11"
+check_untyped_defs = false
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+disallow_untyped_calls = false
+disallow_untyped_decorators = false
+warn_redundant_casts = false
+warn_unused_ignores = false
+warn_return_any = false
+strict_equality = false
+implicit_reexport = false
+explicit_package_bases = true
+namespace_packages = true
+
+exclude = [
+    "automation_hub/",           # 兼容导入层，不检查
+    "七奈桌宠软件/",
+    "小问桌宠文件/",
+    ".publish_3_25_repo/",
+    ".venv3.11/",
+    ".venv3.11.broken-*/",
+    "思忆集app/ui_main_window.py",  # 临时排除乱码文件
+]

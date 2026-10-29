@@ -1,0 +1,11 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "paths": {
+      "@desk-notes/shared": ["../shared/src"],
+      "@desk-notes/shared/*": ["../shared/src/*"]
+    }
+  },
+  "include": ["src"]
+}

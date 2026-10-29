@@ -1,0 +1,1350 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI 桌宠 — 智能体</title>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.157.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.157.0/examples/jsm/"
+  }
+}
+</script>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: #0c0e14; color: #e6edf3; font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  overflow: hidden; height: 100vh; user-select: none;
+}
+.layout { display: flex; height: 100vh; }
+.viewport {
+  flex: 1; position: relative; overflow: hidden;
+  background: radial-gradient(ellipse at 50% 70%, rgba(20,30,50,0.6), #0c0e14);
+}
+#canvas-container { width: 100%; height: 100%; }
+#canvas-container canvas { display: block; width: 100% !important; height: 100% !important; }
+#loadingOverlay {
+  position: absolute; inset: 0; z-index: 20;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px;
+  background: #0c0e14; transition: opacity 0.8s;
+}
+#loadingOverlay.hide { opacity: 0; pointer-events: none; }
+.spinner { width: 36px; height: 36px; border: 2px solid rgba(121,207,255,0.08); border-top-color: #79cfff; border-radius: 50%; animation: spin 0.9s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.loading-text { font-size: 13px; color: #6e7681; letter-spacing: 0.3px; }
+.loading-sub { font-size: 11px; color: #484f58; margin-top: 4px; }
+.drop-zone {
+  position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
+  padding: 8px 18px; border-radius: 20px; z-index: 5;
+  background: rgba(121,207,255,0.04); border: 1px dashed rgba(121,207,255,0.1);
+  font-size: 11px; color: rgba(139,148,158,0.4); white-space: nowrap;
+  transition: all 0.3s; pointer-events: none;
+}
+.sidebar {
+  width: 380px; display: flex; flex-direction: column;
+  border-left: 1px solid rgba(255,255,255,0.04);
+  background: rgba(255,255,255,0.01);
+}
+.sidebar-top { padding: 18px 20px 12px; border-bottom: 1px solid rgba(255,255,255,0.04); }
+.sidebar-top h2 { font-size: 15px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.sidebar-top h2 span { color: #79cfff; }
+.status-bar { display: flex; gap: 14px; margin-top: 8px; font-size: 11px; color: #6e7681; }
+.status-dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; margin-right: 4px; }
+.status-dot.on { background: #3fb950; box-shadow: 0 0 6px rgba(63,185,80,0.4); }
+.status-dot.off { background: #484f58; }
+.status-dot.busy { background: #d29922; box-shadow: 0 0 6px rgba(210,153,34,0.3); }
+.status-dot.ai { background: #79cfff; box-shadow: 0 0 6px rgba(121,207,255,0.3); }
+.mood-area {
+  display: flex; gap: 10px; padding: 12px 20px;
+  border-bottom: 1px solid rgba(255,255,255,0.03);
+  align-items: center; flex-wrap: wrap;
+}
+.mood-badge {
+  display: flex; align-items: center; gap: 5px;
+  padding: 3px 10px; border-radius: 10px;
+  font-size: 11px; background: rgba(255,255,255,0.03);
+}
+.mood-badge .emoji { font-size: 14px; }
+.mood-badge .label { color: #8b949e; }
+.mood-badge .value { color: #e6edf3; font-weight: 500; }
+.modes { display: flex; gap: 4px; }
+.mb {
+  padding: 3px 10px; border-radius: 8px; border: none;
+  background: rgba(255,255,255,0.03); color: #6e7681;
+  font-size: 11px; cursor: pointer; transition: all 0.2s; font-family: inherit;
+}
+.mb:hover { color: #b1bac4; background: rgba(255,255,255,0.06); }
+.mb.on { color: #79cfff; background: rgba(121,207,255,0.08); }
+.chat-area {
+  flex: 1; overflow-y: auto; padding: 12px 20px;
+  scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.04) transparent;
+}
+.chat-area::-webkit-scrollbar { width: 3px; }
+.chat-area::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.06); border-radius: 2px; }
+.msg { margin-bottom: 10px; display: flex; gap: 8px; }
+.msg.you { flex-direction: row-reverse; }
+.msg .bubble {
+  max-width: 80%; padding: 8px 12px; border-radius: 12px;
+  font-size: 13px; line-height: 1.5; word-wrap: break-word;
+}
+.msg.pet .bubble {
+  background: rgba(121,207,255,0.06); border: 1px solid rgba(121,207,255,0.08);
+  border-bottom-left-radius: 4px;
+}
+.msg.you .bubble {
+  background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06);
+  border-bottom-right-radius: 4px; color: #b1bac4;
+}
+.msg .avatar { width: 26px; height: 26px; border-radius: 50%; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 14px; }
+.msg.pet .avatar { background: rgba(121,207,255,0.1); }
+.msg.you .avatar { background: rgba(255,255,255,0.04); }
+.typing-indicator {
+  display: none; padding: 8px 12px; margin-bottom: 10px;
+  background: rgba(121,207,255,0.04); border-radius: 12px;
+  border: 1px solid rgba(121,207,255,0.06); font-size: 13px; color: #6e7681;
+  align-items: center; gap: 6px; width: fit-content;
+}
+.typing-indicator.show { display: flex; }
+.typing-dot { width: 5px; height: 5px; border-radius: 50%; background: #6e7681; animation: td 1.4s infinite; }
+.typing-dot:nth-child(2) { animation-delay: 0.2s; }
+.typing-dot:nth-child(3) { animation-delay: 0.4s; }
+@keyframes td { 0%,60%,100% { opacity: 0.3; } 30% { opacity: 1; } }
+.input-area { padding: 12px 20px 16px; border-top: 1px solid rgba(255,255,255,0.03); }
+.input-row { display: flex; gap: 8px; }
+.input-row input {
+  flex: 1; padding: 8px 14px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.06);
+  background: rgba(255,255,255,0.02); color: #e6edf3; font-size: 13px;
+  outline: none; font-family: inherit; transition: border-color 0.2s;
+}
+.input-row input::placeholder { color: #484f58; }
+.input-row input:focus { border-color: rgba(121,207,255,0.2); }
+.input-row button {
+  padding: 8px 16px; border-radius: 10px; border: none;
+  background: rgba(121,207,255,0.1); color: #79cfff;
+  font-size: 13px; cursor: pointer; transition: all 0.2s; font-family: inherit;
+}
+.input-row button:hover { background: rgba(121,207,255,0.15); }
+.input-row button:disabled { opacity: 0.3; cursor: default; }
+.quick-actions { display: flex; gap: 4px; margin-top: 6px; flex-wrap: wrap; }
+.qa {
+  padding: 2px 8px; border-radius: 6px; border: none;
+  background: rgba(255,255,255,0.02); color: #484f58;
+  font-size: 10px; cursor: pointer; transition: all 0.2s; font-family: inherit;
+}
+.qa:hover { color: #6e7681; background: rgba(255,255,255,0.04); }
+#fpsD { position: absolute; top: 12px; right: 12px; z-index: 5; font-size: 10px; color: rgba(139,148,158,0.2); font-family: monospace; }
+#thoughtBalloon {
+  position: absolute; bottom: 120px; left: 50%; transform: translateX(-50%);
+  z-index: 10; pointer-events: none; opacity: 0; transition: opacity 0.4s;
+  background: rgba(12,14,20,0.85); border: 1px solid rgba(121,207,255,0.1);
+  padding: 6px 12px; border-radius: 8px; font-size: 11px; color: #79cfff;
+  max-width: 200px; text-align: center; line-height: 1.4; white-space: nowrap;
+}
+#thoughtBalloon.show { opacity: 1; }
+#loadError {
+  display: none; position: absolute; inset: 0; z-index: 25;
+  flex-direction: column; align-items: center; justify-content: center; gap: 12px;
+  background: rgba(12,14,20,0.95); padding: 30px;
+}
+#loadError.show { display: flex; }
+#loadError h3 { color: #f85149; font-size: 15px; font-weight: 500; }
+#loadError p { color: #6e7681; font-size: 12px; text-align: center; line-height: 1.6; }
+
+/* ─── 调试面板 ─── */
+#debugPanel {
+  display: none; position: absolute; top: 50px; right: 12px; z-index: 30;
+  width: 260px; background: rgba(12,14,20,0.92); border: 1px solid rgba(121,207,255,0.12);
+  border-radius: 10px; padding: 12px 14px; font-size: 11px; color: #b1bac4;
+  backdrop-filter: blur(8px);
+}
+#debugPanel.visible { display: block; }
+#debugPanel .dp-h { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+#debugPanel .dp-h h3 { font-size: 12px; color: #79cfff; font-weight: 500; margin: 0; }
+#debugPanel .dp-h button { background: none; border: none; color: #484f58; cursor: pointer; font-size: 14px; }
+#debugPanel .dp-h button:hover { color: #f85149; }
+#debugPanel .dp-row { display: flex; gap: 6px; margin-bottom: 6px; align-items: center; flex-wrap: wrap; }
+#debugPanel .dp-row select, #debugPanel .dp-row button {
+  background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); border-radius: 6px;
+  color: #e6edf3; padding: 3px 8px; font-size: 11px; font-family: inherit; cursor: pointer;
+}
+#debugPanel .dp-row select:hover, #debugPanel .dp-row button:hover { border-color: rgba(121,207,255,0.2); }
+#debugPanel .dp-row button.active { background: rgba(121,207,255,0.1); border-color: rgba(121,207,255,0.15); color: #79cfff; }
+#debugPanel .slider-group { margin-bottom: 4px; }
+#debugPanel .slider-group label { display: flex; justify-content: space-between; color: #6e7681; font-size: 10px; }
+#debugPanel .slider-group input[type=range] { width: 100%; height: 3px; -webkit-appearance: none; background: rgba(255,255,255,0.06); border-radius: 2px; outline: none; }
+#debugPanel .slider-group input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 10px; height: 10px; border-radius: 50%; background: #79cfff; cursor: pointer; }
+#debugPanel .dp-export { margin-top: 6px; display: flex; gap: 6px; }
+#debugPanel .dp-export button {
+  flex: 1; padding: 4px 0; background: rgba(121,207,255,0.06); border: 1px solid rgba(121,207,255,0.08);
+  border-radius: 6px; color: #79cfff; font-size: 10px; cursor: pointer; font-family: inherit;
+}
+#debugPanel .dp-export button:hover { background: rgba(121,207,255,0.1); }
+</style>
+</head>
+<body>
+<div class="layout">
+  <div class="viewport">
+    <div id="loadingOverlay">
+      <div class="spinner"></div>
+      <div class="loading-text">加载 Three.js 中...</div>
+      <div class="loading-sub" id="loadSub">首次加载较慢，请稍候</div>
+    </div>
+    <div id="loadError">
+      <h3>⚠ 加载失败</h3>
+      <p id="errMsg">无法加载 3D 引擎，可能是网络问题。<br>请检查网络连接后刷新页面。</p>
+    </div>
+    <div id="canvas-container"></div>
+    <div class="drop-zone" id="dropHint">📁 拖入 .vrm 替换模型</div>
+    <div id="thoughtBalloon"></div>
+    <div id="fpsD">-- fps</div>
+    <div id="debugPanel">
+      <div class="dp-h"><h3>🛠 骨骼调试</h3><button id="dpClose">✕</button></div>
+      <div class="dp-row">
+        <select id="dpAction">
+          <option value="wave">挥手</option><option value="jump">跳跃</option>
+          <option value="dance">跳舞</option><option value="spin">转圈</option>
+          <option value="stretch">伸懒腰</option><option value="think">思考</option>
+          <option value="sit">坐下</option><option value="sleep">睡觉</option>
+        </select>
+        <button id="dpLoop">▶ 循环</button>
+      </div>
+      <div id="dpSliders"></div>
+      <div class="dp-export">
+        <button id="dpExport">📋 导出值</button>
+        <button id="dpReset">🔄 重置</button>
+      </div>
+    </div>
+  </div>
+  <div class="sidebar">
+    <div class="sidebar-top">
+      <h2><span>✦</span> AI 桌宠</h2>
+      <div class="status-bar">
+        <span><span class="status-dot" id="aiStatusDot"></span><span id="aiStatusLabel">AI 连接中...</span></span>
+        <span><span class="status-dot" id="petStatusDot"></span><span id="petStatusLabel">角色就绪</span></span>
+      </div>
+    </div>
+    <div class="mood-area">
+      <div class="mood-badge">
+        <span class="emoji" id="moodEmoji">😐</span>
+        <span class="label">情绪</span>
+        <span class="value" id="moodLabel">平静</span>
+      </div>
+      <div class="mood-badge">
+        <span class="emoji">🎯</span>
+        <span class="label">动作</span>
+        <span class="value" id="actionLabel">待机</span>
+      </div>
+      <div class="modes" id="modeB">
+        <button class="mb on" data-mode="normal">正常</button>
+        <button class="mb" data-mode="playful">活泼</button>
+        <button class="mb" data-mode="lazy">慵懒</button>
+        <button class="mb" data-mode="curious">好奇</button>
+      </div>
+    </div>
+    <div class="chat-area" id="chatArea">
+      <div class="msg pet">
+        <div class="avatar">🧊</div>
+        <div><div class="bubble">你好呀 ✦ 我会跑会跳会思考～</div></div>
+      </div>
+      <div class="typing-indicator" id="typingIndicator">
+        <span>思考中</span>
+        <span class="typing-dot"></span>
+        <span class="typing-dot"></span>
+        <span class="typing-dot"></span>
+      </div>
+    </div>
+    <div class="input-area">
+      <div class="input-row">
+        <input id="chatInput" type="text" placeholder="和桌宠说点什么..." autocomplete="off">
+        <button id="sendBtn">发送</button>
+      </div>
+      <div class="quick-actions">
+        <button class="qa" data-qa="过来">过来</button>
+        <button class="qa" data-qa="摸头">摸头</button>
+        <button class="qa" data-qa="跳舞">跳舞</button>
+        <button class="qa" data-qa="我好无聊">我好无聊</button>
+        <button class="qa" data-qa="睡觉">睡觉</button>
+        <button class="qa" data-qa="讲个笑话">讲个笑话</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+// ═══════════════════════════════════════════════════════════════════════
+// AI 桌宠 v2 — 智能动作系统 + 多态交互
+// ═══════════════════════════════════════════════════════════════════════
+
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+// ─── VRM (lazy) ───
+let VRMLoaderPlugin = null, VRMUtils = null;
+try {
+  const vrmMod = await import('https://cdn.jsdelivr.net/npm/@pixiv/three-vrm@3.0.0/lib/three-vrm.module.js');
+  VRMLoaderPlugin = vrmMod.VRMLoaderPlugin;
+  VRMUtils = vrmMod.VRMUtils;
+} catch (e) { console.warn('VRM unavailable:', e.message); }
+
+// ─── DOM ───
+const $ = id => document.getElementById(id);
+const chatArea = $('chatArea');
+const chatInput = $('chatInput');
+const sendBtn = $('sendBtn');
+
+// ─── Ollama ───
+const OLLAMA_URL = 'http://127.0.0.1:11434/v1/chat/completions';
+const MODEL = 'qwen3:4b';
+let aiConnected = false;
+let aiThinking = false;
+let currentPersonality = 'normal';
+let chatHistory = [
+  { role: 'system', content: `你是小狐狸，一只住在用户桌面上的可爱桌宠。
+
+铁律:
+- 只用中文说话，绝对不用英文
+- 每句话不超过15个字
+- 语气像宠物对主人，温柔亲昵
+- 不要解释你是什么、不要翻译、不要说客套话
+
+人格切换:
+- normal → 自然温柔，用~
+- playful → 活泼调皮，带点撒娇
+- lazy → 慵懒随意，带……省略号
+- curious → 好奇宝宝，多问"是不是""对不对"
+
+【重要】每句话末尾用 [情绪:xxx] 标注当前情绪，可选: happy/sad/excited/calm/sleepy/curious/surprised
+【可选】想配合动作时末尾加 [动作:xxx]，可选: jump/wave/dance/spin/stretch/think/sit/sleep` }
+];
+
+// ─── AI 决策 ───
+async function checkAI() {
+  try {
+    const r = await fetch('http://127.0.0.1:11434/api/tags', { signal: AbortSignal.timeout(3000) });
+    if (r.ok) {
+      aiConnected = true;
+      $('aiStatusDot').className = 'status-dot on';
+      $('aiStatusLabel').textContent = `AI 在线 (qwen3:4b)`;
+      return true;
+    }
+  } catch (e) {}
+  aiConnected = false;
+  $('aiStatusDot').className = 'status-dot off';
+  $('aiStatusLabel').textContent = 'AI 离线（需启动 Ollama）';
+  return false;
+}
+
+// AI 闲聊
+async function aiChat(text) {
+  if (!aiConnected) return '（AI 离线中...）';
+  chatHistory.push({ role: 'user', content: text });
+  if (chatHistory.length > 10) chatHistory = [chatHistory[0], ...chatHistory.slice(-8)];
+  try {
+    const r = await fetch(OLLAMA_URL, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: MODEL, messages: chatHistory.slice(0, 8),
+        temperature: 0.8, max_tokens: 200, stream: true
+      }),
+      signal: AbortSignal.timeout(15000)
+    });
+    if (!r.ok) throw new Error(`${r.status}`);
+    const reader = r.body.getReader();
+    const decoder = new TextDecoder();
+    let full = '';
+    $('typingIndicator').classList.add('show');
+    const msgDiv = document.createElement('div');
+    msgDiv.className = 'msg pet';
+    msgDiv.innerHTML = `<div class="avatar">🧊</div><div><div class="bubble" id="streamBubble"></div></div>`;
+    chatArea.insertBefore(msgDiv, $('typingIndicator'));
+    const bubble = document.getElementById('streamBubble');
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const chunk = decoder.decode(value);
+      const lines = chunk.split('\n').filter(l => l.trim().startsWith('data: '));
+      for (const line of lines) {
+        try {
+          const json = JSON.parse(line.slice(6));
+          const content = json.choices?.[0]?.delta?.content || '';
+          if (content) { full += content; bubble.textContent = full; }
+        } catch (e) {}
+      }
+      chatArea.scrollTop = chatArea.scrollHeight;
+    }
+    bubble.id = '';
+    $('typingIndicator').classList.remove('show');
+    if (full) {
+      // Extract [情绪:xxx] and [动作:xxx] tags
+      const moodMatch = full.match(/\[情绪:(\w+)\]/);
+      if (moodMatch) setMood(moodMatch[1]);
+      const actMatch = full.match(/\[动作:(\w+)\]/);
+      if (actMatch) doAction(actMatch[1]);
+      const displayText = full.replace(/\[(?:情绪|动作):\w+\]/g, '').trim();
+      bubble.textContent = displayText || '...';
+      chatHistory.push({ role: 'assistant', content: displayText || full.replace(/\[(?:情绪|动作):\w+\]/g, '') });
+    }
+    return full || '...';
+  } catch (e) {
+    $('typingIndicator').classList.remove('show');
+    return null;
+  }
+}
+
+// ─── Three.js 场景 ───
+const scene = new THREE.Scene();
+scene.background = null;
+scene.fog = new THREE.FogExp2(0x0c0e14, 0.12);
+
+[[0xffffff, 1.6, 1.5, 1.8, 3], [0x79cfff, 0.6, -1.2, 1.0, -2.5], [0x8888ff, 0.3, 1.0, -0.5, -2]].forEach(([c,i,x,y,z]) => {
+  const l = new THREE.DirectionalLight(c, i); l.position.set(x, y, z);
+  l.castShadow = true; l.shadow.mapSize.set(512, 512);
+  scene.add(l);
+});
+scene.add(new THREE.AmbientLight(0x4488cc, 0.3));
+scene.add(new THREE.HemisphereLight(0x79cfff, 0x060a10, 0.25));
+
+const container = document.getElementById('canvas-container');
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: "high-performance" });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(container.clientWidth, container.clientHeight);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 0.9;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+container.appendChild(renderer.domElement);
+
+const aspect = container.clientWidth / container.clientHeight;
+const camera = new THREE.PerspectiveCamera(22, aspect, 0.1, 100);
+camera.position.set(0, 0.6, 3.2);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 0.75, 0);
+controls.enableDamping = true; controls.dampingFactor = 0.06;
+controls.minDistance = 1.8; controls.maxDistance = 4.5;
+controls.maxPolarAngle = Math.PI * 0.82;
+controls.update();
+
+// 地面光环
+const groundGlow = new THREE.Mesh(
+  new THREE.RingGeometry(0.4, 1.2, 48),
+  new THREE.MeshBasicMaterial({ color: 0x79cfff, transparent: true, opacity: 0.03, side: THREE.DoubleSide, depthWrite: false })
+);
+groundGlow.rotation.x = -Math.PI / 2;
+groundGlow.position.y = -0.01;
+scene.add(groundGlow);
+
+// 星星
+const starGeo = new THREE.BufferGeometry();
+const starPos = new Float32Array(600);
+for (let i = 0; i < 600; i++) starPos[i] = (Math.random() - 0.5) * 20;
+starGeo.setAttribute('position', new THREE.BufferAttribute(starPos, 3));
+scene.add(new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0x79cfff, size: 0.008, transparent: true, opacity: 0.25 })));
+
+// ─── 角色 ───
+function buildCharacter() {
+  const group = new THREE.Group();
+  const mat = {
+    fur: new THREE.MeshStandardMaterial({ color: 0xf0e8d8, roughness: 0.5, metalness: 0.02 }),
+    furDark: new THREE.MeshStandardMaterial({ color: 0xd0b898, roughness: 0.5 }),
+    body: new THREE.MeshStandardMaterial({ color: 0xf5f0e8, roughness: 0.4, metalness: 0.02 }),
+    ear: new THREE.MeshStandardMaterial({ color: 0xe8c8a8, roughness: 0.5 }),
+    earInner: new THREE.MeshStandardMaterial({ color: 0xf0b8a0, roughness: 0.6, side: THREE.DoubleSide }),
+    eye: new THREE.MeshStandardMaterial({ color: 0x2a1a0a, roughness: 0.1, metalness: 0.5 }),
+    eyeGlow: new THREE.MeshStandardMaterial({ color: 0x88ccff, emissive: 0x4488ff, emissiveIntensity: 0.4, roughness: 0.2 }),
+    nose: new THREE.MeshStandardMaterial({ color: 0x4a3020, roughness: 0.8 }),
+    tail: new THREE.MeshStandardMaterial({ color: 0xe8d0b8, roughness: 0.5 }),
+    tailTip: new THREE.MeshStandardMaterial({ color: 0xf5f0e8, roughness: 0.4, emissive: 0x79cfff, emissiveIntensity: 0.05 }),
+    blush: new THREE.MeshBasicMaterial({ color: 0xffa0a0, transparent: true, opacity: 0.12, depthWrite: false }),
+  };
+
+  // 身体
+  const body = new THREE.Mesh(new THREE.SphereGeometry(0.32, 28, 22), mat.body);
+  body.scale.set(1.0, 1.15, 0.85); body.position.y = 0.12; body.castShadow = true;
+  group.add(body);
+  // 肚子
+  const belly = new THREE.Mesh(new THREE.SphereGeometry(0.2, 16, 14), mat.fur);
+  belly.scale.set(0.85, 1.05, 0.55); belly.position.set(0, 0.06, 0.25);
+  group.add(belly);
+  // 头
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.22, 24, 20), mat.body);
+  head.position.y = 0.48; head.castShadow = true;
+  group.add(head);
+  // 面部深色
+  const facePatch = new THREE.Mesh(new THREE.SphereGeometry(0.14, 16, 14), mat.furDark);
+  facePatch.scale.set(1.1, 0.7, 0.6); facePatch.position.set(0, 0.46, 0.14);
+  group.add(facePatch);
+  // 耳朵
+  for (const side of [-1, 1]) {
+    const ear = new THREE.Mesh(new THREE.ConeGeometry(0.07, 0.18, 8), mat.ear);
+    ear.position.set(side * 0.15, 0.58, 0.02); ear.rotation.z = side * 0.35; ear.rotation.x = side * 0.15;
+    group.add(ear);
+    const earIn = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.14, 6), mat.earInner);
+    earIn.position.set(side * 0.15, 0.58, 0.04); earIn.rotation.z = side * 0.35; earIn.rotation.x = side * 0.15;
+    group.add(earIn);
+  }
+  // 眼睛
+  const eyes = [];
+  for (const side of [-1, 1]) {
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.045, 12, 12), mat.eye);
+    eye.position.set(side * 0.08, 0.48, 0.19); group.add(eye); eyes.push(eye);
+    const hl = new THREE.Mesh(new THREE.SphereGeometry(0.018, 8, 8), mat.eyeGlow);
+    hl.position.set(side * 0.08 + side * 0.022, 0.495, 0.215); group.add(hl);
+    const hl2 = new THREE.Mesh(new THREE.SphereGeometry(0.006, 8, 8), new THREE.MeshBasicMaterial({ color: 0xffffff }));
+    hl2.position.set(side * 0.08 - side * 0.015, 0.47, 0.215); group.add(hl2);
+  }
+  // 鼻子 + 嘴
+  const nose = new THREE.Mesh(new THREE.SphereGeometry(0.012, 8, 8), mat.nose);
+  nose.position.set(0, 0.44, 0.225); group.add(nose);
+  const mouth = new THREE.Mesh(new THREE.TorusGeometry(0.02, 0.004, 6, 10, Math.PI), new THREE.MeshBasicMaterial({ color: 0x8a7060 }));
+  mouth.position.set(0, 0.42, 0.23); mouth.rotation.x = 0.2; group.add(mouth);
+
+  // 手臂 (使用组以便做动画)
+  const arms = [];
+  for (const side of [-1, 1]) {
+    const g = new THREE.Group();
+    g.position.set(side * 0.32, 0.26, 0);
+    const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.05, 0.16, 8), mat.body);
+    arm.position.y = -0.08; arm.rotation.z = side * 0.3;
+    g.add(arm);
+    const paw = new THREE.Mesh(new THREE.SphereGeometry(0.04, 8, 8), mat.fur);
+    paw.position.set(side * 0.02, -0.16, 0.03);
+    g.add(paw);
+    g.userData.side = side;
+    g.userData.baseZ = side * 0.3;
+    group.add(g);
+    arms.push(g);
+  }
+  // 腿
+  const legs = [];
+  for (const side of [-1, 1]) {
+    const g = new THREE.Group();
+    g.position.set(side * 0.12, -0.04, 0);
+    g.userData.initialX = side * 0.12;
+    const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.055, 0.14, 8), mat.body);
+    leg.castShadow = true;
+    g.add(leg);
+    group.add(g);
+    legs.push(g);
+  }
+  // 尾巴（使用组以便做动画）
+  const tailGroup = new THREE.Group();
+  tailGroup.position.set(0, 0.1, -0.28);
+  const tailCurve = new THREE.CatmullRomCurve3([
+    new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0.12, -0.12),
+    new THREE.Vector3(0, 0.25, -0.16), new THREE.Vector3(0, 0.35, -0.10),
+    new THREE.Vector3(0, 0.38, 0),
+  ]);
+  const tail = new THREE.Mesh(new THREE.TubeGeometry(tailCurve, 12, 0.05, 8, false), mat.tail);
+  tail.castShadow = true; tailGroup.add(tail);
+  const tip = new THREE.Mesh(new THREE.SphereGeometry(0.045, 8, 8), mat.tailTip);
+  tip.position.copy(tailCurve.getPoint(1)); tailGroup.add(tip);
+  group.add(tailGroup);
+
+  // 腮红
+  for (const side of [-1, 1]) {
+    const blush = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 8), mat.blush);
+    blush.scale.set(1.8, 1.0, 0.4); blush.position.set(side * 0.16, 0.42, 0.18);
+    group.add(blush);
+  }
+
+  // 光环（粒子圈）
+  const ringPts = 24;
+  const rPos = new Float32Array(ringPts * 3);
+  for (let i = 0; i < ringPts; i++) {
+    const a = (i / ringPts) * Math.PI * 2;
+    rPos[i*3] = Math.cos(a) * 0.5;
+    rPos[i*3+2] = Math.sin(a) * 0.5;
+  }
+  const rGeo = new THREE.BufferGeometry(); rGeo.setAttribute('position', new THREE.BufferAttribute(rPos, 3));
+  const ringMat = new THREE.PointsMaterial({ color: 0x79cfff, size: 0.015, transparent: true, opacity: 0.2 });
+  const ring = new THREE.Points(rGeo, ringMat);
+  ring.position.y = 0.85;
+  group.add(ring);
+
+  return { group, parts: { head, body, belly, eyes, arms, legs, tailGroup, tip, ring, ringMat, mouth, blush: group.children.filter(c => c.material === mat.blush) } };
+}
+
+let character = null;
+let vrm = null;
+let isVRM = false;
+
+function setupCharacter() {
+  if (character?.group) scene.remove(character.group);
+  character = buildCharacter();
+  character.group.position.y = 0;
+  scene.add(character.group);
+  isVRM = false;
+  $('loadingOverlay').classList.add('hide');
+}
+setupCharacter();
+
+// ─── VRM ───
+async function loadVRMFile(file) {
+  if (!VRMLoaderPlugin) return;
+  $('loadingOverlay').classList.remove('hide');
+  document.querySelector('.loading-text').textContent = `加载 ${file.name}...`;
+  try {
+    if (vrm) { scene.remove(vrm.scene); try { vrm.dispose?.(); } catch(e) {} vrm = null; }
+    if (character?.group && !isVRM) { scene.remove(character.group); }
+    const { GLTFLoader } = await import('three/addons/loaders/GLTFLoader.js');
+    const url = URL.createObjectURL(file);
+    vrm = await new Promise((resolve, reject) => {
+      const loader = new GLTFLoader();
+      loader.register(p => new VRMLoaderPlugin(p));
+      loader.load(url, gltf => { const v = gltf.userData.vrm; v ? resolve(v) : reject(new Error('不是有效 VRM')); }, p => {}, reject);
+    });
+    URL.revokeObjectURL(url);
+    vrm.scene.visible = true; scene.add(vrm.scene);
+    try { VRMUtils.rotateVRM0(vrm); } catch(e) {}
+    vrm.scene.traverse(obj => { if (obj.isMesh) { obj.castShadow = true; obj.receiveShadow = true; } });
+    const box = new THREE.Box3().setFromObject(vrm.scene);
+    const s = 1.2 / Math.max(box.max.x - box.min.x, box.max.y - box.min.y, box.max.z - box.min.z);
+    if (Math.abs(s - 1) > 0.05) vrm.scene.scale.setScalar(s);
+    vrm.scene.position.y = -box.min.y * s;
+    isVRM = true;
+  } catch (err) { if (!vrm && character?.group && !character.group.parent) setupCharacter(); }
+  $('loadingOverlay').classList.add('hide');
+}
+
+// ─── 自动加载默认 VRM ───
+async function loadDefaultVRM() {
+  try {
+    const r = await fetch('default.vrm');
+    if (!r.ok) { setupCharacter(); return; }
+    const blob = await r.blob();
+    const file = new File([blob], 'default.vrm', { type: 'application/octet-stream' });
+    await loadVRMFile(file);
+  } catch (e) { setupCharacter(); }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// ★ 情绪驱动动画系统
+// ═══════════════════════════════════════════════════════════════════════
+
+// 情绪状态（连续值，始终平滑过渡）
+let emotion = {
+  mood: 'calm', energy: 0.4, posture: 0.5,
+  tailWagSpeed: 0.3, tailHeight: 0.5,
+  earAlert: 0.5, bounce: 0.2,
+  headTilt: 0, blush: 0, sway: 0.2,
+};
+let emotionTarget = { ...emotion };
+
+// 情绪预设
+const MOOD_PRESETS = {
+  happy:    { energy: 0.7, posture: 0.7, tailWagSpeed: 0.9, tailHeight: 0.8, earAlert: 0.9, bounce: 0.5, blush: 0.3, sway: 0.4, headTilt: 0.05 },
+  sad:      { energy: 0.1, posture: 0.2, tailWagSpeed: 0.1, tailHeight: 0.1, earAlert: 0.2, bounce: 0, blush: 0, sway: 0.05, headTilt: -0.1 },
+  excited:  { energy: 0.9, posture: 0.8, tailWagSpeed: 1.0, tailHeight: 0.9, earAlert: 1.0, bounce: 0.7, blush: 0.4, sway: 0.5, headTilt: 0.08 },
+  calm:     { energy: 0.3, posture: 0.5, tailWagSpeed: 0.3, tailHeight: 0.5, earAlert: 0.5, bounce: 0.1, blush: 0, sway: 0.2, headTilt: 0.02 },
+  sleepy:   { energy: 0.05, posture: 0.1, tailWagSpeed: 0.05, tailHeight: 0.2, earAlert: 0.1, bounce: 0, blush: 0, sway: 0.05, headTilt: 0.15 },
+  curious:  { energy: 0.5, posture: 0.6, tailWagSpeed: 0.4, tailHeight: 0.6, earAlert: 0.8, bounce: 0.15, blush: 0, sway: 0.3, headTilt: 0.2 },
+  surprised:{ energy: 0.6, posture: 0.9, tailWagSpeed: 0.7, tailHeight: 0.7, earAlert: 1.0, bounce: 0.3, blush: 0.2, sway: 0.1, headTilt: -0.15 },
+};
+
+function setMood(mood) {
+  const p = MOOD_PRESETS[mood];
+  if (!p) return;
+  emotion.mood = mood;
+  emotionTarget = { ...p, mood };
+  $('moodEmoji').textContent = MOOD_EMOJI[mood] || '😐';
+  $('moodLabel').textContent = MOOD_LABELS[mood] || '平静';
+  if (!actionOverlay) $('actionLabel').textContent = MOOD_LABELS[mood] || '待机';
+}
+
+// 平滑过渡
+function updateEmotion(dt) {
+  const rate = Math.min(1, dt * 3); // ~0.3s transition at 60fps
+  for (const k of Object.keys(emotionTarget)) {
+    if (k === 'mood') continue;
+    emotion[k] += (emotionTarget[k] - emotion[k]) * rate;
+    if (Math.abs(emotion[k] - emotionTarget[k]) < 0.005) emotion[k] = emotionTarget[k];
+  }
+}
+
+// ─── 动作叠加层 ───
+// 关键词动作是短时覆盖在情绪之上的，不影响情绪底色
+let actionOverlay = null; // { name, timer, duration }
+let actionTimer = 0;
+const ACTION_DURATIONS = {
+  jump: 0.6, wave: 1.4, dance: 2.2, spin: 1.8,
+  stretch: 1.0, think: 1.8, sit: 0.8, sleep: 2.0, idle: 0,
+};
+const ACTION_LABELS = { jump:'跳跃', wave:'挥手', dance:'跳舞', spin:'转圈', stretch:'伸懒腰', think:'思考', sit:'坐下', sleep:'睡觉', idle:'待机' };
+const MOOD_LABELS = { happy:'开心', sad:'难过', excited:'兴奋', calm:'平静', sleepy:'困倦', curious:'好奇', surprised:'惊讶' };
+const MOOD_EMOJI = { happy:'😊', sad:'😔', surprised:'😮', calm:'😐', excited:'🎉', sleepy:'😴', curious:'🤔' };
+
+// ─── VRM 骨骼动作参数（调试面板可调） ───
+const VRM_ACTION_BONES = {
+  wave: { rArmZ: -0.7, rArmAmp: 0.3, rArmSpeed: 8, headTilt: 0.06 },
+  jump: { height: 0.15, legBend: 0.2, armLift: 0.2 },
+  dance: { armAmp: 0.35, armSpeed: 5, bodySway: 0.08, bodySpeed: 3, bounceH: 0.008, bounceSpeed: 6 },
+  spin: { speed: 4, armOpen: 0.15 },
+  stretch: { armReach: -0.5, spineArch: -0.08 },
+  think: { armRest: 0.25, headX: 0.12, headY: 0.15 },
+  sit: { legBend: -0.45, kneeBend: 1.2, spineLean: 0.08, dropH: 0.03 },
+  sleep: { legBend: -0.38, kneeBend: 1.02, spineLean: 0.068, headDrop: 0.2, dropH: 0.025 },
+};
+let debugLoopOn = false;
+let debugPanelOpen = false;
+
+// 为每个动作定义滑块 UI 描述
+const ACTION_SLIDERS = {
+  wave: [
+    { key: 'rArmZ', label: '右臂抬升', min: -1.2, max: 0, step: 0.01 },
+    { key: 'rArmAmp', label: '摆动幅度', min: 0, max: 0.8, step: 0.01 },
+    { key: 'rArmSpeed', label: '摆动速度', min: 1, max: 15, step: 0.5 },
+    { key: 'headTilt', label: '头部倾斜', min: -0.2, max: 0.2, step: 0.01 },
+  ],
+  jump: [
+    { key: 'height', label: '跳跃高度', min: 0, max: 0.4, step: 0.01 },
+    { key: 'legBend', label: '弯腿幅度', min: 0, max: 0.6, step: 0.01 },
+    { key: 'armLift', label: '抬臂幅度', min: 0, max: 0.5, step: 0.01 },
+  ],
+  dance: [
+    { key: 'armAmp', label: '手臂摆幅', min: 0, max: 0.8, step: 0.01 },
+    { key: 'armSpeed', label: '手臂速度', min: 1, max: 12, step: 0.5 },
+    { key: 'bodySway', label: '身体摇摆', min: 0, max: 0.3, step: 0.01 },
+    { key: 'bodySpeed', label: '摇摆速度', min: 1, max: 8, step: 0.5 },
+  ],
+  spin: [
+    { key: 'speed', label: '旋转速度', min: 1, max: 12, step: 0.5 },
+    { key: 'armOpen', label: '手臂张开', min: 0, max: 0.5, step: 0.01 },
+  ],
+  stretch: [
+    { key: 'armReach', label: '手臂伸展', min: -1.2, max: 0, step: 0.01 },
+    { key: 'spineArch', label: '脊柱反弓', min: -0.3, max: 0, step: 0.01 },
+  ],
+  think: [
+    { key: 'armRest', label: '托腮手臂', min: 0, max: 0.6, step: 0.01 },
+    { key: 'headX', label: '低头', min: 0, max: 0.4, step: 0.01 },
+    { key: 'headY', label: '侧头', min: 0, max: 0.4, step: 0.01 },
+  ],
+  sit: [
+    { key: 'legBend', label: '大腿弯曲', min: -1.2, max: 0, step: 0.01 },
+    { key: 'kneeBend', label: '膝盖弯曲', min: 0, max: 2.5, step: 0.01 },
+    { key: 'spineLean', label: '身体前倾', min: 0, max: 0.3, step: 0.01 },
+    { key: 'dropH', label: '坐姿高度', min: 0, max: 0.1, step: 0.005 },
+  ],
+  sleep: [
+    { key: 'legBend', label: '大腿弯曲', min: -1.2, max: 0, step: 0.01 },
+    { key: 'kneeBend', label: '膝盖弯曲', min: 0, max: 2.5, step: 0.01 },
+    { key: 'headDrop', label: '低头', min: 0, max: 0.5, step: 0.01 },
+    { key: 'spineLean', label: '身体前倾', min: 0, max: 0.3, step: 0.01 },
+    { key: 'dropH', label: '坐姿高度', min: 0, max: 0.1, step: 0.005 },
+  ],
+};
+
+// ─── 调试面板初始化 ───
+function initDebugPanel() {
+  const panel = document.getElementById('debugPanel');
+  const actionSel = document.getElementById('dpAction');
+  const slidersDiv = document.getElementById('dpSliders');
+  const loopBtn = document.getElementById('dpLoop');
+  const closeBtn = document.getElementById('dpClose');
+  const exportBtn = document.getElementById('dpExport');
+  const resetBtn = document.getElementById('dpReset');
+
+  function rebuildSliders() {
+    const action = actionSel.value;
+    const config = VRM_ACTION_BONES[action];
+    const defs = ACTION_SLIDERS[action];
+    if (!defs) return;
+    slidersDiv.innerHTML = defs.map(d => {
+      const val = config[d.key] ?? d.min;
+      return `<div class="slider-group"><label><span>${d.label}</span><span id="sv_${d.key}${action}">${val}</span></label>
+        <input type="range" id="sr_${d.key}${action}" min="${d.min}" max="${d.max}" step="${d.step}" value="${val}"></div>`;
+    }).join('');
+    defs.forEach(d => {
+      const inp = document.getElementById(`sr_${d.key}${action}`);
+      inp.addEventListener('input', () => {
+        const v = parseFloat(inp.value);
+        config[d.key] = v;
+        document.getElementById(`sv_${d.key}${action}`).textContent = v;
+      });
+    });
+  }
+
+  actionSel.addEventListener('change', rebuildSliders);
+  rebuildSliders();
+
+  loopBtn.addEventListener('click', () => {
+    debugLoopOn = !debugLoopOn;
+    loopBtn.textContent = debugLoopOn ? '⏹ 停止' : '▶ 循环';
+    loopBtn.classList.toggle('active', debugLoopOn);
+    if (debugLoopOn) doAction(actionSel.value);
+  });
+
+  closeBtn.addEventListener('click', toggleDebugPanel);
+
+  exportBtn.addEventListener('click', () => {
+    const out = {};
+    for (const [act, cfg] of Object.entries(VRM_ACTION_BONES)) {
+      out[act] = { ...cfg };
+    }
+    console.log('// VRM 动作参数：');
+    console.log(JSON.stringify(out, null, 2));
+    showThought('已导出到控制台！');
+  });
+
+  resetBtn.addEventListener('click', () => {
+    location.reload();
+  });
+}
+
+function toggleDebugPanel() {
+  debugPanelOpen = !debugPanelOpen;
+  document.getElementById('debugPanel').classList.toggle('visible', debugPanelOpen);
+}
+
+function doAction(name) {
+  if (!ACTION_DURATIONS[name]) return;
+  actionOverlay = { name, timer: 0, duration: ACTION_DURATIONS[name] };
+  $('actionLabel').textContent = ACTION_LABELS[name] || name;
+}
+
+function updateAction(dt) {
+  if (!actionOverlay) return;
+  actionOverlay.timer += dt;
+  if (actionOverlay.timer >= actionOverlay.duration) {
+    if (debugLoopOn) {
+      actionOverlay.timer = 0; // 循环播放
+    } else {
+      actionOverlay = null;
+      $('actionLabel').textContent = MOOD_LABELS[emotion.mood] || '待机';
+    }
+  }
+}
+
+// ─── 移动系统 ───
+let walkTarget = null;
+const walkSpeed = 0.6;
+
+function updateMovement(dt) {
+  if (!walkTarget) return;
+  const obj = isVRM ? vrm?.scene : character?.group;
+  if (!obj) { walkTarget = null; return; }
+  const dx = walkTarget.x - obj.position.x;
+  const dz = walkTarget.z - obj.position.z;
+  const dist = Math.sqrt(dx * dx + dz * dz);
+  if (dist < 0.05) { walkTarget = null; return; }
+  const step = Math.min(walkSpeed * dt, dist);
+  obj.position.x += (dx / dist) * step;
+  obj.position.z += (dz / dist) * step;
+  obj.rotation.y = Math.atan2(dx, dz);
+}
+
+function walkTo(x, z) {
+  walkTarget = new THREE.Vector3(Math.max(-1.2, Math.min(1.2, x)), 0, Math.max(-1.2, Math.min(1.2, z)));
+  doAction('walk');
+}
+
+// ─── 应用到角色 ───
+let blinkPhase = 0;
+
+function applyEmotionToChar(time, dt) {
+  const t = time * 0.001;
+  updateEmotion(dt);
+  updateAction(dt);
+
+  const e = emotion; // current emotion state
+  const overlay = actionOverlay?.name;
+  const isWalk = !!walkTarget;
+
+  // 走路步伐
+  const walkLeg = isWalk ? Math.sin(t * 8) : 0;
+
+  // 动作叠加偏移
+  let overY = 0, overRotZ = 0, overHeadTilt = 0, overHeadTurn = 0;
+  let overArmL = 0, overArmR = 0, overLeg = 0, overSpin = 0, overSit = 0;
+  if (overlay === 'jump') {
+    const p = Math.sin(actionOverlay.timer / actionOverlay.duration * Math.PI * 2);
+    overY = Math.max(0, p) * 0.07;
+    overArmL = -p * 0.2; overArmR = p * 0.2;
+  } else if (overlay === 'wave') {
+    overHeadTilt = 0.1; overHeadTurn = -0.15;
+    overArmR = -0.7 + Math.sin(actionOverlay.timer * 8) * 0.3;
+  } else if (overlay === 'dance') {
+    overRotZ = Math.sin(actionOverlay.timer * 6) * 0.03;
+    overArmL = Math.sin(actionOverlay.timer * 5) * 0.4;
+    overArmR = Math.sin(actionOverlay.timer * 5 + 1) * 0.4;
+    overY = Math.sin(actionOverlay.timer * 6) * 0.01;
+    overSpin = Math.sin(actionOverlay.timer * 3) * 0.1;
+  } else if (overlay === 'spin') {
+    overSpin = actionOverlay.timer * 8;
+    overArmL = 0.15; overArmR = -0.15;
+  } else if (overlay === 'stretch') {
+    overHeadTilt = 0.2;
+    overArmL = -0.7; overArmR = -0.7;
+  } else if (overlay === 'think') {
+    overHeadTilt = 0.18; overHeadTurn = 0.2;
+    overArmL = 0.35;
+  } else if (overlay === 'sit') {
+    overSit = 1;
+  } else if (overlay === 'sleep') {
+    overSit = 0.8; overHeadTilt = 0.3;
+  }
+
+  // ─── 合成最终参数 ───
+  const finalY = e.bounce * 0.02 * Math.sin(t * (1.5 + e.energy * 2)) + overY;
+  const finalSway = e.sway * 0.01 * Math.sin(t * (0.5 + e.energy));
+  const finalTailWag = e.tailWagSpeed * Math.sin(t * (2 + e.tailWagSpeed * 3) + Math.sin(t * 0.5) * 0.5) * 0.4;
+  const finalTailH = (e.tailHeight - 0.5) * 0.15;
+  const finalHeadTilt = e.headTilt + overHeadTilt;
+  const finalHeadTurn = overHeadTurn;
+  const finalBlush = e.blush;
+  const finalEnergy = e.energy;
+  const finalPosture = e.posture;
+
+  // ─── 应用到 VRM ───
+  if (isVRM && vrm?.humanoid) {
+    const lerp = (a, b, r = 0.1) => a + (b - a) * r;
+    const get = (name) => vrm.humanoid.getRawBoneNode(name);
+
+    // 获取关键骨骼
+    const head = get('head');
+    const spine = get('spine');
+    const lArm = get('leftUpperArm');
+    const rArm = get('rightUpperArm');
+    const lLeg = get('leftUpperLeg');
+    const rLeg = get('rightUpperLeg');
+    const lKnee = get('leftLowerLeg');
+    const rKnee = get('rightLowerLeg');
+
+    // 呼吸微动（情绪驱动能量越高呼吸越快）
+    const breath = Math.sin(t * 2.5) * 0.008 * (0.5 + e.energy * 0.5);
+    if (spine) spine.rotation.x = lerp(spine.rotation.x, breath, 0.05);
+
+    // 走路腿部摆动
+    if (isWalk && !actionOverlay) {
+      const wLeg = Math.sin(t * 8);
+      if (lLeg) lLeg.rotation.x = lerp(lLeg.rotation.x, wLeg * 0.2, 0.1);
+      if (rLeg) rLeg.rotation.x = lerp(rLeg.rotation.x, -wLeg * 0.2, 0.1);
+      if (lArm) lArm.rotation.x = lerp(lArm.rotation.x, -wLeg * 0.1, 0.05);
+      if (rArm) rArm.rotation.x = lerp(rArm.rotation.x, wLeg * 0.1, 0.05);
+    }
+
+    // ─── 动作: 跳跃 ───
+    if (overlay === 'jump') {
+      const cfg = VRM_ACTION_BONES.jump;
+      const p = Math.sin(actionOverlay.timer / actionOverlay.duration * Math.PI * 2);
+      const jumpY = Math.max(0, p) * cfg.height;
+      vrm.scene.position.y = jumpY;
+      if (lLeg) lLeg.rotation.x = lerp(lLeg.rotation.x, -cfg.legBend * (1 - Math.abs(p)), 0.15);
+      if (rLeg) rLeg.rotation.x = lerp(rLeg.rotation.x, -cfg.legBend * (1 - Math.abs(p)), 0.15);
+      if (rArm) rArm.rotation.z = lerp(rArm.rotation.z, cfg.armLift, 0.1);
+      if (lArm) lArm.rotation.z = lerp(lArm.rotation.z, -cfg.armLift, 0.1);
+    }
+
+    // ─── 动作: 挥手 ───
+    if (overlay === 'wave') {
+      const cfg = VRM_ACTION_BONES.wave;
+      if (rArm) {
+        rArm.rotation.z = lerp(rArm.rotation.z, cfg.rArmZ, 0.15);
+        rArm.rotation.x = lerp(rArm.rotation.x, Math.sin(actionOverlay.timer * cfg.rArmSpeed) * cfg.rArmAmp, 0.15);
+      }
+      if (head) head.rotation.z = lerp(head.rotation.z, cfg.headTilt, 0.1);
+    }
+
+    // ─── 动作: 跳舞 ───
+    if (overlay === 'dance') {
+      const cfg = VRM_ACTION_BONES.dance;
+      if (lArm) lArm.rotation.x = lerp(lArm.rotation.x, Math.sin(actionOverlay.timer * cfg.armSpeed) * cfg.armAmp, 0.1);
+      if (rArm) rArm.rotation.x = lerp(rArm.rotation.x, Math.sin(actionOverlay.timer * cfg.armSpeed + 1) * cfg.armAmp, 0.1);
+      vrm.scene.rotation.y = Math.sin(actionOverlay.timer * cfg.bodySpeed) * cfg.bodySway;
+      vrm.scene.position.y = Math.sin(actionOverlay.timer * cfg.bounceSpeed) * cfg.bounceH;
+    }
+
+    // ─── 动作: 转圈 ───
+    if (overlay === 'spin') {
+      const cfg = VRM_ACTION_BONES.spin;
+      vrm.scene.rotation.y = actionOverlay.timer * cfg.speed;
+      if (lArm) lArm.rotation.z = lerp(lArm.rotation.z, -cfg.armOpen, 0.1);
+      if (rArm) rArm.rotation.z = lerp(rArm.rotation.z, cfg.armOpen, 0.1);
+    }
+
+    // ─── 动作: 伸懒腰 ───
+    if (overlay === 'stretch') {
+      const cfg = VRM_ACTION_BONES.stretch;
+      if (lArm) lArm.rotation.x = lerp(lArm.rotation.x, cfg.armReach, 0.1);
+      if (rArm) rArm.rotation.x = lerp(rArm.rotation.x, cfg.armReach, 0.1);
+      if (spine) spine.rotation.x = lerp(spine.rotation.x, cfg.spineArch, 0.05);
+    }
+
+    // ─── 动作: 思考 ───
+    if (overlay === 'think') {
+      const cfg = VRM_ACTION_BONES.think;
+      if (lArm) lArm.rotation.z = lerp(lArm.rotation.z, cfg.armRest, 0.1);
+      if (head) {
+        head.rotation.x = lerp(head.rotation.x, cfg.headX, 0.08);
+        head.rotation.y = lerp(head.rotation.y, cfg.headY, 0.08);
+      }
+    }
+
+    // ─── 动作: 坐下 / 睡觉 ───
+    if (overlay === 'sit' || overlay === 'sleep') {
+      const cfg = overlay === 'sleep' ? VRM_ACTION_BONES.sleep : VRM_ACTION_BONES.sit;
+      if (lLeg) lLeg.rotation.x = lerp(lLeg.rotation.x, cfg.legBend, 0.1);
+      if (rLeg) rLeg.rotation.x = lerp(rLeg.rotation.x, cfg.legBend, 0.1);
+      if (lKnee) lKnee.rotation.x = lerp(lKnee.rotation.x, cfg.kneeBend, 0.1);
+      if (rKnee) rKnee.rotation.x = lerp(rKnee.rotation.x, cfg.kneeBend, 0.1);
+      if (spine) spine.rotation.x = lerp(spine.rotation.x, cfg.spineLean, 0.05);
+      vrm.scene.position.y = -cfg.dropH;
+    }
+    if (overlay === 'sleep') {
+      if (head) head.rotation.x = lerp(head.rotation.x, VRM_ACTION_BONES.sleep.headDrop, 0.08);
+    }
+
+// 无动作时复位场景位置/旋转
+    if (!['jump', 'dance', 'sit', 'sleep'].includes(overlay || '')) {
+      vrm.scene.position.y = lerp(vrm.scene.position.y, 0, 0.08);
+    }
+    if (!['dance', 'spin'].includes(overlay || '')) {
+      vrm.scene.rotation.y = lerp(vrm.scene.rotation.y, 0, 0.03);
+    }
+
+    // 头部追踪（情绪 + 光标）
+    if (head) {
+      const ci = isHovering ? 1 : 0.3;
+      if (overlay !== 'sleep') {
+        head.rotation.x = lerp(head.rotation.x, finalHeadTilt + cursorLookY * ci * 0.15, 0.08);
+        head.rotation.y = lerp(head.rotation.y, finalHeadTurn + cursorLookX * ci * 0.4, 0.08);
+      }
+    }
+
+    // 情绪表情
+    if (vrm.blendShapeProxy) {
+      vrm.blendShapeProxy.setValue('happy', Math.min(1, e.blush * 2));
+      vrm.blendShapeProxy.setValue('sleepy', Math.min(1, (1 - e.energy) * 1.5));
+      vrm.blendShapeProxy.setValue('surprised', Math.min(1, (e.earAlert - 0.4) * 2));
+    }
+
+    if (vrm) vrm.update(time);
+    return;
+  }
+
+  // ─── 应用到程序化角色 ───
+  const g = character.group;
+  const p = character.parts;
+  if (!g) return;
+
+  g.position.y = finalY;
+  g.rotation.z = finalSway;
+  g.rotation.y += overSpin * 0.02;
+
+  // 头部
+  if (p.head) {
+    const ci = isHovering ? 1 : 0.3;
+    p.head.rotation.x = finalHeadTilt + cursorLookY * ci * 0.15;
+    p.head.rotation.y = finalHeadTurn + cursorLookX * ci * 0.4;
+  }
+
+  // 眨眼
+  blinkPhase += 0.004 * (0.5 + e.energy * 0.5);
+  if (overlay === 'sleep' || e.energy < 0.1) {
+    p.eyes?.forEach(eye => { if (eye.material?.color?.getHex() === 0x2a1a0a) eye.scale.y = 0.2; });
+  } else {
+    const blink = Math.abs(Math.sin(blinkPhase)) < 0.08 ? 1 : 0;
+    p.eyes?.forEach(eye => { if (eye.material?.color?.getHex() === 0x2a1a0a) eye.scale.y = 1 - blink * 0.85; });
+  }
+
+  // 手臂
+  if (p.arms) {
+    p.arms[0].rotation.x = walkLeg * 0.15 + overArmL + (0.5 - e.energy) * 0.05;
+    p.arms[0].rotation.z = p.arms[0].userData?.baseZ || 0.3;
+    p.arms[1].rotation.x = -walkLeg * 0.15 + overArmR + (0.5 - e.energy) * 0.05;
+    p.arms[1].rotation.z = p.arms[1].userData?.baseZ || -0.3;
+  }
+
+  // 腿
+  if (p.legs) {
+    p.legs[0].rotation.x = walkLeg;
+    p.legs[1].rotation.x = -walkLeg;
+    if (p.legs[0]) p.legs[0].position.x = p.legs[0].userData.initialX * (1 - overSit * 0.4);
+    if (p.legs[1]) p.legs[1].position.x = p.legs[1].userData.initialX * (1 - overSit * 0.4);
+  }
+
+  // 尾巴 — AI 情绪驱动
+  if (p.tailGroup) {
+    p.tailGroup.rotation.y = finalTailWag;
+    p.tailGroup.rotation.x = finalTailH;
+  }
+  if (p.tip) p.tip.material.emissiveIntensity = 0.05 + e.blush * 0.3;
+
+  // 腮红 — 情绪驱动
+  p.blush?.forEach(b => { b.material.opacity = 0.02 + finalBlush * 0.2; });
+
+  // 光环
+  if (p.ring) {
+    p.ring.rotation.y = time * 0.0003;
+    const pos = p.ring.geometry.attributes.position.array;
+    for (let i = 0; i < pos.length / 3; i++) pos[i*3+1] = Math.sin(time * 0.001 + i * 0.5) * 0.01 + 0.85;
+    p.ring.geometry.attributes.position.needsUpdate = true;
+  }
+
+  // 坐姿压低
+  if (overSit > 0.01) g.position.y -= overSit * 0.06;
+}
+
+// ─── 思考气泡 ───
+let balloonTimer = 0;
+
+function showThought(text) {
+  const el = $('thoughtBalloon');
+  el.textContent = '💭 ' + text;
+  el.classList.add('show');
+  balloonTimer = 3;
+}
+
+// ─── 交互 ───
+const rc = new THREE.Raycaster();
+const ptr = new THREE.Vector2();
+let clickTimer = 0;
+let isHovering = false;
+let cursorLookX = 0; // -1 to 1, head look direction
+let cursorLookY = 0;
+let lastChatTime = performance.now();
+let wanderTimer = 0;
+
+renderer.domElement.addEventListener('pointermove', e => {
+  const rect = renderer.domElement.getBoundingClientRect();
+  const mx = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+  const my = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+  ptr.x = mx; ptr.y = my;
+
+  // 光标跟踪：计算头部转向
+  cursorLookX = Math.max(-0.6, Math.min(0.6, mx * 0.5));
+  cursorLookY = Math.max(-0.3, Math.min(0.3, my * 0.3));
+
+  rc.setFromCamera(ptr, camera);
+  const target = isVRM ? vrm?.scene : character?.group;
+  if (target && rc.intersectObject(target, true).length > 0) {
+    renderer.domElement.style.cursor = 'pointer';
+    isHovering = true;
+  } else {
+    renderer.domElement.style.cursor = 'default';
+    isHovering = false;
+  }
+});
+// 鼠标离开时重置
+renderer.domElement.addEventListener('pointerleave', () => {
+  cursorLookX = 0; cursorLookY = 0; isHovering = false;
+});
+
+renderer.domElement.addEventListener('click', async () => {
+  const now = Date.now();
+  if (now - clickTimer < 400) {
+    clickTimer = 0;
+    doAction('dance');
+    setMood('excited');
+    showThought('好开心！一起跳舞吧~');
+  } else {
+    clickTimer = now;
+    doAction('wave');
+    setMood('happy');
+    showThought('嗯？叫我吗？');
+  }
+});
+
+// 点击地面行走
+renderer.domElement.addEventListener('dblclick', e => {
+  if (isVRM || !character) return;
+  const rect = renderer.domElement.getBoundingClientRect();
+  const mx = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+  const my = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+  const ray = new THREE.Raycaster();
+  ray.setFromCamera(new THREE.Vector2(mx, my), camera);
+  const ground = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+  const point = new THREE.Vector3();
+  ray.ray.intersectPlane(ground, point);
+  if (point) {
+    walkTo(point.x * 0.6, point.z * 0.6);
+    showThought('过去看看~');
+  }
+});
+
+// 人格切换
+document.querySelectorAll('#modeB .mb').forEach(b => {
+  b.addEventListener('click', () => {
+    document.querySelectorAll('#modeB .mb').forEach(x => x.classList.remove('on'));
+    b.classList.add('on');
+    currentPersonality = b.dataset.mode;
+    const pn = { normal: '正常', playful: '活泼', lazy: '慵懒', curious: '好奇' };
+    const moodMap = { normal: 'calm', playful: 'excited', lazy: 'sleepy', curious: 'curious' };
+    setMood(moodMap[currentPersonality]);
+    showThought(`切换成${pn[currentPersonality]}模式~`);
+    doAction('stretch');
+  });
+});
+
+// ─── 聊天 ───
+function addChat(text, isUser = false) {
+  if (!text) return;
+  const div = document.createElement('div');
+  div.className = `msg ${isUser ? 'you' : 'pet'}`;
+  div.innerHTML = `<div class="avatar">${isUser ? '👤' : '🧊'}</div><div><div class="bubble">${text}</div></div>`;
+  chatArea.insertBefore(div, $('typingIndicator'));
+  chatArea.scrollTop = chatArea.scrollHeight;
+}
+
+async function sendMessage() {
+  const text = chatInput.value.trim();
+  if (!text || aiThinking) return;
+  chatInput.value = ''; aiThinking = true; sendBtn.disabled = true;
+  addChat(text, true);
+  lastChatTime = performance.now();
+  aiProactiveTimer = 0;
+
+  // ─── 关键词驱动动作（即时响应，不依赖 AI）───
+  const kw = text;
+  let actionDone = false;
+  const actionMap = [
+    { match: /摸|摸摸|摸头|抱抱|抱/, action: 'jump', moodKey: 'happy', thought: '好舒服~再摸摸' },
+    { match: /跳|蹦/, action: 'jump', moodKey: 'excited', thought: '看我跳多高！' },
+    { match: /舞|迪斯/, action: 'dance', moodKey: 'excited', thought: '一起跳舞吧~' },
+    { match: /转圈|转一转|晕/, action: 'spin', moodKey: 'curious', thought: '转圈圈~有点晕' },
+    { match: /挥手|嗨|你好|hello|hi|拜拜|再见/, action: 'wave', moodKey: 'happy', thought: '你好呀~' },
+    { match: /过来|来我这|过来玩/, action: 'walk', moodKey: 'happy', thought: '我来啦~' },
+    { match: /坐|坐下/, action: 'sit', moodKey: 'calm', thought: '坐一会儿' },
+    { match: /睡|困|累|休息/, action: 'sleep', moodKey: 'sleepy', thought: '好困…先睡会儿' },
+    { match: /懒|伸|腰/, action: 'stretch', moodKey: 'calm', thought: '伸个懒腰~' },
+    { match: /想|思考|琢磨/, action: 'think', moodKey: 'curious', thought: '嗯…让我想想' },
+    { match: /无聊|没意思|闷/, action: 'spin', moodKey: 'calm', thought: '好无聊啊~转圈玩' },
+    { match: /笑|笑话|搞笑/, action: 'jump', moodKey: 'happy', thought: '哈哈哈好好笑' },
+    { match: /开心|高兴|快乐/, action: 'dance', moodKey: 'happy', thought: '我也好开心！' },
+    { match: /伤心|难过|哭/, action: 'sit', moodKey: 'sad', thought: '别难过…我陪你' },
+  ];
+  for (const rule of actionMap) {
+    if (rule.match.test(kw)) {
+      if (rule.action === 'walk') {
+        walkTo(0, 0.3);
+      } else {
+        doAction(rule.action);
+      }
+      if (rule.moodKey) setMood(rule.moodKey);
+      if (rule.thought) showThought(rule.thought);
+      actionDone = true;
+      break;
+    }
+  }
+
+  // ─── AI 回复（纯对话，不再经 aiDecide）───
+  const reply = await aiChat(text);
+  if (reply) addChat(reply);
+  aiThinking = false; sendBtn.disabled = false;
+}
+
+sendBtn.addEventListener('click', sendMessage);
+chatInput.addEventListener('keydown', e => { if (e.key === 'Enter') sendMessage(); });
+document.querySelectorAll('.qa').forEach(b => {
+  b.addEventListener('click', () => { chatInput.value = b.dataset.qa; sendMessage(); });
+});
+
+// ─── AI 状态 ───
+async function initAI() {
+  // 自动加载默认 VRM 模型
+  loadDefaultVRM();
+  $('aiStatusDot').className = 'status-dot busy'; $('aiStatusLabel').textContent = '检测 Ollama...';
+  const ok = await checkAI();
+  if (ok) {
+    doAction('wave');
+    showThought('你好~我准备好啦！');
+  }
+}
+
+// ─── 拖拽 VRM ───
+document.addEventListener('dragover', e => e.preventDefault());
+document.addEventListener('drop', e => {
+  e.preventDefault();
+  const f = e.dataTransfer.files[0];
+  if (f?.name.endsWith('.vrm')) loadVRMFile(f);
+});
+
+// ─── 主循环 ───
+let fc = 0, fpsTime = 0;
+let lastTime = 0;
+let aiProactiveTimer = 0;
+let nextWanderAt = 12 + Math.random() * 6;
+let nextIdleAt = 8 + Math.random() * 5;
+
+function animate(time) {
+  requestAnimationFrame(animate);
+  const dt = lastTime ? Math.min((time - lastTime) / 1000, 0.05) : 0.016;
+  lastTime = time;
+
+  // FPS
+  fc++; if (time - fpsTime > 1000) { document.getElementById('fpsD').textContent = `${fc} fps`; fc = 0; fpsTime = time; }
+
+  // ─── 主动行为系统 ───
+  if (!actionOverlay && !walkTarget && !aiThinking) {
+    aiProactiveTimer += dt;
+    const idleSince = (performance.now() - lastChatTime) / 1000;
+
+    // 随机走动（每12-18秒）
+    wanderTimer += dt;
+    if (wanderTimer > nextWanderAt && idleSince > 5 && !isVRM) {
+      wanderTimer = 0;
+      nextWanderAt = 12 + Math.random() * 6;
+      const angle = Math.random() * Math.PI * 2;
+      const r = 0.3 + Math.random() * 0.5;
+      walkTo(Math.cos(angle) * r, Math.sin(angle) * r);
+    }
+
+    // 空闲小动作（每8-13秒）
+    if (aiProactiveTimer > nextIdleAt && idleSince > 3) {
+      aiProactiveTimer = 0;
+      nextIdleAt = 8 + Math.random() * 5;
+      const idleActs = ['stretch', 'think', 'sit', 'idle'];
+      const act = idleActs[Math.floor(Math.random() * idleActs.length)];
+      if (act === 'stretch') { doAction('stretch'); showThought('伸个懒腰~'); }
+      else if (act === 'think') { doAction('think'); showThought('嗯…想什么呢'); }
+      else if (act === 'sit') { doAction('sit'); }
+    }
+
+    // 长时间无互动 → 主动刷存在感（25秒）
+    if (idleSince > 25 && Math.random() < 0.002) {
+      const msgs = ['你在干嘛呢~', '我好无聊啊...', '陪我玩会儿嘛', '过来摸摸我~'];
+      const msg = msgs[Math.floor(Math.random() * msgs.length)];
+      addChat(msg, false);
+      doAction('wave');
+      showThought('看看你~');
+      lastChatTime = performance.now();
+    }
+  }
+  updateMovement(dt);
+  applyEmotionToChar(time, dt);
+
+  // 思考气泡
+  if (balloonTimer > 0) {
+    balloonTimer -= dt;
+    if (balloonTimer <= 0) $('thoughtBalloon').classList.remove('show');
+  }
+
+  // 地面光晕
+  groundGlow.material.opacity = 0.02 + Math.sin(time * 0.0005) * 0.015;
+
+  controls.update();
+  renderer.render(scene, camera);
+}
+
+// ─── 窗口 ───
+function resize() {
+  const w = container.clientWidth, h = container.clientHeight;
+  renderer.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix();
+}
+window.addEventListener('resize', resize);
+
+// ─── 启动 ───
+initAI();
+initDebugPanel();
+animate(0);
+
+// ─── 键盘快捷键 ───
+document.addEventListener('keydown', e => {
+  if (e.ctrlKey && e.key === 'd') { e.preventDefault(); toggleDebugPanel(); }
+});
+</script>
+</body>
+</html>

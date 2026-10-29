@@ -1,0 +1,38 @@
+# 模块说明：应用 Docker 构建忽略清单。
+# 版本控制
+.git
+.gitignore
+.gitattributes
+
+# IDE
+.vscode/
+.idea/
+*.sublime-project
+
+# Python 缓存与构建产物
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+build/
+dist/
+*.egg-info/
+
+# 本地环境与敏感信息
+.env
+.env.*
+*.env
+.env.local
+.env.*.local
+
+# 本地数据与测试输出
+data/
+*.log
+*.tmp
+
+# 文档与临时文件
+docs/
+.DS_Store
+Thumbs.db
+*.swp
+*~

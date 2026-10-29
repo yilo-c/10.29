@@ -1,0 +1,29 @@
+{
+  "manifest_version": "1.0",
+  "id": "com.siyi.textstats",
+  "name": "文本统计",
+  "version": "0.1.0",
+  "type": "tool",
+  "entry_point": "plugins.installed.textstats.plugin:TextStatsPlugin",
+  "description": "统计文本字数、字符数、段落数与预计阅读时间，供小问在笔记/写作场景调用。",
+  "author": "siyi",
+  "license": "MIT",
+  "permissions": [],
+  "capabilities": ["text.stats"],
+  "config_schema": {
+    "type": "object",
+    "properties": {
+      "text": {
+        "type": "string",
+        "description": "待统计的文本"
+      },
+      "reading_wpm": {
+        "type": "integer",
+        "description": "阅读速度（字/分钟），默认 300",
+        "default": 300
+      }
+    },
+    "required": ["text"]
+  },
+  "min_app_version": "0.1.0"
+}

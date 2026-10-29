@@ -1,0 +1,50 @@
+{
+  "tool_id": "claude_code",
+  "display_name": "Claude Code CLI",
+  "cli_path": "claude",
+  "description": "Anthropic Claude Code CLI — 长跑 AI 编码 agent，可处理复杂多步任务。需要 ANTHROPIC_API_KEY 配置。",
+  "enabled": false,
+  "env_keys": ["ANTHROPIC_API_KEY"],
+  "health_check_command": "claude --version",
+  "commands": {
+    "run": {
+      "description": "执行一个编码任务（同步等待完成）。task 示例：'重构 utils.py 中的 parse_date 函数，添加时区支持'",
+      "template": "{cli} -p --output-format json",
+      "stdin_template": "{task}",
+      "params": {
+        "task": {
+          "type": "string",
+          "required": true,
+          "description": "编码任务描述"
+        }
+      },
+      "risk": "high",
+      "confirmation": "every_time",
+      "timeout": 1800,
+      "output_regex": "\"result\"\\s*:\\s*\"(?P<result>[^\"]*)\"",
+      "output_fields": {
+        "result": "string"
+      }
+    },
+    "run_in_dir": {
+      "description": "在指定目录中执行编码任务",
+      "template": "{cli} -p --output-format json --add-dir {working_dir}",
+      "stdin_template": "{task}",
+      "params": {
+        "task": {
+          "type": "string",
+          "required": true,
+          "description": "编码任务描述"
+        },
+        "working_dir": {
+          "type": "string",
+          "required": true,
+          "description": "工作目录绝对路径"
+        }
+      },
+      "risk": "high",
+      "confirmation": "every_time",
+      "timeout": 1800
+    }
+  }
+}

@@ -1,0 +1,55 @@
+{
+  "tool_id": "http",
+  "display_name": "HTTP cURL",
+  "cli_path": "curl",
+  "description": "HTTP 客户端 — 通过 cURL 发送 HTTP 请求。展示 env_keys 注入 Bearer Token 的标准模式。",
+  "enabled": true,
+  "health_check_command": "curl --version",
+  "commands": {
+    "get": {
+      "description": "GET 请求",
+      "template": "{cli} -s -X GET {url} -H \"Authorization: Bearer {token}\" -H \"Content-Type: application/json\"",
+      "params": {
+        "url": {
+          "type": "string",
+          "required": true,
+          "description": "请求 URL"
+        },
+        "token": {
+          "type": "string",
+          "required": false,
+          "description": "Bearer token（若不传则走 env_keys=API_TOKEN）"
+        }
+      },
+      "env_keys": ["API_TOKEN"],
+      "risk": "low",
+      "timeout": 30
+    },
+    "post_json": {
+      "description": "POST JSON 请求。body 通过 stdin 传入，避免 argv 长度限制和转义问题",
+      "template": "{cli} -s -X POST {url} -H \"Authorization: Bearer {token}\" -H \"Content-Type: application/json\" --data-binary @-",
+      "stdin_template": "{body}",
+      "params": {
+        "url": {
+          "type": "string",
+          "required": true,
+          "description": "请求 URL"
+        },
+        "body": {
+          "type": "string",
+          "required": true,
+          "description": "JSON 请求体"
+        },
+        "token": {
+          "type": "string",
+          "required": false,
+          "description": "Bearer token"
+        }
+      },
+      "env_keys": ["API_TOKEN"],
+      "risk": "medium",
+      "confirmation": "first_time",
+      "timeout": 30
+    }
+  }
+}

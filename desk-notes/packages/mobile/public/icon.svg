@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <clipPath id="halfBottom">
+      <rect x="0" y="512" width="1024" height="512"/>
+    </clipPath>
+  </defs>
+
+  <rect width="1024" height="1024" rx="192" fill="#fff"/>
+
+  <!--
+    两个圆环交织结构。
+    左（思/理性）蓝色 #007AFF
+    右（忆/感性）洋红 #FF2D78
+
+    编织逻辑：
+    1. 蓝环完整 → 最下层
+    2. 红环完整 → 中层（上交叉处红在表）
+    3. 蓝环下半部重新画 → 最上层（下交叉处蓝在表）
+    → 形成上下交替的莫比乌斯编织感
+  -->
+
+  <!-- ① 蓝环完整（下层） -->
+  <circle cx="380" cy="512" r="220" fill="none" stroke="#007AFF" stroke-width="56"/>
+
+  <!-- ② 红环完整（中层 → 上交叉红在表） -->
+  <circle cx="644" cy="512" r="220" fill="none" stroke="#FF2D78" stroke-width="56"/>
+
+  <!-- ③ 蓝环下半部（上层 → 下交叉蓝在表） -->
+  <circle cx="380" cy="512" r="220" fill="none" stroke="#007AFF" stroke-width="56" clip-path="url(#halfBottom)"/>
+</svg>

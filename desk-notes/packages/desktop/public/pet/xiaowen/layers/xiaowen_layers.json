@@ -1,0 +1,119 @@
+{
+  "base": "references/xiaowen_layer_base.png",
+  "sourceSize": [
+    1122,
+    1402
+  ],
+  "charBBox": [
+    232,
+    65,
+    876,
+    1337
+  ],
+  "drawOrder": [
+    "hair_back",
+    "body"
+  ],
+  "hairPivot": [
+    520,
+    130
+  ],
+  "faceEllipse": {
+    "cx": 520,
+    "cy": 430,
+    "rx": 190,
+    "ry": 205
+  },
+  "eyes": [
+    {
+      "cx": 379,
+      "cy": 351,
+      "w": 118,
+      "h": 152,
+      "valid": true
+    },
+    {
+      "cx": 655,
+      "cy": 416,
+      "w": 118,
+      "h": 152,
+      "valid": true
+    }
+  ],
+  "eyesClosed": [
+    {
+      "file": "layers/eyes_closed_L.png",
+      "x": 304,
+      "y": 259,
+      "w": 150,
+      "h": 184
+    },
+    {
+      "file": "layers/eyes_closed_R.png",
+      "x": 580,
+      "y": 324,
+      "w": 150,
+      "h": 184
+    }
+  ],
+  "swordZone": {
+    "x0": 233,
+    "y0": 721,
+    "x1": 352,
+    "y1": 1276
+  },
+  "physics": {
+    "breath": {
+      "amplitudePx": 7,
+      "periodSec": 3.2
+    },
+    "hairSway": {
+      "stiffness": 0.06,
+      "damping": 0.92,
+      "maxAngleRad": 0.05
+    },
+    "blink": {
+      "intervalMs": [
+        2200,
+        5500
+      ],
+      "closeDurationMs": 130,
+      "doubleBlinkChance": 0.15
+    },
+    "sway": {
+      "maxAngleRad": 0.009,
+      "periodSec": [
+        6,
+        9
+      ]
+    },
+    "droplets": {
+      "count": 8,
+      "orbitPeriodSec": [
+        6,
+        9
+      ],
+      "fadeInMs": 1000,
+      "holdMs": [
+        8000,
+        12000
+      ],
+      "fadeOutMs": 1500,
+      "restMs": [
+        18000,
+        30000
+      ]
+    },
+    "sparkle": {
+      "intervalMs": [
+        8000,
+        15000
+      ],
+      "perBurst": [
+        2,
+        3
+      ],
+      "lifeMs": 800
+    }
+  }
+}

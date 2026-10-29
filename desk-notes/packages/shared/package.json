@@ -1,0 +1,21 @@
+{
+  "name": "@desk-notes/shared",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "zustand": "^4.5.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "fuse.js": "^7.3.0",
+    "lunar-javascript": "^1.7.7"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}

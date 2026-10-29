@@ -1,0 +1,46 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+release/
+
+# OS files
+Thumbs.db
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+
+# Environment
+.env
+.env.local
+.npmrc
+
+# Logs
+*.log
+npm-debug.log*
+
+# Build / test output
+build/
+coverage/
+**/test-results/
+*.pytest-cache/
+# Playwright HTML 报告（每次跑都重新生成；e2e-report/ 只留人工评审过的视觉基线）
+packages/desktop/playwright-report/
+
+# Electron runtime data + Chromium cache (must never be committed)
+packages/desktop/data/
+packages/desktop/test-results/
+
+# Backups
+pet.bak.*/
+*.bak.*/
+
+# Experiments / large binaries not referenced by source
+vrm-experiment/
+packages/desktop/public/default.vrm
+
+# Scratch analysis scripts
+_analyze_*.py

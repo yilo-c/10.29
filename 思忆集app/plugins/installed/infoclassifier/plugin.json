@@ -1,0 +1,30 @@
+{
+  "manifest_version": "1.0",
+  "id": "com.siyi.infoclassifier",
+  "name": "信息分类器",
+  "version": "0.1.0",
+  "type": "tool",
+  "entry_point": "plugins.installed.infoclassifier.plugin:InfoClassifierPlugin",
+  "description": "信息条目关键词分类、CJK 检测与板块关键词查询。",
+  "author": "siyi",
+  "license": "MIT",
+  "permissions": [],
+  "capabilities": ["info.classify", "info.has_cjk", "info.section_keywords"],
+  "config_schema": {
+    "type": "object",
+    "properties": {
+      "action": {
+        "type": "string",
+        "description": "调用动作：classify_item | has_cjk | section_keywords",
+        "enum": ["classify_item", "has_cjk", "section_keywords"]
+      },
+      "item": {
+        "type": "object",
+        "description": "classify_item 用的条目（含 title/title_zh/summary/summary_zh/tags）"
+      },
+      "text": { "type": "string", "description": "has_cjk 用的文本" }
+    },
+    "required": ["action"]
+  },
+  "min_app_version": "0.1.0"
+}

@@ -1,0 +1,59 @@
+/* ─── 思忆集 · 全局样式 ─── */
+@import './styles/tokens.css';
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body {
+  height: 100%;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-family: -apple-system, "PingFang SC", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
+  font-size: var(--text-body);
+}
+
+#root {
+  height: 100%;
+}
+
+button {
+  -webkit-tap-highlight-color: transparent;
+}
+
+input, textarea, select {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+/* Smooth scrolling */
+main > div {
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 3px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 2px;
+}
+
+/* Focus ring */
+:focus-visible {
+  outline: 2px solid var(--gold-primary);
+  outline-offset: 2px;
+}

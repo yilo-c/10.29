@@ -1,0 +1,49 @@
+# 形势面板（12宫格）配置 - MVP
+# 目标：固定“观察框架”，避免每天被热点牵着走。
+# 每个格子：主指标 + 辅助指标 + 关联主题（事件簇/新闻证据链）
+
+panel:
+  - key: macro_growth
+    name: 宏观-增长
+    primary:
+      name: "PMI（制造业）"
+      source: "NBS/公开数据"
+      frequency: "monthly"
+      unit: "index"
+      notes: "口径写清楚：官方制造业PMI"
+    secondary:
+      name: "工业增加值"
+      source: "NBS/公开数据"
+      frequency: "monthly"
+      unit: "%"
+    topics: ["宏观", "增长"]
+
+  - key: policy_monetary
+    name: 政策-货币
+    primary:
+      name: "政策利率/公开市场操作"
+      source: "PBoC/公开信息"
+      frequency: "event"
+      unit: "text"
+      notes: "事件型指标：记录变动与公告链接"
+    secondary:
+      name: "社融/信贷"
+      source: "PBoC/NBS"
+      frequency: "monthly"
+      unit: "CNY"
+    topics: ["货币", "流动性"]
+
+  - key: market_risk
+    name: 市场-风险偏好
+    primary:
+      name: "股债跷跷板/波动率"
+      source: "公开行情"
+      frequency: "daily"
+      unit: "index"
+      notes: "MVP阶段允许手工填充或后续接入行情API"
+    secondary:
+      name: "美元指数/美债利率"
+      source: "公开行情"
+      frequency: "daily"
+      unit: "index"
+    topics: ["市场", "海外"]

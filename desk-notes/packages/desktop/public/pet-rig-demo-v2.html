@@ -1,0 +1,1048 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>小灵 — AI 驱动桌宠原型</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: #0a0e14; color: #e6edf3; font-family: system-ui, -apple-system, sans-serif;
+  display: flex; justify-content: center; align-items: center; min-height: 100vh;
+  overflow: hidden; user-select: none;
+}
+.container {
+  display: flex; gap: 28px; align-items: flex-start; padding: 20px;
+  position: relative;
+}
+/* Canvas 包装 */
+.canvas-wrap {
+  position: relative; border-radius: 24px; padding: 16px;
+  background: linear-gradient(145deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01));
+  border: 1px solid rgba(121,207,255,0.1);
+  box-shadow: 0 24px 80px rgba(0,0,0,0.6);
+}
+canvas {
+  display: block; border-radius: 16px; cursor: pointer;
+  background: radial-gradient(ellipse at 50% 80%, rgba(121,207,255,0.04) 0%, transparent 70%);
+}
+
+/* 右侧面板 */
+.panel {
+  width: 320px; max-height: 640px; overflow-y: auto;
+  background: rgba(255,255,255,0.02); border-radius: 20px;
+  border: 1px solid rgba(121,207,255,0.08); padding: 20px;
+  font-size: 13px; line-height: 1.6;
+}
+.panel::-webkit-scrollbar { width: 3px; }
+.panel::-webkit-scrollbar-track { background: transparent; }
+.panel::-webkit-scrollbar-thumb { background: rgba(121,207,255,0.2); border-radius: 2px; }
+
+.section-title {
+  font-size: 11px; color: #8b949e; text-transform: uppercase; letter-spacing: 0.8px;
+  margin: 14px 0 8px; padding-bottom: 4px; border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+.section-title:first-of-type { margin-top: 0; }
+
+.data-row { display: flex; justify-content: space-between; align-items: center; padding: 3px 0; font-size: 12px; }
+.data-row .label { color: #8b949e; }
+.data-row .value { color: #e6edf3; font-weight: 500; }
+.data-row .value.highlight { color: #79cfff; }
+.data-row .value.energy-high { color: #7ee787; }
+.data-row .value.energy-low { color: #f0888e; }
+
+/* 候选列表 */
+.candidates { display: flex; flex-direction: column; gap: 4px; margin: 6px 0; }
+.cand-item {
+  display: flex; align-items: center; gap: 8px; padding: 4px 8px;
+  border-radius: 8px; background: rgba(255,255,255,0.02); font-size: 12px;
+  border-left: 2px solid transparent; transition: all 0.2s;
+}
+.cand-item.picked { background: rgba(121,207,255,0.06); border-left-color: #79cfff; }
+.cand-item .cand-bar {
+  height: 4px; border-radius: 2px; flex: 1; min-width: 40px;
+  background: rgba(255,255,255,0.06); overflow: hidden;
+}
+.cand-item .cand-bar-fill { height: 100%; border-radius: 2px; transition: width 0.3s; }
+.cand-item .cand-score { color: #8b949e; font-size: 10px; width: 28px; text-align: right; }
+.cand-item .cand-icon { width: 20px; text-align: center; font-size: 14px; }
+
+/* 模式按钮 */
+.modes { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0 4px; }
+.mode-btn {
+  padding: 5px 14px; border-radius: 14px; border: 1px solid rgba(121,207,255,0.15);
+  background: rgba(255,255,255,0.03); color: #c9d1d9; font-size: 11px;
+  cursor: pointer; transition: all 0.25s; font-family: inherit;
+}
+.mode-btn:hover { border-color: rgba(121,207,255,0.3); color: #fff; }
+.mode-btn.active { background: rgba(121,207,255,0.1); border-color: #79cfff; color: #79cfff; box-shadow: 0 0 20px rgba(121,207,255,0.05); }
+
+/* 日志 */
+.log { margin-top: 8px; max-height: 100px; overflow-y: auto; font-size: 10px; color: #8b949e; line-height: 1.5; }
+.log::-webkit-scrollbar { width: 2px; }
+.log::-webkit-scrollbar-thumb { background: rgba(121,207,255,0.15); border-radius: 2px; }
+.log div { padding: 1px 0; opacity: 0.7; }
+.log div.latest { opacity: 1; color: #b1bac4; }
+
+/* 状态栏 */
+.status-bar {
+  display: flex; gap: 10px; margin-top: 12px; padding-top: 10px;
+  border-top: 1px solid rgba(255,255,255,0.04); font-size: 10px; color: #8b949e;
+  flex-wrap: wrap;
+}
+.status-dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; margin-right: 4px; }
+.status-dot.green { background: #3fb950; box-shadow: 0 0 6px rgba(63,185,80,0.3); }
+.status-dot.purple { background: #bc8cff; box-shadow: 0 0 6px rgba(188,140,255,0.3); }
+.status-dot.orange { background: #d29922; box-shadow: 0 0 6px rgba(210,153,34,0.3); }
+
+/* 身体参数可视化 */
+.body-viz { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 16px; margin: 6px 0; }
+.body-viz .param-row { display: flex; justify-content: space-between; font-size: 10px; padding: 1px 0; }
+.body-viz .param-row .pl { color: #8b949e; }
+.body-viz .param-row .pv { color: #79cfff; font-family: monospace; font-size: 10px; }
+
+/* 提示浮层 */
+.hint {
+  text-align: center; margin-top: 10px; font-size: 10px; color: rgba(139,148,158,0.5);
+  letter-spacing: 0.3px;
+}
+</style>
+</head>
+<body>
+
+<div class="container">
+  <div class="canvas-wrap">
+    <canvas id="c" width="440" height="500"></canvas>
+    <div class="hint">单击 · 双击 · 拖拽 · 悬停 — 每次操作 AI 都会实时决策</div>
+  </div>
+
+  <div class="panel" id="panel">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+      <span style="font-size:18px;">✨</span>
+      <span style="font-weight:600;font-size:15px;color:#e6edf3;">小灵 · AI 决策</span>
+      <span style="font-size:10px;color:#8b949e;margin-left:auto;" id="fpsDisplay">-- fps</span>
+    </div>
+
+    <div class="section-title">🧠 场景感知</div>
+    <div id="scenePanel">
+      <div class="data-row"><span class="label">AI 人格</span><span class="value highlight" id="modeDisplay">正常</span></div>
+      <div class="data-row"><span class="label">当前情绪</span><span class="value" id="moodDisplay">平静</span></div>
+      <div class="data-row"><span class="label">精力水平</span><span class="value" id="energyDisplay">100%</span></div>
+      <div class="data-row"><span class="label">用户操作</span><span class="value" id="actionDisplay">无</span></div>
+      <div class="data-row"><span class="label">空闲时间</span><span class="value" id="idleDisplay">0s</span></div>
+    </div>
+
+    <div class="section-title">🎯 姿态决策</div>
+    <div class="data-row"><span class="label">当前姿态</span><span class="value highlight" id="poseDisplay">待机</span></div>
+    <div class="candidates" id="candidateList"></div>
+
+    <div style="display:flex;gap:8px;margin-top:4px;">
+      <div class="data-row" style="flex:1;"><span class="label">置信度</span><span class="value" id="confidenceDisplay">--</span></div>
+      <div class="data-row" style="flex:1;"><span class="label">过渡</span><span class="value" id="transitionDisplay">--</span></div>
+    </div>
+
+    <div class="section-title">🔧 身体参数 (AI 实时控制)</div>
+    <div class="body-viz" id="paramViz"></div>
+
+    <div class="section-title">🎭 AI 人格</div>
+    <div class="modes" id="modeBtns">
+      <button class="mode-btn active" data-mode="normal">🎯 正常</button>
+      <button class="mode-btn" data-mode="playful">🌸 活泼</button>
+      <button class="mode-btn" data-mode="lazy">😴 慵懒</button>
+      <button class="mode-btn" data-mode="curious">🔍 好奇</button>
+    </div>
+
+    <div class="section-title">📜 决策日志</div>
+    <div class="log" id="log"></div>
+
+    <div class="status-bar">
+      <span><span class="status-dot green"></span>AI 驱动</span>
+      <span id="jointCount">关节: 12</span>
+      <span id="blendStatus">混合: 0%</span>
+    </div>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+// 小灵 — 完全程序化 Canvas 角色 + AI 驱动引擎
+// 无需任何外部素材，所有身体部件用 Canvas 路径绘制
+// ═══════════════════════════════════════════════════════════════
+
+const canvas = document.getElementById('c')
+const ctx = canvas.getContext('2d')
+const W = 440, H = 500
+
+// ── 坐标系: 原点在画布底部中心，y 向上 ──
+// 角色基准点 groundY = 420
+const GROUND_Y = 420
+
+// ═══════════════════════════════════════════════════════════════
+// 1. 姿态定义 —— 每个姿态是一组关节角度 + 身体参数的目标值
+// ═══════════════════════════════════════════════════════════════
+
+// 所有可控制的关节/参数
+const RIG_PARAMS = [
+  'bodyAngle', 'bodyStretch',     // 身体
+  'headTilt', 'headAngle',        // 头
+  'earL', 'earR',                 // 耳朵 (-1 垂, 1 竖)
+  'eyeOpen', 'eyeLookX', 'eyeLookY', // 眼睛
+  'mouth',                        // 嘴: 0=neutral 1=smile 2=open 3=pout
+  'armL', 'armR',                 // 手臂 (-1 下垂, 0 水平, 1 举起)
+  'legL', 'legR',                 // 腿 (-1 后, 0 中立, 1 前)
+  'tailAngle', 'tailWag',        // 尾巴
+  'floatY', 'breatheAmp',         // 呼吸浮动
+  'glowSize',                     // 光晕大小
+]
+
+// Emoji 图标映射
+const POSE_ICONS = {
+  idle: '☁️', happy: '✨', curious: '🔍', sleepy: '💤',
+  excited: '⭐', surprised: '❗', listening: '👂',
+}
+
+// 姿态库
+const POSES = {
+  idle: {
+    label: '待机', icon: '☁️',
+    targets: {
+      bodyAngle:0, bodyStretch:0, headTilt:0, headAngle:0,
+      earL:0.8, earR:0.8, eyeOpen:0.9, eyeLookX:0, eyeLookY:0,
+      mouth:0, armL:-0.6, armR:-0.6, legL:0, legR:0,
+      tailAngle:0.3, tailWag:0.3, floatY:0, breatheAmp:1, glowSize:1,
+    },
+    loop: true, duration: 0,
+    energyCost: 0.1,
+    tags: ['calm'],
+  },
+  happy: {
+    label: '开心', icon: '✨',
+    targets: {
+      bodyAngle:0.05, bodyStretch:0.2, headTilt:-0.05, headAngle:0,
+      earL:1, earR:1, eyeOpen:0.7, eyeLookX:0, eyeLookY:-0.1,
+      mouth:1, armL:0.3, armR:0.3, legL:-0.2, legR:0.2,
+      tailAngle:0.6, tailWag:1, floatY:3, breatheAmp:1.3, glowSize:1.2,
+    },
+    loop: false, duration: 2000,
+    energyCost: 0.4,
+    tags: ['happy'],
+  },
+  curious: {
+    label: '好奇', icon: '🔍',
+    targets: {
+      bodyAngle:0.08, bodyStretch:0.3, headTilt:0.12, headAngle:-0.08,
+      earL:1, earR:0.9, eyeOpen:1, eyeLookX:0.3, eyeLookY:0,
+      mouth:0.3, armL:-0.2, armR:0.1, legL:0.1, legR:-0.1,
+      tailAngle:0.4, tailWag:0.6, floatY:1, breatheAmp:0.8, glowSize:1.1,
+    },
+    loop: false, duration: 2500,
+    energyCost: 0.3,
+    tags: ['curious'],
+  },
+  sleepy: {
+    label: '困倦', icon: '💤',
+    targets: {
+      bodyAngle:0, bodyStretch:-0.1, headTilt:0.15, headAngle:0.05,
+      earL:-0.3, earR:-0.3, eyeOpen:0.2, eyeLookX:0, eyeLookY:0.2,
+      mouth:3, armL:-0.8, armR:-0.8, legL:0, legR:0,
+      tailAngle:-0.2, tailWag:0.1, floatY:-2, breatheAmp:1.5, glowSize:0.7,
+    },
+    loop: false, duration: 3000,
+    energyCost: 0.05,
+    tags: ['calm', 'low-energy'],
+  },
+  excited: {
+    label: '兴奋', icon: '⭐',
+    targets: {
+      bodyAngle:0.1, bodyStretch:0.5, headTilt:-0.08, headAngle:0,
+      earL:1, earR:1, eyeOpen:1, eyeLookX:0.2, eyeLookY:-0.2,
+      mouth:1, armL:0.8, armR:0.8, legL:-0.3, legR:0.3,
+      tailAngle:0.8, tailWag:1.5, floatY:5, breatheAmp:1.5, glowSize:1.5,
+    },
+    loop: false, duration: 1500,
+    energyCost: 0.7,
+    tags: ['happy', 'high-energy'],
+  },
+  surprised: {
+    label: '惊讶', icon: '❗',
+    targets: {
+      bodyAngle:-0.05, bodyStretch:0.4, headTilt:-0.02, headAngle:0,
+      earL:1, earR:1, eyeOpen:1.2, eyeLookX:0, eyeLookY:0,
+      mouth:2, armL:0.5, armR:0.5, legL:-0.2, legR:0.2,
+      tailAngle:0.2, tailWag:0.8, floatY:4, breatheAmp:0.5, glowSize:1.3,
+    },
+    loop: false, duration: 1200,
+    energyCost: 0.5,
+    tags: ['surprise'],
+  },
+  listening: {
+    label: '倾听', icon: '👂',
+    targets: {
+      bodyAngle:0.02, bodyStretch:0.1, headTilt:0.2, headAngle:-0.1,
+      earL:1, earR:0.5, eyeOpen:0.8, eyeLookX:0.4, eyeLookY:0,
+      mouth:0.3, armL:-0.3, armR:-0.5, legL:0, legR:0,
+      tailAngle:0.2, tailWag:0.4, floatY:0, breatheAmp:0.7, glowSize:0.9,
+    },
+    loop: false, duration: 2000,
+    energyCost: 0.2,
+    tags: ['curious', 'calm'],
+  },
+}
+
+// 默认 idle 用作 fallback
+const DEFAULT_POSE = { name: 'idle', ...POSES.idle }
+
+// ═══════════════════════════════════════════════════════════════
+// 2. AI 决策引擎
+// ═══════════════════════════════════════════════════════════════
+const AI = {
+  mode: 'normal',        // normal | playful | lazy | curious
+  energy: 0.9,
+  lastAction: 'none',
+  idleTime: 0,           // 无操作帧计数
+  actionCooldown: 0,     // 操作后冷却
+
+  // 当前决策
+  currentPose: 'idle',
+  previousPose: 'idle',
+  candidates: [],
+  decision: null,
+  confidence: 0,
+
+  // 决策日志
+  log: [],
+  logIndex: 0,
+
+  addLog(msg) {
+    const t = new Date()
+    const ts = `${String(t.getHours()).padStart(2,'0')}:${String(t.getMinutes()).padStart(2,'0')}:${String(t.getSeconds()).padStart(2,'0')}`
+    this.log.unshift(`[${ts}] ${msg}`)
+    if (this.log.length > 15) this.log.pop()
+  },
+
+  // 场景感知 → 候选打分 → 决策
+  decide() {
+    this.idleTime++
+    if (this.actionCooldown > 0) this.actionCooldown--
+
+    // 能量恢复
+    if (this.lastAction === 'none') {
+      this.energy = Math.min(1, this.energy + 0.003)
+    }
+
+    const candidates = []
+
+    for (const [name, pose] of Object.entries(POSES)) {
+      let score = 0.1  // base
+
+      // ── 操作响应 ──
+      if (this.lastAction === 'click') {
+        if (name === 'surprised') score += 1.2
+        if (name === 'curious') score += 0.6
+        if (name === 'happy') score += 0.3
+        if (name === 'idle') score -= 0.3
+      } else if (this.lastAction === 'doubleClick') {
+        if (name === 'excited') score += 1.5
+        if (name === 'happy') score += 0.8
+        if (name === 'surprised') score += 0.4
+        if (name === 'idle') score -= 0.5
+      } else if (this.lastAction === 'hover') {
+        if (name === 'curious') score += 1.0
+        if (name === 'listening') score += 0.7
+        if (name === 'idle') score -= 0.2
+      } else if (this.lastAction === 'drag') {
+        if (name === 'excited') score += 0.8
+        if (name === 'surprised') score += 0.3
+      }
+
+      // ── AI 人格 ──
+      if (this.mode === 'playful') {
+        if (name === 'happy') score += 0.5
+        if (name === 'excited') score += 0.4
+        if (name === 'sleepy') score -= 0.4
+      } else if (this.mode === 'lazy') {
+        if (name === 'sleepy') score += 0.8
+        if (name === 'idle') score += 0.3
+        if (name === 'excited') score -= 0.5
+      } else if (this.mode === 'curious') {
+        if (name === 'curious') score += 0.8
+        if (name === 'listening') score += 0.6
+        if (name === 'sleepy') score -= 0.3
+      }
+
+      // ── 能量 ──
+      if (this.energy < 0.3 && pose.energyCost > 0.4) score -= 0.6
+      if (this.energy > 0.8 && pose.tags.includes('low-energy')) score -= 0.3
+
+      // ── 空闲状态 ──
+      if (this.idleTime > 180 && this.lastAction === 'none') {
+        if (name === 'sleepy') score += this.idleTime > 300 ? 1.0 : 0.3
+        if (name === 'idle') score += 0.2
+      }
+      if (this.idleTime < 60 && this.lastAction === 'none') {
+        if (name === 'idle') score += 0.4
+        if (name !== 'idle') score -= 0.2
+      }
+
+      // ── 避免重复 ──
+      if (name === this.currentPose && !pose.loop) score -= 0.7
+      if (name === this.previousPose && name !== 'idle') score -= 0.3
+
+      // ── 随机扰动 ──
+      score += Math.random() * 0.2
+
+      candidates.push({ name, label: pose.label, icon: pose.icon, score, ...pose })
+    }
+
+    candidates.sort((a, b) => b.score - a.score)
+    this.candidates = candidates.slice(0, 3)
+
+    const best = candidates[0]
+    this.confidence = best.score / (candidates[1]?.score || 1)
+
+    // 过渡保护: 如果当前在过渡中，不切换
+    if (best.name !== this.currentPose && best.score > 0.3) {
+      this.previousPose = this.currentPose
+      this.currentPose = best.name
+      this.addLog(`🎯 ${best.icon} ${best.label} (${best.score.toFixed(2)})`)
+    }
+
+    this.decision = best
+    return this.currentPose
+  },
+
+  // 生成当前姿态的目标参数 (带 idle 循环微调)
+  getTargetParams(time) {
+    const poseName = this.currentPose
+    const pose = POSES[poseName]
+    if (!pose) return POSES.idle.targets
+
+    const t = { ...pose.targets }
+
+    // idle 循环: 尾巴、耳朵微动
+    if (poseName === 'idle') {
+      t.tailWag = 0.3 + Math.sin(time * 0.002) * 0.15
+      t.tailAngle = 0.3 + Math.sin(time * 0.0015) * 0.1
+      t.earL = 0.8 + Math.sin(time * 0.003) * 0.1
+      t.earR = 0.8 + Math.cos(time * 0.003 + 1) * 0.1
+      t.eyeLookX = Math.sin(time * 0.0008) * 0.3
+      t.eyeLookY = Math.cos(time * 0.001) * 0.2
+    }
+
+    // 呼吸对浮动的影响
+    t.breatheAmp *= 1 + Math.sin(time * 0.004) * 0.2
+
+    // 人格对参数的微调
+    if (this.mode === 'playful') t.glowSize *= 1.3
+    if (this.mode === 'lazy') t.breatheAmp *= 1.3
+
+    return t
+  },
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 3. 骨骼状态 & 插值
+// ═══════════════════════════════════════════════════════════════
+// 当前实际渲染参数 (会被平滑插值)
+const currentParams = {}
+const targetParams = {}
+const LERP_SPEED = 0.06  // 插值速度
+
+// 初始化
+for (const key of RIG_PARAMS) {
+  currentParams[key] = POSES.idle.targets[key] ?? 0
+  targetParams[key] = POSES.idle.targets[key] ?? 0
+}
+
+let currentPoseName = 'idle'
+let transitioning = false
+let transitionProgress = 0
+let poseTimer = 0
+let currentFrameIndex = 0
+let poseStartTime = 0
+
+function easeInOutCubic(t) {
+  return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 4. 角色绘制 —— 小灵: 一只狐狸风格的小精灵
+// ═══════════════════════════════════════════════════════════════
+// 所有坐标相对于角色原点 (脚底位置)
+
+function drawCharacter(p, time) {
+  const { bodyAngle, bodyStretch, headTilt, headAngle,
+          earL, earR, eyeOpen, eyeLookX, eyeLookY,
+          mouth, armL, armR, legL, legR,
+          tailAngle, tailWag, floatY, breatheAmp, glowSize } = p
+
+  // 呼吸浮动
+  const breathe = Math.sin(time * 0.004) * 2 * breatheAmp
+  const totalFloat = floatY + breathe
+
+  ctx.save()
+  // 移动到角色位置
+  ctx.translate(W / 2, GROUND_Y + totalFloat)
+
+  // ── 光晕 ──
+  const glow = ctx.createRadialGradient(0, -60, 5, 0, -60, 70 * glowSize)
+  glow.addColorStop(0, `rgba(255, 200, 100, ${0.12 * glowSize})`)
+  glow.addColorStop(0.5, `rgba(255, 180, 80, ${0.06 * glowSize})`)
+  glow.addColorStop(1, 'rgba(255, 180, 80, 0)')
+  ctx.fillStyle = glow
+  ctx.beginPath()
+  ctx.arc(0, -60, 70 * glowSize, 0, Math.PI * 2)
+  ctx.fill()
+
+  // ── 地面阴影 ──
+  ctx.save()
+  const shadowAlpha = 0.15 + (totalFloat > 0 ? totalFloat * 0.005 : 0)
+  ctx.shadowColor = `rgba(0, 0, 0, ${shadowAlpha})`
+  ctx.shadowBlur = 16 + Math.abs(totalFloat) * 0.5
+  ctx.shadowOffsetX = 0
+  ctx.shadowOffsetY = 4
+  ctx.restore()
+
+  // ═══ 身体 ═══
+  ctx.save()
+  ctx.rotate(bodyAngle)
+  // 身体拉伸
+  const bodyScaleY = 1 + bodyStretch * 0.1
+  ctx.scale(1, bodyScaleY)
+
+  // 身体 (椭圆)
+  ctx.beginPath()
+  ctx.ellipse(0, -50, 28, 35 * (1 + bodyStretch * 0.05), 0, 0, Math.PI * 2)
+  const bodyGrad = ctx.createRadialGradient(-5, -55, 5, 0, -50, 35)
+  bodyGrad.addColorStop(0, '#f5b56a')
+  bodyGrad.addColorStop(0.7, '#e8944a')
+  bodyGrad.addColorStop(1, '#d4823a')
+  ctx.fillStyle = bodyGrad
+  ctx.fill()
+
+  // 白色胸腹
+  ctx.beginPath()
+  ctx.ellipse(0, -45, 20, 28, 0, 0, Math.PI * 2)
+  ctx.fillStyle = 'rgba(255, 245, 235, 0.6)'
+  ctx.fill()
+
+  ctx.restore() // 身体变换
+
+  // ═══ 尾巴 ═══
+  ctx.save()
+  const tailBaseAngle = -0.3 + tailAngle
+  const wagOffset = Math.sin(time * 0.005 * tailWag * 5) * 0.2 * tailWag
+  const totalTailAngle = tailBaseAngle + wagOffset
+
+  ctx.translate(0, -65)
+  ctx.rotate(totalTailAngle)
+
+  // 尾巴曲线 (贝塞尔)
+  ctx.beginPath()
+  ctx.moveTo(0, 0)
+  ctx.quadraticCurveTo(15, -15, 25 * (1 + tailWag * 0.2), -30 * (1 + tailWag * 0.15))
+  ctx.strokeStyle = '#e8944a'
+  ctx.lineWidth = 10 + tailWag * 3
+  ctx.lineCap = 'round'
+  ctx.stroke()
+
+  // 尾巴尖白色
+  const tx = 20 * (1 + tailWag * 0.2), ty = -26 * (1 + tailWag * 0.15)
+  ctx.beginPath()
+  ctx.arc(tx, ty, 8, 0, Math.PI * 2)
+  ctx.fillStyle = 'rgba(255, 245, 235, 0.7)'
+  ctx.fill()
+
+  ctx.restore()
+
+  // ═══ 腿 ═══
+  drawLeg(ctx, -12, -30, legL, 'left', time)
+  drawLeg(ctx, 12, -30, legR, 'right', time)
+
+  // ═══ 手臂 ═══
+  drawArm(ctx, -24, -45, armL, 'left', time)
+  drawArm(ctx, 24, -45, armR, 'right', time)
+
+  // ═══ 头 ═══
+  ctx.save()
+  ctx.translate(0, -72)
+  ctx.rotate(headAngle)
+  ctx.translate(headTilt * 8, 0)
+
+  // 头 (圆形)
+  const headGrad = ctx.createRadialGradient(-3, -5, 3, 0, 0, 26)
+  headGrad.addColorStop(0, '#f8c88a')
+  headGrad.addColorStop(0.6, '#f0a858')
+  headGrad.addColorStop(1, '#e09048')
+  ctx.beginPath()
+  ctx.arc(0, 0, 25, 0, Math.PI * 2)
+  ctx.fillStyle = headGrad
+  ctx.fill()
+
+  // 白色脸部下半
+  ctx.beginPath()
+  ctx.ellipse(0, 8, 18, 14, 0, 0, Math.PI * 2)
+  ctx.fillStyle = 'rgba(255, 245, 235, 0.5)'
+  ctx.fill()
+
+  // ═══ 耳朵 ═══
+  drawEar(ctx, -18, -12, earL, 'left')
+  drawEar(ctx, 18, -12, earR, 'right')
+
+  // ═══ 眼睛 ═══
+  ctx.save()
+  // 眼睛白色底色
+  const eyeY = -3
+  const eyeW = 10, eyeH = 12
+
+  // 左眼
+  ctx.beginPath()
+  ctx.ellipse(-9, eyeY, eyeW, eyeH * Math.max(0.1, eyeOpen), 0, 0, Math.PI * 2)
+  ctx.fillStyle = '#1a0a00'
+  ctx.fill()
+
+  // 右眼
+  ctx.beginPath()
+  ctx.ellipse(9, eyeY, eyeW, eyeH * Math.max(0.1, eyeOpen), 0, 0, Math.PI * 2)
+  ctx.fillStyle = '#1a0a00'
+  ctx.fill()
+
+  if (eyeOpen > 0.3) {
+    // 高光 (跟随视线)
+    const hlX = -9 + eyeLookX * 3, hlY = eyeY + eyeLookY * 2
+    ctx.beginPath()
+    ctx.arc(hlX, hlY, 3.5, 0, Math.PI * 2)
+    ctx.fillStyle = 'rgba(255,255,255,0.85)'
+    ctx.fill()
+
+    ctx.beginPath()
+    ctx.arc(hlX + 3, hlY - 3, 1.5, 0, Math.PI * 2)
+    ctx.fillStyle = 'rgba(255,255,255,0.5)'
+    ctx.fill()
+
+    // 右眼高光
+    const hrX = 9 + eyeLookX * 3, hrY = eyeY + eyeLookY * 2
+    ctx.beginPath()
+    ctx.arc(hrX, hrY, 3.5, 0, Math.PI * 2)
+    ctx.fillStyle = 'rgba(255,255,255,0.85)'
+    ctx.fill()
+
+    ctx.beginPath()
+    ctx.arc(hrX + 3, hrY - 3, 1.5, 0, Math.PI * 2)
+    ctx.fillStyle = 'rgba(255,255,255,0.5)'
+    ctx.fill()
+
+    // 腮红
+    ctx.beginPath()
+    ctx.ellipse(-15, 6, 5, 3.5, 0, 0, Math.PI * 2)
+    ctx.fillStyle = 'rgba(255, 150, 150, 0.25)'
+    ctx.fill()
+    ctx.beginPath()
+    ctx.ellipse(15, 6, 5, 3.5, 0, 0, Math.PI * 2)
+    ctx.fillStyle = 'rgba(255, 150, 150, 0.25)'
+    ctx.fill()
+  }
+
+  ctx.restore()
+
+  // ═══ 嘴巴 ═══
+  ctx.save()
+  if (mouth === 0) {
+    // 微笑
+    ctx.beginPath()
+    ctx.arc(0, 6, 5, 0.1, Math.PI - 0.1)
+    ctx.strokeStyle = '#8a6040'
+    ctx.lineWidth = 1.5
+    ctx.stroke()
+  } else if (mouth === 1) {
+    // 张嘴笑
+    ctx.beginPath()
+    ctx.ellipse(0, 7, 5, 4, 0, 0, Math.PI * 2)
+    ctx.fillStyle = '#6a4030'
+    ctx.fill()
+    ctx.beginPath()
+    ctx.arc(-1.5, 6, 1.5, 0, Math.PI * 2)
+    ctx.fillStyle = '#c06050'
+    ctx.fill()
+  } else if (mouth === 2) {
+    // 惊讶 O
+    ctx.beginPath()
+    ctx.ellipse(0, 7, 4, 5, 0, 0, Math.PI * 2)
+    ctx.fillStyle = '#4a3020'
+    ctx.fill()
+  } else if (mouth === 3) {
+    // 嘟嘴
+    ctx.beginPath()
+    ctx.arc(0, 8, 4, Math.PI, 0)
+    ctx.strokeStyle = '#8a6040'
+    ctx.lineWidth = 2
+    ctx.stroke()
+  }
+  ctx.restore()
+
+  // 鼻子 (小三角)
+  ctx.beginPath()
+  ctx.moveTo(0, 2)
+  ctx.lineTo(-3, 5)
+  ctx.lineTo(3, 5)
+  ctx.closePath()
+  ctx.fillStyle = '#8a7060'
+  ctx.fill()
+
+  ctx.restore() // 头变换
+
+  // ═══ 胡须 ═══
+  ctx.save()
+  ctx.translate(0, -68)
+  for (let side = -1; side <= 1; side += 2) {
+    for (let i = 0; i < 3; i++) {
+      ctx.beginPath()
+      ctx.moveTo(side * 12, -2 + i * 3)
+      ctx.lineTo(side * (25 + i * 4), -4 + i * 4)
+      ctx.strokeStyle = `rgba(200, 180, 160, ${0.3 - i * 0.05})`
+      ctx.lineWidth = 1
+      ctx.stroke()
+    }
+  }
+  ctx.restore()
+
+  ctx.restore() // 根变换
+
+  // ═══ 粒子 ═══
+  if (glowSize > 0.5) {
+    drawParticles(ctx, time, glowSize, totalFloat)
+  }
+}
+
+function drawEar(ctx, x, y, angle, side) {
+  ctx.save()
+  ctx.translate(x, y)
+  // angle: -1 (垂) ~ 1 (竖)
+  const earAngle = -0.4 + angle * 0.8
+  ctx.rotate(earAngle)
+
+  ctx.beginPath()
+  ctx.moveTo(-6, 0)
+  ctx.lineTo(0, -22 * (0.5 + Math.abs(angle) * 0.5))
+  ctx.lineTo(6, 0)
+  ctx.closePath()
+  const eg = ctx.createLinearGradient(0, 0, 0, -22)
+  eg.addColorStop(0, '#f0a858')
+  eg.addColorStop(1, '#e8944a')
+  ctx.fillStyle = eg
+  ctx.fill()
+  ctx.strokeStyle = '#d4823a'
+  ctx.lineWidth = 1
+  ctx.stroke()
+
+  // 耳朵内部
+  ctx.beginPath()
+  ctx.moveTo(-3, -3)
+  ctx.lineTo(0, -16 * (0.5 + Math.abs(angle) * 0.5))
+  ctx.lineTo(3, -3)
+  ctx.closePath()
+  ctx.fillStyle = 'rgba(255, 200, 200, 0.3)'
+  ctx.fill()
+
+  ctx.restore()
+}
+
+function drawLeg(ctx, x, y, angle, side, time) {
+  ctx.save()
+  ctx.translate(x, y)
+  ctx.rotate(angle * 0.3)
+  ctx.strokeStyle = '#d4823a'
+  ctx.lineWidth = 7
+  ctx.lineCap = 'round'
+  ctx.beginPath()
+  ctx.moveTo(0, 0)
+  ctx.lineTo(0, 25)
+  ctx.stroke()
+
+  // 脚
+  ctx.beginPath()
+  ctx.ellipse(0, 27, 6, 4, 0, 0, Math.PI * 2)
+  ctx.fillStyle = '#c87830'
+  ctx.fill()
+  ctx.restore()
+}
+
+function drawArm(ctx, x, y, angle, side, time) {
+  ctx.save()
+  ctx.translate(x, y)
+  ctx.rotate(angle * 0.4)
+  ctx.strokeStyle = '#e8944a'
+  ctx.lineWidth = 6
+  ctx.lineCap = 'round'
+
+  ctx.beginPath()
+  ctx.moveTo(0, 0)
+  ctx.lineTo(0, 20)
+  ctx.stroke()
+  // 小爪子
+  ctx.beginPath()
+  ctx.arc(0, 22, 4, 0, Math.PI * 2)
+  ctx.fillStyle = '#e8944a'
+  ctx.fill()
+  ctx.restore()
+}
+
+// ── 粒子系统 ──
+let particles = []
+
+function drawParticles(ctx, time, glowSize, floatY) {
+  if (Math.random() < 0.08 * glowSize && particles.length < 25) {
+    particles.push({
+      x: (Math.random() - 0.5) * 80,
+      y: -20 - Math.random() * 80,
+      vx: (Math.random() - 0.5) * 0.2,
+      vy: -Math.random() * 0.3 - 0.1,
+      life: 0,
+      maxLife: 60 + Math.random() * 40,
+      size: 1.5 + Math.random() * 2.5,
+    })
+  }
+
+  ctx.save()
+  ctx.translate(W / 2, GROUND_Y + floatY)
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i]
+    p.x += p.vx
+    p.y += p.vy
+    p.life++
+    const a = 0.4 * (1 - p.life / p.maxLife)
+    ctx.beginPath()
+    ctx.arc(p.x, p.y, p.size * (1 - p.life / p.maxLife * 0.4), 0, Math.PI * 2)
+    ctx.fillStyle = `rgba(255, 220, 150, ${a})`
+    ctx.fill()
+    if (p.life >= p.maxLife) particles.splice(i, 1)
+  }
+  ctx.restore()
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 5. 交互
+// ═══════════════════════════════════════════════════════════════
+let isMouseDown = false
+let mouseStart = { x: 0, y: 0 }
+let isDragging = false
+let isHovering = false
+let lastClickTime = 0
+
+canvas.addEventListener('mousedown', (e) => {
+  isMouseDown = true
+  mouseStart = { x: e.clientX, y: e.clientY }
+})
+
+canvas.addEventListener('mousemove', (e) => {
+  if (isMouseDown) {
+    const dx = e.clientX - mouseStart.x
+    const dy = e.clientY - mouseStart.y
+    if (dx * dx + dy * dy > 100 && !isDragging) {
+      isDragging = true
+      AI.lastAction = 'drag'
+      AI.idleTime = 0
+      AI.actionCooldown = 20
+      AI.addLog('🖱️ 用户拖拽')
+    }
+  } else if (!isHovering) {
+    isHovering = true
+    AI.lastAction = 'hover'
+    AI.idleTime = 0
+    AI.actionCooldown = 15
+    AI.addLog('👆 鼠标悬停')
+  }
+})
+
+canvas.addEventListener('mouseleave', () => {
+  isHovering = false
+  isMouseDown = false
+  isDragging = false
+})
+
+canvas.addEventListener('mouseup', (e) => {
+  if (isDragging) {
+    isDragging = false
+    AI.lastAction = 'none'
+    AI.actionCooldown = 10
+    AI.addLog('✓ 拖拽结束')
+    return
+  }
+
+  const now = Date.now()
+  if (now - lastClickTime < 300) {
+    // 双击
+    AI.lastAction = 'doubleClick'
+    AI.idleTime = 0
+    AI.actionCooldown = 30
+    AI.addLog('👆👆 双击!')
+    lastClickTime = 0
+  } else {
+    lastClickTime = now
+    setTimeout(() => {
+      if (lastClickTime !== 0 && Date.now() - lastClickTime >= 300) {
+        AI.lastAction = 'click'
+        AI.idleTime = 0
+        AI.actionCooldown = 25
+        AI.addLog('👆 单击')
+        lastClickTime = 0
+      }
+    }, 310)
+  }
+
+  isMouseDown = false
+})
+
+// ═══════════════════════════════════════════════════════════════
+// 6. 主循环
+// ═══════════════════════════════════════════════════════════════
+let time = 0
+let frameCount = 0
+let fpsTimer = 0
+let currentFps = 60
+let aiTickCounter = 0
+
+function loop(timestamp) {
+  const dt = 16  // ~60fps fixed step
+  time += dt
+
+  // FPS
+  frameCount++
+  fpsTimer += dt
+  if (fpsTimer >= 1000) {
+    currentFps = frameCount
+    frameCount = 0
+    fpsTimer = 0
+  }
+
+  // ── AI 决策 (每 3 帧一次) ──
+  aiTickCounter++
+  if (aiTickCounter % 3 === 0) {
+    const prevEnergy = AI.energy
+
+    // 能量消耗/恢复
+    const pose = POSES[AI.currentPose]
+    if (pose && pose.energyCost > 0 && AI.actionCooldown > 0) {
+      AI.energy = Math.max(0, AI.energy - pose.energyCost * 0.02)
+    }
+
+    // AI 决策
+    AI.decide()
+  }
+
+  // ── 更新目标参数 ──
+  const newTargets = AI.getTargetParams(time)
+  for (const key of RIG_PARAMS) {
+    targetParams[key] = newTargets[key] ?? 0
+  }
+
+  // ── 插值当前参数 → 目标 ──
+  for (const key of RIG_PARAMS) {
+    const diff = targetParams[key] - currentParams[key]
+    currentParams[key] += diff * LERP_SPEED
+    if (Math.abs(diff) < 0.001) currentParams[key] = targetParams[key]
+  }
+
+  // ── 绘制 ──
+  ctx.clearRect(0, 0, W, H)
+  drawCharacter(currentParams, time)
+
+  // ── 更新 UI ──
+  updateUI()
+
+  requestAnimationFrame(loop)
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 7. UI 更新
+// ═══════════════════════════════════════════════════════════════
+function updateUI() {
+  const pose = POSES[AI.currentPose]
+  const poseLabel = pose?.label || '待机'
+
+  document.getElementById('fpsDisplay').textContent = currentFps + ' fps'
+  document.getElementById('modeDisplay').textContent =
+    AI.mode === 'normal' ? '正常' : AI.mode === 'playful' ? '活泼' : AI.mode === 'lazy' ? '慵懒' : '好奇'
+  document.getElementById('moodDisplay').textContent =
+    AI.lastAction === 'none' ? '平静' : AI.lastAction === 'hover' ? '好奇' : '活跃'
+  document.getElementById('energyDisplay').textContent = Math.round(AI.energy * 100) + '%'
+  document.getElementById('energyDisplay').className = 'value ' + (AI.energy > 0.6 ? 'energy-high' : AI.energy > 0.3 ? '' : 'energy-low')
+  document.getElementById('actionDisplay').textContent =
+    AI.lastAction === 'none' ? '—' :
+    AI.lastAction === 'click' ? '单击' : AI.lastAction === 'doubleClick' ? '双击' :
+    AI.lastAction === 'hover' ? '悬停' : AI.lastAction === 'drag' ? '拖拽' : AI.lastAction
+  document.getElementById('idleDisplay').textContent = Math.floor(AI.idleTime / 60) + 's'
+  document.getElementById('poseDisplay').textContent = (pose?.icon || '') + ' ' + poseLabel
+
+  // 决策候选
+  const cList = document.getElementById('candidateList')
+  let cHtml = ''
+  for (const c of AI.candidates) {
+    const isPicked = c.name === AI.currentPose
+    const maxScore = AI.candidates[0]?.score || 1
+    const barW = Math.min(100, (c.score / maxScore) * 100)
+    cHtml += `<div class="cand-item ${isPicked ? 'picked' : ''}">
+      <span class="cand-icon">${c.icon}</span>
+      <span style="flex:1;">${c.label}</span>
+      <span class="cand-bar"><span class="cand-bar-fill" style="width:${barW}%;background:${isPicked ? '#79cfff' : '#30363d'}"></span></span>
+      <span class="cand-score">${c.score.toFixed(2)}</span>
+    </div>`
+  }
+  cList.innerHTML = cHtml
+
+  document.getElementById('confidenceDisplay').textContent = AI.confidence.toFixed(2)
+  document.getElementById('transitionDisplay').textContent = transitioning ? Math.round(transitionProgress * 100) + '%' : '稳定'
+
+  // 身体参数可视化 (显示关键参数)
+  const paramKeys = [
+    { key: 'bodyAngle', label: '身体倾' },
+    { key: 'headTilt', label: '头歪' },
+    { key: 'eyeOpen', label: '睁眼' },
+    { key: 'mouth', label: '嘴型' },
+    { key: 'tailWag', label: '摇尾' },
+    { key: 'breatheAmp', label: '呼吸' },
+    { key: 'floatY', label: '浮动' },
+    { key: 'glowSize', label: '光晕' },
+  ]
+  const pv = document.getElementById('paramViz')
+  pv.innerHTML = paramKeys.map(({ key, label }) =>
+    `<div class="param-row"><span class="pl">${label}</span><span class="pv">${currentParams[key]?.toFixed(2) || '0'}</span></div>`
+  ).join('')
+
+  // 日志
+  const logDiv = document.getElementById('log')
+  logDiv.innerHTML = AI.log.map((l, i) => `<div class="${i === 0 ? 'latest' : ''}">${l}</div>`).join('')
+
+  // 状态
+  document.getElementById('blendStatus').textContent = `混合: ${(LERP_SPEED * 100).toFixed(0)}%`
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 8. 模式切换
+// ═══════════════════════════════════════════════════════════════
+document.querySelectorAll('.mode-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'))
+    btn.classList.add('active')
+    AI.mode = btn.dataset.mode
+    AI.addLog(`🎭 切换 AI 人格: ${btn.textContent.trim()}`)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════
+// 9. 启动
+// ═══════════════════════════════════════════════════════════════
+AI.addLog('🌟 小灵 AI 引擎启动')
+AI.addLog('🧠 12 关节骨骼系统就绪')
+AI.addLog('💫 等待你的互动...')
+
+// 初始 idle 参数
+for (const key of RIG_PARAMS) {
+  currentParams[key] = POSES.idle.targets[key] ?? 0
+  targetParams[key] = POSES.idle.targets[key] ?? 0
+}
+
+requestAnimationFrame(loop)
+</script>
+</body>
+</html>

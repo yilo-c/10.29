@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>思忆集浏览器助手设置</title>
+  <link rel="stylesheet" href="options.css" />
+</head>
+<body>
+  <main class="page-shell">
+    <section class="hero card">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.5l2.1 5.4 5.4 2.1-5.4 2.1L12 17.5l-2.1-5.4-5.4-2.1 5.4-2.1L12 2.5z"/><path d="M19 15.5l.9 2.1 2.1.9-2.1.9-.9 2.1-.9-2.1-2.1-.9 2.1-.9.9-2.1z"/></svg>
+      </span>
+      <div class="hero-copy" style="min-width:0">
+        <p class="eyebrow">小问 in Browser</p>
+        <h1>浏览器助手设置</h1>
+        <p class="subcopy">把桥接地址、连接诊断和上架前检查收敛到一个入口，减少用户只能靠开发者模式排障的成本。</p>
+        <div class="status-row">
+          <span id="options-status" class="pill">尚未检查</span>
+          <button id="test-connection" class="primary">测试连接</button>
+        </div>
+        <p id="options-last-check" class="muted small">最近检查：未执行</p>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="section-head">
+        <h2>桥接地址</h2>
+        <span class="muted small">保存后建议立刻做一次连接测试</span>
+      </div>
+      <label class="field-label" for="options-bridge-base">本地桌面桥接地址</label>
+      <div class="bridge-row">
+        <input id="options-bridge-base" class="bridge-input" type="text" spellcheck="false" placeholder="http://127.0.0.1:18766" />
+        <button id="save-options-bridge" class="secondary">保存</button>
+        <button id="reset-options-bridge" class="ghost">恢复默认</button>
+      </div>
+      <p id="options-help" class="muted small">默认指向本机桌面端。如果桌面端端口发生变化，可在这里统一调整。</p>
+    </section>
+
+    <section class="card split-grid">
+      <div>
+        <div class="section-head compact-head">
+          <h2>最近连接记录</h2>
+          <span class="muted small">保留最近 8 条</span>
+        </div>
+        <ul id="history-list" class="list dense"></ul>
+      </div>
+      <div>
+        <div class="section-head compact-head">
+          <h2>上架前自检</h2>
+          <span class="muted small">建议逐项确认</span>
+        </div>
+        <ul class="list dense">
+          <li>桌面端启动后，桥接状态能稳定返回“已连接”。</li>
+          <li>普通文章页、视频页、文档页至少各做一次人工回归。</li>
+          <li>桥接地址改端口后，侧边栏和设置页都能正确恢复。</li>
+          <li>桌面端未启动时，用户能看懂恢复路径，而不是只看到 Failed to fetch。</li>
+          <li>准备好扩展图标、简介、截图和版本号说明再提交上架。</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="section-head">
+        <h2>最近一次总结结果</h2>
+        <span class="muted small">来自侧栏会话同步</span>
+      </div>
+      <p id="result-updated-at" class="muted small">尚未生成总结。</p>
+      <pre id="result-summary" class="result-box">暂无摘要</pre>
+      <div class="split-grid">
+        <div>
+          <h2>关键点</h2>
+          <ul id="result-key-points" class="list dense"></ul>
+        </div>
+        <div>
+          <h2>动作建议</h2>
+          <ul id="result-action-hints" class="list dense"></ul>
+        </div>
+      </div>
+    </section>
+  </main>
+  <script src="bridge-utils.js"></script>
+  <script src="bridge-auth.js"></script>
+  <script src="options.js"></script>
+</body>
+</html>

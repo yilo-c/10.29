@@ -1,0 +1,18 @@
+你是一个 FastAPI 后端开发者。请在 automation-hub/api/routes/ 下创建 workflows.py，实现工作流引擎管理 API。
+
+## 参考
+- 路由风格参考 automation-hub/api/routes/agent.py
+- 桌面端有 workflow_ 前缀模块（workflow_editor/execution_engine）
+
+## 端点
+1. GET /workflows — 列工作流
+2. POST /workflows — 创建（body: {name, steps, trigger?}）
+3. GET /workflows/{id} — 详情
+4. DELETE /workflows/{id} — 删除
+5. POST /workflows/{id}/execute — 执行
+6. POST /workflows/{id}/toggle — 启用/禁用
+
+## 约束
+- 内存存储，TODO 替换为数据库
+- APIRouter(prefix="/workflows", tags=["workflows"]), require_scope("workflows:admin")
+- 错误处理同 agent.py

@@ -1,0 +1,639 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>小问 · 桌宠交互预览</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; overflow: hidden; }
+  body {
+    font-family: system-ui, "Microsoft YaHei", sans-serif;
+    color: #d8dde8; background: #10121a; transition: background .3s;
+  }
+  body[data-bg="checker"] { background: repeating-conic-gradient(#1d1e28 0% 25%, #14151d 0% 50%) 0 0 / 32px 32px, #14151d; }
+  body[data-bg="desk"]    { background: linear-gradient(180deg, #232a3d 0%, #171c2a 55%, #0d0f16 100%); }
+  body[data-bg="night"]   { background: #06070b; }
+
+  #topbar { position: fixed; top: 14px; left: 0; right: 0; text-align: center; pointer-events: none; z-index: 30; }
+  #topbar h1 { font-size: 18px; color: #7fd0ff; letter-spacing: 1px; text-shadow: 0 2px 12px rgba(0,0,0,.5); }
+  #topbar .sub { font-size: 11px; color: #6b7585; margin-top: 4px; }
+
+  #status {
+    position: fixed; top: 12px; right: 12px; z-index: 30;
+    font: 11px/1.7 ui-monospace, Consolas, monospace; color: #8b96a6;
+    background: rgba(16, 20, 30, .78); border: 1px solid #232a38; border-radius: 8px;
+    padding: 7px 11px; text-align: right; backdrop-filter: blur(8px);
+  }
+  #status b { color: #7fd0ff; font-weight: 600; }
+
+  #dock {
+    position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%); z-index: 30;
+    display: flex; flex-direction: column; gap: 8px; align-items: center;
+    max-width: min(94vw, 820px);
+  }
+  .row { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; }
+  .lbl { font-size: 12px; color: #5a6472; align-self: center; padding: 0 4px 0 8px; }
+  button {
+    padding: 7px 12px; background: rgba(20, 26, 38, .82); color: #a9d7f5;
+    font-size: 12.5px; border: 1px solid #2c3b52; border-radius: 8px; cursor: pointer;
+    transition: background .15s, border-color .15s; backdrop-filter: blur(8px);
+  }
+  button:hover { background: #24364d; border-color: #3e5a7d; }
+  button.on { background: #3b6ea5; color: #fff; border-color: #6aa9e8; }
+  #hint { font-size: 11px; color: #5a6472; text-align: center; line-height: 1.8; }
+  kbd { background: #222a38; border: 1px solid #33405a; border-radius: 4px; padding: 0 5px; font-size: 11px; }
+
+  /* ── 桌宠本体：全页面自由定位 ── */
+  #pet {
+    position: fixed; left: 0; top: 0; width: 256px; height: 256px; z-index: 20;
+    will-change: transform; cursor: grab; touch-action: none;
+    filter: drop-shadow(0 12px 16px rgba(0, 0, 0, .38));
+  }
+  #pet.drag { cursor: grabbing; }
+  #pet canvas { position: absolute; inset: 0; width: 256px; height: 256px; }
+
+  #bubble {
+    position: absolute; bottom: calc(100% + 12px); left: 50%; transform: translateX(-50%) translateY(4px);
+    min-width: 110px; max-width: 250px; padding: 8px 11px; border-radius: 10px;
+    border: 1px solid rgba(121, 207, 255, .34); background: rgba(9, 18, 29, .85);
+    color: rgba(239, 248, 255, .95); font-size: 12px; line-height: 1.5; text-align: center;
+    box-shadow: 0 10px 28px rgba(0,0,0,.28), 0 0 18px rgba(90,190,255,.12);
+    backdrop-filter: blur(14px); pointer-events: none;
+    opacity: 0; transition: opacity .22s, transform .22s; white-space: pre-wrap;
+  }
+  #bubble.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  #bubble::after {
+    content: ''; position: absolute; top: 100%; left: 50%; margin-left: -6px;
+    border: 6px solid transparent; border-top-color: rgba(9, 18, 29, .85);
+  }
+
+  /* ── 加载遮罩 ── */
+  #loading {
+    position: fixed; inset: 0; z-index: 90; display: flex; align-items: center; justify-content: center;
+    background: rgba(10, 12, 18, .92); backdrop-filter: blur(6px);
+  }
+  #loading .box { width: min(320px, 84vw); text-align: center; }
+  #loading .title { font-size: 15px; color: #7fd0ff; margin-bottom: 14px; letter-spacing: 1px; }
+  #loading .bar { height: 8px; border-radius: 6px; background: #1a2030; overflow: hidden; border: 1px solid #263048; }
+  #loading .bar div { height: 100%; width: 0%; border-radius: 6px; background: linear-gradient(90deg, #2f6ea8, #7fd0ff); transition: width .12s; }
+  #load-text { margin-top: 10px; font-size: 11px; color: #6b7585; font-family: ui-monospace, Consolas, monospace; }
+  #loading.hidden { opacity: 0; pointer-events: none; transition: opacity .4s; }
+  #loading .err { color: #ff8f8f; font-size: 12px; margin-top: 10px; line-height: 1.7; white-space: pre-wrap; }
+</style>
+</head>
+<body data-bg="checker">
+
+<div id="topbar">
+  <h1>⚔️ 小问 · 桌宠交互预览</h1>
+  <div class="sub">manifest 驱动 · 帧预解码 · 全页自由拖拽 · 与 Electron 端同规格状态机</div>
+</div>
+
+<div id="status">初始化…</div>
+
+<div id="pet">
+  <div id="bubble"></div>
+  <canvas id="stage"></canvas>
+</div>
+
+<div id="dock">
+  <div class="row" id="actions"></div>
+  <div class="row">
+    <span class="lbl">速度</span>
+    <button data-speed="0.5">0.5×</button>
+    <button data-speed="1" class="on">1×</button>
+    <button data-speed="2">2×</button>
+    <span class="lbl">背景</span>
+    <button data-bg-btn="checker" class="on">棋盘</button>
+    <button data-bg-btn="desk">桌面</button>
+    <button data-bg-btn="night">夜间</button>
+    <span class="lbl">插曲</span>
+    <button data-inter="1" class="on">开</button>
+    <button data-inter="0">关</button>
+    <span class="lbl">位置</span>
+    <button data-act="center">回中央</button>
+  </div>
+  <div id="hint">
+    直接在小问身上操作：<kbd>单击</kbd>受惊 · <kbd>双击</kbd>害羞 · <kbd>三连击</kbd>剑势 · <kbd>五连击</kbd>疏狂剑并箫 ·
+    <kbd>按住拖拽</kbd>御剑飞行，松手落地 · 待机随机插曲：<kbd>眨眼/偷瞄/甩发</kbd>（可关） · 快捷键 <kbd>1-9,0</kbd> 动作 / <kbd>空格</kbd> 回中央
+  </div>
+</div>
+
+<div id="loading">
+  <div class="box">
+    <div class="title">⚔️ 小问正在拔剑……</div>
+    <div class="bar"><div id="bar-fill"></div></div>
+    <div id="load-text">读取 manifest…</div>
+  </div>
+</div>
+
+<script>
+'use strict'
+/* ════════════════════════════════════════════════════════════
+ * 小问桌宠交互预览 v2
+ * - 帧清单来自 manifest.json（单一真源，新增帧零改动生效）
+ * - 状态机/优先级/连击窗口与 Electron 端 useXiaoWenPetMachine 同规格
+ * - 帧预解码(img.decode) + DPR 高清画布 + visibility 暂停
+ * ════════════════════════════════════════════════════════════ */
+
+const $ = s => document.querySelector(s)
+const petEl = $('#pet')
+const canvas = $('#stage')
+const bubbleEl = $('#bubble')
+const statusEl = $('#status')
+
+const CELL = 256
+const ARCHIVE = 'archive-20260822/frames/'
+
+/* ── 1. 动作配置（时长节奏对齐 Electron 端 xiaowenClips.ts）── */
+// 每帧停留 ms；未列出的 clip 回退 manifest 的 fps
+const DUR_OVERRIDES = {
+  idle: 500,
+  clickDefend: [120, 100, 100, 90, 90, 350],
+  shy: [220, 140, 160, 180, 200, 350],
+  dragFly: 110,
+  land: [120, 100, 120, 140, 160, 240],
+  combo3: [80, 80, 80, 90, 100, 120, 220],
+  combo5: [80, 80, 80, 90, 100, 120, 220],
+  notice: [160, 140, 220, 160],
+  glance: [150, 150, 150, 150, 150, 160, 200, 340],
+  hmph: [160, 160, 160, 160, 160, 170, 210, 360],
+  chatOpen: 450,
+  sleepy: 450,
+  startup: 450,
+}
+// 优先级：小 = 高（与 ACTION_PRIORITY 一致；idleVideo/blink 为预览扩展）
+const PRIORITY = {
+  dragFly: 1, combo5: 2, combo3: 3, clickDefend: 4, shy: 4, land: 5,
+  glance: 5, hmph: 5, chatOpen: 6, blink: 6, notice: 7, sleepy: 8, startup: 9,
+  idle: 10, idleVideo: 10,
+}
+// 非循环动作播完后的保持时长 -> 自动回 idle
+const HOLD = { clickDefend: 600, shy: 800, combo3: 400, combo5: 400, land: 1200, blink: 900, glance: 1700, hmph: 1800, notice: 900, sleepy: 1600, startup: 1400 }
+
+const LINES = {
+  idle: ['剑在人在……呼……', '此剑随我八百年……哦不是，八年。', '华山剑法第三式……咦，第三式是什么来着？'],
+  clickDefend: ['干嘛！--哦，是你啊。'],
+  shy: ['戳一下两下的……当心我用剑气挠你痒痒哦！'],
+  dragFly: ['喂喂，我自己会走……', '华山轻功都被你浪费了。'],
+  land: ['到了--唔，落地有点歪。'],
+  combo3: ['再三挑衅--华山剑法第一式·疏狂剑意！……看招！'],
+  combo5: ['千山冷落凌云道--！一生疏狂--！剑并箫！……哼！'],
+  chatOpen: ['你聊你的，我练我的。--诶等等，你说的那个我也有兴趣。'],
+  notice: ['嗯？有风声。'],
+  glance: ['……才、才没有在看你呢。', '只是刚好朝那边看了一眼而已。'],
+  hmph: ['哼。', '哼--别得意，本姑娘只是今天心情好。'],
+  sleepy: ['亥时了……华山弟子也是要睡觉的……哈啊~~'],
+  startup: ['小问报到--今天也是剑意满满的一天！'],
+}
+
+const ACTION_BUTTONS = [
+  { act: 'idle', label: '待机' },
+  { act: 'idleVideo', label: '待机·视频版' },
+  { act: 'blink', label: '眨眼' },
+  { act: 'glance', label: '偷瞄' },
+  { act: 'hmph', label: '甩发' },
+  { act: 'clickDefend', label: '受惊' },
+  { act: 'shy', label: '害羞' },
+  { act: 'combo3', label: '三连击' },
+  { act: 'combo5', label: '五连击' },
+  { act: 'notice', label: '留意' },
+  { act: 'sleepy', label: '打盹' },
+  { act: 'startup', label: '报到' },
+]
+
+/* ── 2. 运行状态 ── */
+const S = {
+  action: 'idle', frame: 0, frameTime: 0, hold: 0,
+  flying: false, squash: 0, speed: 1, paused: false,
+  x: 0, y: 0,
+}
+const CLIPS = {}          // name -> { files[], durs[], loop, base }
+const IMAGES = new Map()  // url -> HTMLImageElement
+const MISSING = new Set()
+let particles = []
+let lastT = 0, fpsFrames = 0, fpsValue = 0, fpsLast = 0, mistTimer = 0
+
+/* ── 3. 画布 ── */
+const ctx = canvas.getContext('2d')
+function setupCanvas() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2)
+  canvas.width = CELL * dpr
+  canvas.height = CELL * dpr
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+}
+
+/* ── 4. 资产加载 ── */
+function buildClips(manifest) {
+  for (const [name, c] of Object.entries(manifest.clips)) {
+    const durs = DUR_OVERRIDES[name]
+    CLIPS[name] = {
+      base: c.folder + '/',
+      files: c.frames.slice(),
+      durs: Array.isArray(durs) ? durs : Array(c.frames.length).fill(durs != null ? durs : Math.round(1000 / c.fps)),
+      loop: !!c.loop,
+    }
+  }
+  // 归档里的加餐：12 帧视频版待机（用户验收“完美”）+ 4 帧眨眼插曲
+  CLIPS.idleVideo = {
+    base: ARCHIVE + 'idle_videoversion/',
+    files: Array.from({ length: 12 }, (_, i) => 'frame_' + String(i).padStart(2, '0') + '.png'),
+    durs: Array(12).fill(110), loop: true,
+  }
+  CLIPS.blink = {
+    base: ARCHIVE + 'idle_i1/',
+    files: ['idle_i1_01.png', 'idle_i1_02.png', 'idle_i1_03.png', 'idle_i1_04.png'],
+    durs: [180, 120, 120, 200], loop: false,
+  }
+}
+
+function loadImage(url) {
+  return new Promise(resolve => {
+    const img = new Image()
+    let settled = false
+    const done = ok => { if (!settled) { settled = true; resolve(ok ? img : null) } }
+    img.onload = () => {
+      if (typeof img.decode === 'function') img.decode().then(() => done(true), () => done(true))
+      else done(true)
+    }
+    img.onerror = () => done(null)
+    img.src = url
+  })
+}
+
+async function preloadAll() {
+  const urls = new Set()
+  for (const clip of Object.values(CLIPS)) {
+    for (const f of clip.files) urls.add(clip.base + f)
+  }
+  const list = [...urls]
+  let done = 0
+  await Promise.all(list.map(async url => {
+    const img = await loadImage(url)
+    if (img) IMAGES.set(url, img); else MISSING.add(url)
+    done++
+    $('#bar-fill').style.width = (done / list.length * 100).toFixed(1) + '%'
+    $('#load-text').textContent = `预解码帧 ${done}/${list.length} · ${url.split('/').pop()}`
+  }))
+  return list.length
+}
+
+/* ── 5. 状态机 ── */
+function setAction(action) {
+  if (!CLIPS[action]) action = 'idle'
+  S.action = action
+  S.frame = 0
+  S.frameTime = 0
+  S.hold = HOLD[action] ?? 0
+  updateButtons()
+}
+function go(action) { // 手势触发：优先级闸门
+  if ((PRIORITY[action] ?? 99) > (PRIORITY[S.action] ?? 99)) return
+  setAction(action)
+  say(action)
+}
+
+/* ── 6. 台词气泡 ── */
+let bubbleTimer = 0
+function say(action) {
+  const lines = LINES[action] || LINES.idle
+  const text = lines[Math.floor(Math.random() * lines.length)]
+  if (!text) return
+  bubbleEl.textContent = text
+  bubbleEl.classList.add('show')
+  clearTimeout(bubbleTimer)
+  bubbleTimer = setTimeout(() => bubbleEl.classList.remove('show'),
+    text.length > 25 ? 4500 : text.length > 15 ? 3500 : 2400)
+}
+// 闲聊（对齐 Electron 端 24s 间隔）
+setInterval(() => {
+  const idleLike = S.action === 'idle' || S.action === 'idleVideo' || S.action === 'chatOpen'
+  if (idleLike && !S.flying) say('idle')
+}, 24000)
+
+// 待机随机插曲：眨眼 / 偷瞄 / 甩发（对齐生成侧 preview_all 的 INTERLUDES 设计）
+const INTERLUDES = ['blink', 'glance', 'hmph']
+let interludeOn = true
+let interludeAt = nextInterludeAt()
+function nextInterludeAt() { return 9000 + Math.random() * 9000 }
+function interludeTick(dt) {
+  if (!interludeOn || S.flying) return
+  const idleLike = S.action === 'idle' || S.action === 'idleVideo' || S.action === 'chatOpen'
+  if (!idleLike) { interludeAt = nextInterludeAt(); return }
+  interludeAt -= dt
+  if (interludeAt <= 0) {
+    interludeAt = nextInterludeAt()
+    const pick = INTERLUDES[Math.floor(Math.random() * INTERLUDES.length)]
+    if ((PRIORITY[pick] ?? 99) <= (PRIORITY[S.action] ?? 99)) setAction(pick) // 插曲不刷台词，保持轻描淡写
+  }
+}
+
+/* ── 7. 粒子 ── */
+function spawn(n, fn) { for (let i = 0; i < n; i++) particles.push(fn(i)) }
+const swordSpark = () => spawn(2, () => ({
+  x: CELL * 0.62 + (Math.random() * 18 - 9), y: CELL * 0.35,
+  vx: (Math.random() * 2 - 1) * 1.2, vy: -Math.random() * 1.8 - .4,
+  life: 0, max: 22 + Math.random() * 10, size: 1.5 + Math.random() * 1.5,
+  color: 'rgba(100,200,255,0.8)',
+}))
+const hearts = () => spawn(4, () => {
+  const a = (Math.random() * 2 - 1) - Math.PI / 2
+  return {
+    x: CELL / 2 + (Math.random() * 12 - 6), y: CELL * 0.4,
+    vx: Math.cos(a) * .4, vy: Math.sin(a) * .7,
+    life: 0, max: 28 + Math.random() * 16, size: 2 + Math.random() * 2,
+    color: 'rgba(255,140,180,0.8)',
+  }
+})
+const mist = (x, y) => particles.push({
+  x, y, vx: Math.random() * .4 - .2, vy: -Math.random() * .3 - .1,
+  life: 0, max: 35 + Math.random() * 25, size: 3 + Math.random() * 4,
+  color: 'rgba(200,230,255,0.4)',
+})
+const comboBurst = () => spawn(12, () => {
+  const a = Math.random() * Math.PI * 2
+  return {
+    x: CELL / 2, y: CELL * 0.45,
+    vx: Math.cos(a) * (1.5 + Math.random() * 2.5), vy: Math.sin(a) * (1.5 + Math.random() * 2.5),
+    life: 0, max: 20 + Math.random() * 20, size: 2 + Math.random() * 3,
+    color: 'rgba(100,200,255,0.9)',
+  }
+})
+function updateParticles(dtSec) {
+  if (particles.length > 200) particles.splice(0, particles.length - 200)
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i]
+    p.x += p.vx * dtSec * 60
+    p.y += p.vy * dtSec * 60
+    p.vy += 0.02
+    p.life += dtSec * 1000
+    if (p.life >= p.max) particles.splice(i, 1)
+  }
+}
+function drawParticles() {
+  for (const p of particles) {
+    const k = 1 - p.life / p.max
+    ctx.beginPath()
+    ctx.arc(p.x, p.y, p.size * (1 - p.life / p.max * .5), 0, Math.PI * 2)
+    ctx.fillStyle = p.color.replace(/[\d.]+\)$/, (k * 0.9).toFixed(3) + ')')
+    ctx.fill()
+  }
+}
+
+/* ── 8. 渲染 ── */
+function frameImage(clip) {
+  const url = clip.base + (clip.files[S.frame] ?? clip.files[0])
+  return IMAGES.get(url)
+}
+function drawFrameImage(img) {
+  const iw = img.naturalWidth || CELL, ih = img.naturalHeight || CELL
+  const fit = CELL * 0.96
+  const s = Math.min(fit / iw, fit / ih)
+  const w = iw * s, h = ih * s
+  ctx.drawImage(img, (CELL - w) / 2, (CELL - h) / 2, w, h)
+}
+function draw(ts) {
+  const clip = CLIPS[S.action]
+  ctx.clearRect(0, 0, CELL, CELL)
+  if (!clip) return
+
+  ctx.save()
+  if (S.flying) { // 飞行姿态：轻微前倾
+    ctx.translate(CELL / 2, CELL / 2)
+    ctx.rotate(-0.08)
+    ctx.translate(-CELL / 2, -CELL / 2)
+  }
+  if (S.squash > 0.01) { // 落地挤压弹回
+    ctx.translate(CELL / 2, CELL * 0.98)
+    ctx.scale(1 + 0.2 * S.squash, 1 - 0.26 * S.squash)
+    ctx.translate(-CELL / 2, -CELL * 0.98)
+  }
+  const img = frameImage(clip)
+  if (img) drawFrameImage(img)
+  else if (MISSING.size && !draw._warned) {
+    draw._warned = true
+    console.warn('[preview] 缺帧: ' + clip.base + (clip.files[S.frame] ?? '?'))
+  }
+  ctx.restore()
+
+  if (S.flying) { // 御剑风痕
+    ctx.strokeStyle = 'rgba(200,230,255,0.16)'
+    ctx.lineWidth = 1
+    for (let i = 0; i < 3; i++) {
+      const ly = CELL * 0.3 + i * CELL * 0.15
+      ctx.beginPath()
+      ctx.moveTo(CELL * 0.8, ly)
+      ctx.lineTo(CELL * 0.95, ly)
+      ctx.stroke()
+    }
+  }
+  drawParticles()
+}
+
+/* ── 9. 主循环 ── */
+function loop(ts) {
+  requestAnimationFrame(loop)
+  const dt = lastT ? Math.min(ts - lastT, 50) : 16
+  lastT = ts
+  if (S.paused) return
+
+  fpsFrames++
+  if (ts - fpsLast >= 500) {
+    fpsValue = Math.round(fpsFrames * 1000 / (ts - fpsLast))
+    fpsFrames = 0; fpsLast = ts
+    updateStatus()
+  }
+
+  if (S.hold > 0) {
+    S.hold -= dt
+    if (S.hold <= 0) {
+      S.hold = 0
+      if (!S.flying) setAction('idle') // 自动回归不刷台词，避免噪音
+    }
+  }
+  interludeTick(dt)
+
+  const clip = CLIPS[S.action]
+  if (clip) {
+    S.frameTime += dt
+    let guard = 0
+    const step = () => (clip.durs[S.frame] ?? 100) / S.speed
+    while (S.frameTime >= step() && guard++ < 8) {
+      S.frameTime -= step()
+      S.frame++
+      if (S.frame >= clip.files.length) {
+        if (clip.loop) S.frame = 0
+        else { S.frame = clip.files.length - 1; S.frameTime = 0; break }
+      }
+    }
+  }
+
+  if (S.squash > 0) S.squash = Math.max(0, S.squash - dt / 260)
+  updateParticles(dt / 1000)
+  draw(ts)
+}
+
+function updateStatus() {
+  const clip = CLIPS[S.action]
+  const n = clip ? clip.files.length : 0
+  statusEl.innerHTML =
+    `动作 <b>${S.action}</b> · 帧 ${S.frame + 1}/${n}` +
+    ` · <b>${fpsValue}</b>fps · ${S.speed}× · ${S.flying ? '✈ 拖拽中' : '待命'}` +
+    (MISSING.size ? ` · <span style="color:#e8a">缺帧 ${MISSING.size}</span>` : '')
+}
+
+/* ── 10. 拖拽 + 点按（对齐 useXiaoWenPetMachine 的连击窗口）── */
+const DBL_MS = 280, COMBO_MS = 900, DRAG_PX = 8
+const ptr = { down: false, sx: 0, sy: 0, px: 0, py: 0 }
+let lastClick = 0, combo = 0, tapTimer = 0, comboTimer = 0
+
+function clampPos() {
+  S.x = Math.max(8, Math.min(S.x, window.innerWidth - CELL - 8))
+  S.y = Math.max(64, Math.min(S.y, window.innerHeight - CELL - 24))
+}
+function applyPos() { petEl.style.transform = `translate(${S.x}px, ${S.y}px)` }
+
+petEl.addEventListener('pointerdown', e => {
+  if (e.button !== 0) return
+  ptr.down = true
+  ptr.sx = e.clientX; ptr.sy = e.clientY
+  ptr.px = S.x; ptr.py = S.y
+  petEl.setPointerCapture(e.pointerId)
+})
+petEl.addEventListener('pointermove', e => {
+  if (!ptr.down) return
+  const dx = e.clientX - ptr.sx, dy = e.clientY - ptr.sy
+  if (!S.flying && Math.hypot(dx, dy) > DRAG_PX) {
+    S.flying = true
+    setAction('dragFly')
+    say('dragFly')
+    petEl.classList.add('drag')
+  }
+  if (S.flying) {
+    S.x = ptr.px + dx; S.y = ptr.py + dy
+    clampPos(); applyPos()
+    mistTimer++
+    if (mistTimer % 3 === 0) mist(CELL * (0.25 + Math.random() * 0.5), CELL)
+  }
+})
+function endPointer() {
+  if (!ptr.down) return
+  ptr.down = false
+  if (S.flying) {
+    S.flying = false
+    petEl.classList.remove('drag')
+    setAction('land')   // 落地绕过优先级（dragFly=1 会拦住 land=5）
+    S.squash = 1
+    say('land')
+    combo = 0
+    for (let i = 0; i < 4; i++) mist(CELL * (0.3 + Math.random() * 0.4), CELL * 0.9)
+  } else {
+    handleTap()
+  }
+}
+petEl.addEventListener('pointerup', endPointer)
+petEl.addEventListener('pointercancel', endPointer)
+
+function handleTap() {
+  const now = performance.now()
+  if (now - lastClick < DBL_MS) { // 双击 -> 害羞
+    lastClick = 0; combo = 0
+    go('shy')
+    hearts()
+    return
+  }
+  lastClick = now
+  clearTimeout(tapTimer)
+  tapTimer = setTimeout(() => {
+    if (lastClick !== now) return // 已被双击接管
+    lastClick = 0
+    combo++
+    if (combo >= 5) { go('combo5'); comboBurst(); combo = 0 }
+    else if (combo >= 3) { go('combo3'); comboBurst(); combo = 0 }
+    else { go('clickDefend'); swordSpark() }
+    clearTimeout(comboTimer)
+    comboTimer = setTimeout(() => { combo = 0 }, COMBO_MS)
+  }, DBL_MS)
+}
+
+/* ── 11. 控制面板 ── */
+const actionsRow = $('#actions')
+for (const { act, label } of ACTION_BUTTONS) {
+  const b = document.createElement('button')
+  b.dataset.act = act
+  b.textContent = label
+  b.addEventListener('click', () => { setAction(act); say(act) })
+  actionsRow.appendChild(b)
+}
+function updateButtons() {
+  actionsRow.querySelectorAll('button').forEach(b =>
+    b.classList.toggle('on', b.dataset.act === S.action))
+}
+
+document.querySelectorAll('[data-speed]').forEach(b => {
+  b.addEventListener('click', () => {
+    S.speed = parseFloat(b.dataset.speed)
+    document.querySelectorAll('[data-speed]').forEach(x => x.classList.toggle('on', x === b))
+  })
+})
+const BG_MODES = ['checker', 'desk', 'night']
+document.querySelectorAll('[data-bg-btn]').forEach(b => {
+  b.addEventListener('click', () => {
+    document.body.dataset.bg = b.dataset.bgBtn
+    document.querySelectorAll('[data-bg-btn]').forEach(x => x.classList.toggle('on', x === b))
+  })
+})
+function centerPet() {
+  S.x = (window.innerWidth - CELL) / 2
+  S.y = window.innerHeight * 0.42 - CELL / 2
+  clampPos(); applyPos()
+}
+document.querySelectorAll('[data-inter]').forEach(b => {
+  b.addEventListener('click', () => {
+    interludeOn = b.dataset.inter === '1'
+    document.querySelectorAll('[data-inter]').forEach(x => x.classList.toggle('on', x === b))
+  })
+})
+document.querySelector('[data-act="center"]').addEventListener('click', centerPet)
+
+window.addEventListener('keydown', e => {
+  if (e.key === ' ') { centerPet(); e.preventDefault(); return }
+  const i = '1234567890'.indexOf(e.key)
+  if (i >= 0 && ACTION_BUTTONS[i]) { setAction(ACTION_BUTTONS[i].act); say(ACTION_BUTTONS[i].act) }
+})
+window.addEventListener('resize', () => { clampPos(); applyPos() })
+document.addEventListener('visibilitychange', () => {
+  S.paused = document.hidden
+  if (!S.paused) { lastT = 0; fpsLast = 0 }
+})
+
+/* ── 12. 启动 ── */
+async function boot() {
+  setupCanvas()
+  centerPet()
+  try {
+    const res = await fetch('manifest.json', { cache: 'no-store' })
+    if (!res.ok) throw new Error('manifest.json HTTP ' + res.status)
+    const manifest = await res.json()
+    buildClips(manifest)
+    const total = await preloadAll()
+    $('#load-text').textContent = `✅ ${total} 帧就绪` + (MISSING.size ? ` · 缺 ${MISSING.size} 帧` : '')
+    setTimeout(() => $('#loading').classList.add('hidden'), 350)
+    setAction('startup')
+    say('startup')
+    updateStatus()
+    requestAnimationFrame(loop)
+  } catch (err) {
+    $('.title').textContent = '⚠ 加载失败'
+    $('#load-text').innerHTML = ''
+    const errEl = document.createElement('div')
+    errEl.className = 'err'
+    errEl.textContent = String(err && err.message || err) +
+      '\n请通过本地 HTTP 服务访问（在 public 目录执行：python -m http.server），不要用 file:// 直接打开。'
+    $('.box').appendChild(errEl)
+  }
+}
+boot()
+</script>
+</body>
+</html>

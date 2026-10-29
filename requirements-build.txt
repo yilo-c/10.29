@@ -1,0 +1,4 @@
+# 思忆集桌面端构建工具依赖
+# 安装: .venv3.11/Scripts/python.exe -m pip install -r requirements-build.txt
+
+pyinstaller>=6.0

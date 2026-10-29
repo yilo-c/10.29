@@ -1,0 +1,703 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pose Tuner — 思忆集 VRM 骨骼调参工具</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: #0a1018; color: #e6edf3; font-family: 'Segoe UI', system-ui, sans-serif;
+  display: flex; height: 100vh; overflow: hidden;
+}
+
+/* ── 预览区 ── */
+.preview {
+  flex: 1; display: flex; align-items: center; justify-content: center;
+  background: radial-gradient(ellipse at 50% 40%, rgba(121,207,255,0.03) 0%, transparent 70%);
+  position: relative;
+}
+canvas { border-radius: 16px; display: block; }
+
+/* ── 控制面板 ── */
+.panel {
+  width: 420px; overflow-y: auto; padding: 16px;
+  background: rgba(255,255,255,0.015); border-left: 1px solid rgba(121,207,255,0.06);
+  scrollbar-width: thin;
+}
+.panel::-webkit-scrollbar { width: 3px; }
+.panel::-webkit-scrollbar-thumb { background: rgba(121,207,255,0.1); border-radius: 2px; }
+
+.panel h1 {
+  font-size: 16px; font-weight: 600; margin-bottom: 4px;
+  background: linear-gradient(90deg, #79cfff, #a78bfa);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+}
+.panel .sub { font-size: 10px; color: #6e7681; margin-bottom: 12px; }
+
+/* ── 姿态选择器 ── */
+.pose-selector {
+  display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 16px;
+}
+.pose-btn {
+  padding: 4px 10px; border-radius: 14px; border: 1px solid rgba(121,207,255,0.1);
+  background: rgba(255,255,255,0.02); color: #8b949e; font-size: 11px;
+  cursor: pointer; transition: all 0.15s; font-family: inherit;
+}
+.pose-btn:hover { border-color: rgba(121,207,255,0.25); color: #c9d1d9; }
+.pose-btn.active { background: rgba(121,207,255,0.08); border-color: #79cfff; color: #79cfff; }
+
+/* ── 骨骼组 ── */
+.bone-group {
+  margin-bottom: 12px; border-radius: 10px;
+  background: rgba(255,255,255,0.01); overflow: hidden;
+}
+.bone-group-header {
+  display: flex; align-items: center; gap: 6px; padding: 6px 10px;
+  cursor: pointer; font-size: 11px; color: #8b949e;
+  border-bottom: 1px solid rgba(255,255,255,0.03);
+  transition: color 0.15s;
+}
+.bone-group-header:hover { color: #c9d1d9; }
+.bone-group-header .arrow { font-size: 8px; transition: transform 0.2s; width: 10px; }
+.bone-group.collapsed .bone-group-header .arrow { transform: rotate(-90deg); }
+.bone-group.collapsed .bone-sliders { display: none; }
+
+/* ── 滑块 ── */
+.bone-sliders { padding: 6px 10px; }
+.slider-row {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 4px; font-size: 11px;
+}
+.slider-row .label { width: 70px; color: #8b949e; text-align: right; flex-shrink: 0; }
+.slider-row input[type=range] {
+  flex: 1; -webkit-appearance: none; height: 3px;
+  background: rgba(255,255,255,0.08); border-radius: 2px;
+}
+.slider-row input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 12px; height: 12px; border-radius: 50%;
+  background: #79cfff; cursor: pointer; border: none;
+}
+.slider-row .val {
+  width: 38px; text-align: left; color: #e6edf3; font-variant-numeric: tabular-nums;
+}
+.slider-row .limit {
+  width: 30px; font-size: 9px; color: #484f58; text-align: center;
+}
+.slider-row input[type=range].warn { background: rgba(255,150,80,0.3); }
+.slider-row input[type=range].danger { background: rgba(255,70,70,0.3); }
+
+/* ── 混合变形 ── */
+.bs-row {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 4px; font-size: 11px;
+}
+.bs-row .label { width: 70px; color: #8b949e; text-align: right; flex-shrink: 0; }
+.bs-row input[type=range] {
+  flex: 1; -webkit-appearance: none; height: 3px;
+  background: rgba(255,255,255,0.08); border-radius: 2px;
+}
+.bs-row input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 12px; height: 12px; border-radius: 50%;
+  background: #a78bfa; cursor: pointer;
+}
+.bs-row .val { width: 30px; color: #c9d1d9; font-variant-numeric: tabular-nums; }
+
+/* ── 底部 ── */
+.actions { display: flex; gap: 6px; margin-top: 12px; flex-wrap: wrap; }
+.btn {
+  padding: 5px 14px; border-radius: 8px; border: 1px solid rgba(121,207,255,0.12);
+  background: rgba(255,255,255,0.02); color: #c9d1d9; font-size: 11px;
+  cursor: pointer; font-family: inherit; transition: all 0.15s;
+}
+.btn:hover { background: rgba(255,255,255,0.04); border-color: rgba(121,207,255,0.25); }
+.btn.primary { background: rgba(121,207,255,0.08); border-color: #79cfff; color: #79cfff; }
+.btn.danger { border-color: rgba(240,136,142,0.2); color: #f0888e; }
+.btn.danger:hover { background: rgba(240,136,142,0.06); border-color: rgba(240,136,142,0.3); }
+
+.output {
+  margin-top: 8px; padding: 10px; border-radius: 8px;
+  background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.04);
+  font-family: 'Cascadia Code', 'Fira Code', monospace; font-size: 10px;
+  max-height: 180px; overflow-y: auto; white-space: pre-wrap; color: #8b949e;
+}
+.toast {
+  position: fixed; top: 16px; right: 16px; padding: 8px 16px; border-radius: 8px;
+  background: rgba(63,185,80,0.15); border: 1px solid rgba(63,185,80,0.25);
+  color: #3fb950; font-size: 12px; opacity: 0; transition: opacity 0.3s;
+  pointer-events: none;
+}
+.toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+
+<div class="preview" id="preview">
+  <canvas id="c" width="480" height="560"></canvas>
+</div>
+
+<div class="panel" id="panel"></div>
+<div class="toast" id="toast"></div>
+
+<script>
+// ─── 数据 (与 boneSystem.ts 同步) ─────────────────────────────────
+
+const VRM_BONE = {
+  hips:1,spine:2,chest:3,upperChest:4,neck:9,
+  head:10,leftEye:11,rightEye:12,
+  leftShoulder:68,leftUpperArm:69,leftLowerArm:74,leftHand:75,
+  leftThumb1:88,leftIndex1:76,leftMiddle1:82,
+  rightShoulder:91,rightUpperArm:92,rightLowerArm:97,rightHand:98,
+  rightThumb1:111,rightIndex1:99,rightMiddle1:105,
+  leftUpperLeg:114,leftLowerLeg:127,leftFoot:128,leftToes:129,
+  rightUpperLeg:130,rightLowerLeg:143,rightFoot:144,rightToes:145,
+  tail1:146,tail2:147,tail3:148,tail4:149,tail5:150,tail6:151,tail7:152,tail8:153,
+  leftEar1:13,leftEar2:14,rightEar1:16,rightEar2:17,
+};
+
+const JOINT_CONSTRAINTS = {
+  hips:{x:[-0.35,0.45],y:[-0.26,0.26],z:[-0.17,0.17]},
+  spine:{x:[-0.17,0.26],y:[-0.09,0.09],z:[-0.12,0.12]},
+  chest:{x:[-0.12,0.12],y:[-0.09,0.09],z:[-0.07,0.07]},
+  upperChest:{x:[-0.09,0.09],y:[-0.05,0.05],z:[-0.07,0.07]},
+  neck:{x:[-0.52,0.52],y:[-0.79,0.79],z:[-0.44,0.44]},
+  head:{x:[-0.26,0.35],y:[-0.44,0.44],z:[-0.26,0.26]},
+  leftEye:{x:[-0.05,0.05],y:[-0.05,0.05],z:[-0.03,0.03]},
+  rightEye:{x:[-0.05,0.05],y:[-0.05,0.05],z:[-0.03,0.03]},
+  leftShoulder:{x:[-0.17,0.52],y:[-0.26,0.35],z:[-0.35,0.35]},
+  rightShoulder:{x:[-0.17,0.52],y:[-0.35,0.26],z:[-0.35,0.35]},
+  leftUpperArm:{x:[-1.57,2.09],y:[-0.52,1.57],z:[-1.05,1.05]},
+  rightUpperArm:{x:[-1.57,2.09],y:[-1.57,0.52],z:[-1.05,1.05]},
+  leftLowerArm:{x:[-2.44,0.09],y:[0,0],z:[0,0]},
+  rightLowerArm:{x:[-2.44,0.09],y:[0,0],z:[0,0]},
+  leftHand:{x:[-0.87,0.87],y:[-0.35,0.35],z:[-0.44,0.44]},
+  rightHand:{x:[-0.87,0.87],y:[-0.35,0.35],z:[-0.44,0.44]},
+  leftUpperLeg:{x:[-0.79,1.57],y:[-0.35,0.35],z:[-0.26,0.26]},
+  rightUpperLeg:{x:[-0.79,1.57],y:[-0.35,0.35],z:[-0.26,0.26]},
+  leftLowerLeg:{x:[-0.09,2.44],y:[0,0],z:[0,0]},
+  rightLowerLeg:{x:[-0.09,2.44],y:[0,0],z:[0,0]},
+  leftFoot:{x:[-0.44,0.61],y:[-0.17,0.17],z:[-0.17,0.17]},
+  rightFoot:{x:[-0.44,0.61],y:[-0.17,0.17],z:[-0.17,0.17]},
+  tail1:{x:[-0.52,1.05],y:[-0.70,0.70],z:[-0.52,0.52]},
+  tail2:{x:[-0.35,0.35],y:[-0.26,0.26],z:[-0.26,0.26]},
+  tail3:{x:[-0.35,0.35],y:[-0.26,0.26],z:[-0.26,0.26]},
+  tail4:{x:[-0.35,0.35],y:[-0.26,0.26],z:[-0.26,0.26]},
+  leftEar1:{x:[-0.35,0.44],y:[-0.26,0.35],z:[-0.35,0.35]},
+  rightEar1:{x:[-0.35,0.44],y:[-0.35,0.26],z:[-0.35,0.35]},
+  leftEar2:{x:[-0.17,0.17],y:[-0.09,0.09],z:[-0.17,0.17]},
+  rightEar2:{x:[-0.17,0.17],y:[-0.09,0.09],z:[-0.17,0.17]},
+};
+
+const BLEND_SHAPES = ['neutral','happy','angry','sad','relaxed','surprised','aa','ih','ou','ee','oh','blink','blinkLeft','blinkRight'];
+
+const POSE_TARGETS = {
+  idle:{label:'待机',icon:'🧍',tags:['neutral','low'],energy:0.05,duration:0,loop:true,
+    rotations:{hips:[0,0,0],spine:[0.03,0,0],head:[0.02,0,0],leftUpperArm:[0.08,-0.05,0],rightUpperArm:[0.08,0.05,0],tail1:[0.3,0,0]},
+    blendShapes:{neutral:1}},
+  happy:{label:'开心',icon:'😊',tags:['happy','mid'],energy:0.35,duration:2000,loop:false,
+    rotations:{head:[0,0,0.12],leftUpperArm:[-0.3,-0.2,0],rightUpperArm:[-0.3,0.2,0],leftLowerArm:[-1.2,0,0],rightLowerArm:[-1.2,0,0],tail1:[0.7,0,0],tail2:[0.2,0.1,0],leftEar1:[0,0.1,0],rightEar1:[0,-0.1,0]},
+    blendShapes:{happy:1}},
+  sad:{label:'悲伤',icon:'😢',tags:['sad','low'],energy:0.08,duration:2500,loop:false,
+    rotations:{head:[0.15,0,0],spine:[-0.1,0,0],leftUpperArm:[0.1,-0.3,0],rightUpperArm:[0.1,0.3,0],leftEar1:[-0.3,0,0],rightEar1:[-0.3,0,0],tail1:[-0.3,0,0]},
+    blendShapes:{sad:1}},
+  angry:{label:'生气',icon:'😤',tags:['angry','high'],energy:0.55,duration:2000,loop:false,
+    rotations:{head:[-0.05,0,0],spine:[0.05,0,0],leftUpperArm:[-0.5,-0.5,0.2],rightUpperArm:[-0.5,0.5,-0.2],leftLowerArm:[-1.6,0,0],rightLowerArm:[-1.6,0,0],leftEar1:[-0.2,0.15,0],rightEar1:[-0.2,-0.15,0],tail1:[0.5,0.3,0],tail2:[0.2,-0.2,0]},
+    blendShapes:{angry:1}},
+  surprised:{label:'惊讶',icon:'😲',tags:['surprise','high'],energy:0.6,duration:1200,loop:false,
+    rotations:{head:[-0.15,0,0],spine:[0.08,0,0],leftUpperArm:[0.6,-0.1,0],rightUpperArm:[0.6,0.1,0],leftLowerArm:[-0.8,0,0],rightLowerArm:[-0.8,0,0],leftEar1:[0.3,0,0],rightEar1:[0.3,0,0],tail1:[0.1,0,0]},
+    blendShapes:{surprised:1}},
+  curious:{label:'好奇',icon:'🤔',tags:['curious','mid'],energy:0.25,duration:2000,loop:false,
+    rotations:{head:[0,0,0.22],leftUpperArm:[-0.2,-0.3,0],rightUpperArm:[0.4,0.1,0],rightLowerArm:[-1.4,0,0],leftEar1:[0,0.2,0],rightEar1:[0,-0.1,0],tail1:[0.2,0.1,0],tail2:[0.1,-0.1,0]},
+    blendShapes:{}},
+  sleepy:{label:'困倦',icon:'😴',tags:['calm','low'],energy:0.04,duration:3500,loop:false,
+    rotations:{head:[0.18,0,0.05],spine:[-0.08,0,0],leftUpperArm:[-0.8,-0.1,0],rightUpperArm:[-0.8,0.1,0],leftEar1:[-0.2,0,0],rightEar1:[-0.2,0,0],tail1:[-0.15,0,0]},
+    blendShapes:{blink:0.8,relaxed:0.5}},
+  excited:{label:'兴奋',icon:'⭐',tags:['happy','high'],energy:0.7,duration:1800,loop:false,
+    rotations:{head:[0,0,-0.08],spine:[0.1,0,0],leftUpperArm:[1.0,-0.3,0],rightUpperArm:[1.0,0.3,0],leftLowerArm:[-0.3,0,0],rightLowerArm:[-0.3,0,0],leftEar1:[0.35,0.05,0],rightEar1:[0.35,-0.05,0],tail1:[0.8,0,0],tail2:[0.25,0.1,0],tail3:[0.15,0.05,0]},
+    blendShapes:{happy:0.8,surprised:0.3}},
+  shy:{label:'害羞',icon:'😳',tags:['nervous','mid'],energy:0.2,duration:2200,loop:false,
+    rotations:{head:[0.22,0,0],spine:[-0.05,0,0],leftUpperArm:[-0.4,-0.6,0.3],rightUpperArm:[-0.4,0.6,-0.3],leftLowerArm:[-1.5,0,0],rightLowerArm:[-1.5,0,0],leftHand:[0.2,0,0],rightHand:[0.2,0,0],leftEar1:[-0.25,0,0],rightEar1:[-0.25,0,0],tail1:[0.1,0,0],tail2:[0,0.2,0]},
+    blendShapes:{sad:0.3,blink:0.4}},
+  scared:{label:'害怕',icon:'😱',tags:['surprise','high'],energy:0.65,duration:1500,loop:false,
+    rotations:{head:[-0.12,0,0],spine:[0.12,0,0],hips:[-0.1,0,0],leftUpperArm:[0.7,-0.5,0.2],rightUpperArm:[0.7,0.5,-0.2],leftLowerArm:[-1.0,0,0],rightLowerArm:[-1.0,0,0],leftUpperLeg:[-0.3,0,0],rightUpperLeg:[-0.3,0,0],leftEar1:[-0.4,0.1,0],rightEar1:[-0.4,-0.1,0],tail1:[-0.4,0,0],tail2:[-0.2,0,0],tail3:[-0.1,0,0]},
+    blendShapes:{surprised:0.8,angry:0.2}},
+  thinking:{label:'思考',icon:'💭',tags:['curious','low'],energy:0.12,duration:2800,loop:false,
+    rotations:{head:[0,0,0.15],leftUpperArm:[0.25,-0.6,0],rightUpperArm:[-0.3,0.1,0],rightLowerArm:[-1.6,0,0],rightHand:[0,0,0.2],leftEar1:[0.1,0.15,0],rightEar1:[0.1,-0.05,0],tail1:[0.1,0.05,0],tail2:[0,0.2,0]},
+    blendShapes:{}},
+};
+
+// 骨骼分组
+const BONE_GROUPS = {
+  '躯干': ['hips','spine','chest','upperChest'],
+  '头颈': ['neck','head','leftEye','rightEye'],
+  '左臂': ['leftShoulder','leftUpperArm','leftLowerArm','leftHand'],
+  '右臂': ['rightShoulder','rightUpperArm','rightLowerArm','rightHand'],
+  '左腿': ['leftUpperLeg','leftLowerLeg','leftFoot','leftToes'],
+  '右腿': ['rightUpperLeg','rightLowerLeg','rightFoot','rightToes'],
+  '猫尾': ['tail1','tail2','tail3','tail4'],
+  '猫耳': ['leftEar1','leftEar2','rightEar1','rightEar2'],
+};
+
+// 骨骼显示名称
+const BONE_LABELS = {
+  hips:'Hips',spine:'Spine',chest:'Chest',upperChest:'UpperChest',neck:'Neck',
+  head:'Head',leftEye:'左眼',rightEye:'右眼',
+  leftShoulder:'左肩',leftUpperArm:'左上臂',leftLowerArm:'左前臂',leftHand:'左手',
+  rightShoulder:'右肩',rightUpperArm:'右上臂',rightLowerArm:'右前臂',rightHand:'右手',
+  leftUpperLeg:'左大腿',leftLowerLeg:'左小腿',leftFoot:'左脚',leftToes:'左脚趾',
+  rightUpperLeg:'右大腿',rightLowerLeg:'右小腿',rightFoot:'右脚',rightToes:'右脚趾',
+  tail1:'尾根',tail2:'尾2',tail3:'尾3',tail4:'尾4',
+  leftEar1:'左耳根',leftEar2:'左耳尖',rightEar1:'右耳根',rightEar2:'右耳尖',
+};
+
+// ─── 状态 ───
+let curPoseId = 'idle';
+let curPose = JSON.parse(JSON.stringify(POSE_TARGETS.idle));
+let boneCollapsed = {};
+let time = 0;
+
+// ─── Canvas 绘制 ───
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const W = canvas.width, H = canvas.height;
+const CX = W/2, GY = 340; // 地面 Y
+
+function deg(r) { return r * 180 / Math.PI; }
+function lerp(a,b,t) { return a + (b-a)*t; }
+function clamp(v,mn,mx) { return Math.max(mn,Math.min(mx,v)); }
+
+function drawBoneFigure(rotations, blendShapes, time) {
+  ctx.clearRect(0, 0, W, H);
+
+  // 背景
+  const sky = ctx.createRadialGradient(CX, 100, 20, CX, 100, 400);
+  sky.addColorStop(0, '#1a3050'); sky.addColorStop(1, '#0a1018');
+  ctx.fillStyle = sky; ctx.fillRect(0, 0, W, H);
+
+  // 地面
+  const gGrad = ctx.createLinearGradient(0, GY, 0, H);
+  gGrad.addColorStop(0, 'rgba(40,70,100,0.4)'); gGrad.addColorStop(1, 'rgba(10,20,35,0.6)');
+  ctx.fillStyle = gGrad; ctx.fillRect(0, GY, W, H - GY);
+
+  // 角色 — 简化骨骼可视化
+  function getR(name) {
+    const r = rotations[name];
+    return r ? { x: r[0] || 0, y: r[1] || 0, z: r[2] || 0 } : { x: 0, y: 0, z: 0 };
+  }
+
+  const breathe = Math.sin(time * 0.004) * 8;
+  const floatY = 0;
+
+  ctx.save();
+  ctx.translate(CX, GY + floatY + breathe);
+  ctx.scale(1.6, 1.6);
+
+  // 光晕
+  const glow = ctx.createRadialGradient(0, -40, 5, 0, -40, 50);
+  glow.addColorStop(0, 'rgba(255,230,150,0.12)');
+  glow.addColorStop(1, 'rgba(255,200,120,0)');
+  ctx.fillStyle = glow; ctx.beginPath(); ctx.arc(0, -40, 50, 0, Math.PI*2); ctx.fill();
+
+  // ── 身躯 ──
+  const hipR = getR('hips');
+  ctx.save();
+  ctx.rotate(hipR.z);
+  ctx.translate(hipR.x * 10, 0);
+
+  // 骨盆
+  ctx.fillStyle = '#e89848'; ctx.strokeStyle = 'rgba(180,120,60,0.4)'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.ellipse(0, 0, 20, 12, 0, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+
+  // 脊椎
+  const spR = getR('spine');
+  ctx.save(); ctx.rotate(spR.z); ctx.translate(0, -12);
+  ctx.fillStyle = '#f0b060'; ctx.beginPath(); ctx.ellipse(0, -12, 14, 18, 0, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+
+  // 胸腔
+  const chR = getR('chest');
+  ctx.save(); ctx.rotate(chR.z); ctx.translate(0, -24);
+  ctx.fillStyle = '#f0b060'; ctx.beginPath(); ctx.ellipse(0, -10, 16, 20, 0, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+
+  // 上胸
+  const ucR = getR('upperChest');
+  ctx.save(); ctx.rotate(ucR.z); ctx.translate(0, -20);
+
+  // ── 左臂 ──
+  const lShR = getR('leftShoulder');
+  ctx.save(); ctx.translate(-14, 0); ctx.rotate(lShR.x + lShR.z);
+  ctx.strokeStyle = '#e89848'; ctx.lineWidth = 5; ctx.beginPath(); ctx.moveTo(0, 0);
+
+  const lUAR = getR('leftUpperArm');
+  const luaX = Math.sin(lUAR.x) * 50, luaY = -Math.cos(lUAR.x) * 50;
+  ctx.lineTo(luaX, luaY); ctx.stroke();
+  ctx.beginPath(); ctx.arc(luaX, luaY, 4, 0, Math.PI*2); ctx.fillStyle = '#fcd8a8'; ctx.fill();
+  ctx.strokeStyle = 'rgba(180,120,60,0.4)'; ctx.lineWidth = 1; ctx.stroke();
+
+  // 小臂
+  const lLAR = getR('leftLowerArm');
+  const llaX = luaX + Math.sin(lLAR.x + lUAR.x) * 40, llaY = luaY - Math.cos(lLAR.x + lUAR.x) * 40;
+  ctx.beginPath(); ctx.moveTo(luaX, luaY); ctx.lineTo(llaX, llaY);
+  ctx.strokeStyle = '#e89848'; ctx.lineWidth = 4; ctx.stroke();
+  ctx.beginPath(); ctx.arc(llaX, llaY, 4, 0, Math.PI*2); ctx.fillStyle = '#fcd8a8'; ctx.fill();
+  ctx.strokeStyle = 'rgba(180,120,60,0.4)'; ctx.lineWidth = 1; ctx.stroke();
+  ctx.restore(); // left arm
+
+  // ── 右臂 ──
+  const rShR = getR('rightShoulder');
+  ctx.save(); ctx.translate(14, 0); ctx.rotate(rShR.x + rShR.z);
+
+  const rUAR = getR('rightUpperArm');
+  const ruaX = Math.sin(rUAR.x) * (-50), ruaY = -Math.cos(rUAR.x) * 50;
+  ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(ruaX, ruaY);
+  ctx.strokeStyle = '#e89848'; ctx.lineWidth = 5; ctx.stroke();
+  ctx.beginPath(); ctx.arc(ruaX, ruaY, 4, 0, Math.PI*2); ctx.fillStyle = '#fcd8a8'; ctx.fill();
+  ctx.strokeStyle = 'rgba(180,120,60,0.4)'; ctx.lineWidth = 1; ctx.stroke();
+
+  const rLAR = getR('rightLowerArm');
+  const rlaX = ruaX + Math.sin(rLAR.x + rUAR.x) * (-40), rlaY = ruaY - Math.cos(rLAR.x + rUAR.x) * 40;
+  ctx.beginPath(); ctx.moveTo(ruaX, ruaY); ctx.lineTo(rlaX, rlaY);
+  ctx.strokeStyle = '#e89848'; ctx.lineWidth = 4; ctx.stroke();
+  ctx.beginPath(); ctx.arc(rlaX, rlaY, 4, 0, Math.PI*2); ctx.fillStyle = '#fcd8a8'; ctx.fill();
+  ctx.strokeStyle = 'rgba(180,120,60,0.4)'; ctx.lineWidth = 1; ctx.stroke();
+  ctx.restore(); // right arm
+
+  // ── 头颈 ──
+  const neR = getR('neck');
+  ctx.save(); ctx.translate(0, -24); ctx.rotate(neR.z);
+  // 脖子
+  ctx.fillStyle = '#fcd8a8'; ctx.beginPath(); ctx.ellipse(0, -5, 6, 8, 0, 0, Math.PI*2); ctx.fill();
+  ctx.strokeStyle = 'rgba(200,160,100,0.3)'; ctx.lineWidth = 1; ctx.stroke();
+
+  const hdR = getR('head');
+  ctx.save(); ctx.translate(0, -14); ctx.rotate(hdR.z + hdR.y * 0.3);
+  // 头
+  const hGrad = ctx.createRadialGradient(-2, -3, 2, 0, 0, 22);
+  hGrad.addColorStop(0, '#fce0b8'); hGrad.addColorStop(0.5, '#f0b060'); hGrad.addColorStop(1, '#e09848');
+  ctx.fillStyle = hGrad; ctx.beginPath(); ctx.arc(0, 0, 21, 0, Math.PI*2); ctx.fill();
+  ctx.strokeStyle = 'rgba(200,160,100,0.2)'; ctx.lineWidth = 0.8; ctx.stroke();
+
+  // 眼睛
+  const blinkW = blendShapes.blink || 0;
+  const eyeH = 3 * (1 - blinkW * 0.9);
+  ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.ellipse(-7, -3, 4.5, eyeH, 0, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(7, -3, 4.5, eyeH, 0, 0, Math.PI*2); ctx.fill();
+  // 瞳孔
+  const lER = getR('leftEye'), rER = getR('rightEye');
+  const lx = lER.y * 2, ly = lER.x * 2;
+  const rx = rER.y * 2, ry = rER.x * 2;
+  ctx.fillStyle = '#1a1a2e'; ctx.beginPath(); ctx.arc(-7 + lx, -3 + ly, 2, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(7 + rx, -3 + ry, 2, 0, Math.PI*2); ctx.fill();
+
+  // 表情影响: 嘴
+  const happyW = blendShapes.happy || 0;
+  const sadW = blendShapes.sad || 0;
+  const angryW = blendShapes.angry || 0;
+  const surprisedW = blendShapes.surprised || 0;
+  ctx.strokeStyle = '#c44a6a'; ctx.lineWidth = 1;
+  if (sadW > 0.3) {
+    ctx.beginPath(); ctx.arc(0, 10, 5, 0.2, Math.PI - 0.2); ctx.stroke(); // sad mouth
+  } else if (surprisedW > 0.3) {
+    ctx.beginPath(); ctx.arc(0, 5, 4, 0, Math.PI*2); ctx.fillStyle = '#c44a6a'; ctx.fill(); // O mouth
+  } else if (angryW > 0.3) {
+    ctx.beginPath(); ctx.arc(0, 8, 5, -0.2, Math.PI + 0.2); ctx.stroke(); // angry mouth
+  } else {
+    ctx.beginPath(); ctx.arc(0, 5, 4 * (1 + happyW), 0.1, Math.PI - 0.1); ctx.stroke(); // smile
+  }
+
+  ctx.restore(); // head
+  ctx.restore(); // neck
+  ctx.restore(); // upperChest
+
+  // ── 猫耳 ──
+  const leR = getR('leftEar1'), le2R = getR('leftEar2');
+  ctx.save(); ctx.translate(-10, -44);
+  ctx.rotate(leR.z + leR.x * 0.5);
+  ctx.fillStyle = '#f0b060'; ctx.beginPath();
+  ctx.moveTo(-4, -2); ctx.lineTo(2, -16); ctx.lineTo(6, -2); ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = 'rgba(180,120,60,0.3)'; ctx.lineWidth = 0.8; ctx.stroke();
+  ctx.restore();
+
+  const reR = getR('rightEar1'), re2R = getR('rightEar2');
+  ctx.save(); ctx.translate(10, -44);
+  ctx.rotate(reR.z + reR.x * 0.5);
+  ctx.fillStyle = '#f0b060'; ctx.beginPath();
+  ctx.moveTo(-6, -2); ctx.lineTo(-2, -16); ctx.lineTo(4, -2); ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = 'rgba(180,120,60,0.3)'; ctx.lineWidth = 0.8; ctx.stroke();
+  ctx.restore();
+
+  ctx.restore(); // chest
+  ctx.restore(); // spine
+
+  // ── 腿 ──
+  const lULR = getR('leftUpperLeg');
+  ctx.save(); ctx.translate(-8, 0); ctx.rotate(lULR.x);
+  const lulX = Math.sin(lULR.x) * 8, lulY = Math.cos(lULR.x) * 40;
+  ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(lulX, lulY);
+  ctx.strokeStyle = '#e89848'; ctx.lineWidth = 8; ctx.stroke();
+
+  const lLLR = getR('leftLowerLeg');
+  const lllX = lulX + Math.sin(lLLR.x + lULR.x) * 4, lllY = lulY + Math.cos(lLLR.x + lULR.x) * 38;
+  ctx.beginPath(); ctx.moveTo(lulX, lulY); ctx.lineTo(lllX, lllY);
+  ctx.strokeStyle = '#e89848'; ctx.lineWidth = 6; ctx.stroke();
+  ctx.beginPath(); ctx.arc(lllX, lllY, 3, 0, Math.PI*2); ctx.fillStyle = '#200800'; ctx.fill();
+  ctx.restore();
+
+  const rULR = getR('rightUpperLeg');
+  ctx.save(); ctx.translate(8, 0); ctx.rotate(rULR.x);
+  const rulX = Math.sin(rULR.x) * (-8), rulY = Math.cos(rULR.x) * 40;
+  ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(rulX, rulY);
+  ctx.strokeStyle = '#e89848'; ctx.lineWidth = 8; ctx.stroke();
+
+  const rLLR = getR('rightLowerLeg');
+  const rllX = rulX + Math.sin(rLLR.x + rULR.x) * (-4), rllY = rulY + Math.cos(rLLR.x + rULR.x) * 38;
+  ctx.beginPath(); ctx.moveTo(rulX, rulY); ctx.lineTo(rllX, rllY);
+  ctx.strokeStyle = '#e89848'; ctx.lineWidth = 6; ctx.stroke();
+  ctx.beginPath(); ctx.arc(rllX, rllY, 3, 0, Math.PI*2); ctx.fillStyle = '#200800'; ctx.fill();
+  ctx.restore();
+
+  // ── 猫尾 ──
+  ctx.save();
+  const t1R = getR('tail1');
+  ctx.translate(0, 4); ctx.rotate(t1R.z + t1R.x * 0.3);
+  ctx.strokeStyle = '#e8944a'; ctx.lineWidth = 7; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(0, 0);
+
+  let tx = 0, ty = 0;
+  for (let i = 1; i <= 4; i++) {
+    const tr = getR('tail' + i);
+    const ang = (tr?.y || 0) + (tr?.x || 0) * 0.3;
+    tx += Math.sin(ang) * 14; ty += Math.cos(ang) * 14;
+    ctx.lineTo(tx, ty);
+  }
+  ctx.stroke();
+  // 尾尖
+  ctx.beginPath(); ctx.arc(tx, ty, 4, 0, Math.PI*2);
+  ctx.fillStyle = 'rgba(255,248,240,0.5)'; ctx.fill();
+  ctx.restore();
+
+  ctx.restore(); // hips
+
+  ctx.restore(); // top-level translate
+}
+
+// ─── 面板构建 ───
+function buildPanel() {
+  const panel = document.getElementById('panel');
+  let html = '<h1>Pose Tuner</h1><div class="sub">思忆集 VRM 骨骼调参 — ' +
+    Object.keys(VRM_BONE).length + ' 骨骼 · 14 混合变形 · 11 预设姿态</div>';
+
+  // 姿态选择器
+  html += '<div class="pose-selector">';
+  for (const [id, p] of Object.entries(POSE_TARGETS)) {
+    html += `<button class="pose-btn${id === curPoseId ? ' active' : ''}" data-pose="${id}">${p.icon} ${p.label}</button>`;
+  }
+  html += '</div>';
+
+  // 骨骼组
+  for (const [groupName, bones] of Object.entries(BONE_GROUPS)) {
+    const collapsed = boneCollapsed[groupName] ? ' collapsed' : '';
+    html += `<div class="bone-group${collapsed}" data-group="${groupName}">`;
+    html += `<div class="bone-group-header"><span class="arrow">▼</span>${groupName} (${bones.length})</div>`;
+    html += '<div class="bone-sliders">';
+
+    for (const bone of bones) {
+      const r = curPose.rotations[bone] || [0, 0, 0];
+      const limits = JOINT_CONSTRAINTS[bone];
+      for (const axis of ['x', 'y', 'z']) {
+        const ai = axis === 'x' ? 0 : axis === 'y' ? 1 : 2;
+        const val = r[ai];
+        const lim = limits ? limits[axis] : [-1, 1];
+        const degVal = (val * 180 / Math.PI).toFixed(1);
+        const degMin = (lim[0] * 180 / Math.PI).toFixed(0);
+        const degMax = (lim[1] * 180 / Math.PI).toFixed(0);
+        // 警告级别
+        const range = lim[1] - lim[0];
+        const nearEdge = range > 0 ? Math.min(Math.abs(val - lim[0]), Math.abs(val - lim[1])) / range : 1;
+        let warnClass = '';
+        if (nearEdge < 0.05) warnClass = ' danger';
+        else if (nearEdge < 0.15) warnClass = ' warn';
+
+        html += `<div class="slider-row">`;
+        html += `<span class="label">${BONE_LABELS[bone] || bone}.${axis.toUpperCase()}</span>`;
+        html += `<span class="limit">${degMin}°</span>`;
+        html += `<input type="range" class="${warnClass}"
+          min="${lim[0].toFixed(3)}" max="${lim[1].toFixed(3)}" step="0.005"
+          value="${val.toFixed(3)}"
+          data-bone="${bone}" data-axis="${ai}">`;
+        html += `<span class="limit">${degMax}°</span>`;
+        html += `<span class="val">${degVal}°</span>`;
+        html += `</div>`;
+      }
+    }
+
+    html += '</div></div>';
+  }
+
+  // 混合变形
+  html += `<div class="bone-group${boneCollapsed['blendShapes'] ? ' collapsed' : ''}" data-group="blendShapes">`;
+  html += '<div class="bone-group-header"><span class="arrow">▼</span>混合变形 (14)</div>';
+  html += '<div class="bone-sliders">';
+  for (const bs of BLEND_SHAPES) {
+    const val = curPose.blendShapes[bs] || 0;
+    html += `<div class="bs-row">`;
+    html += `<span class="label">${bs}</span>`;
+    html += `<input type="range" min="0" max="1" step="0.01" value="${val}" data-bs="${bs}">`;
+    html += `<span class="val">${(val * 100).toFixed(0)}%</span>`;
+    html += `</div>`;
+  }
+  html += '</div></div>';
+
+  // 按钮
+  html += '<div class="actions">';
+  html += '<button class="btn primary" id="btn-reset">↺ 重置当前姿态</button>';
+  html += '<button class="btn" id="btn-export">📋 导出姿态 JSON</button>';
+  html += '<button class="btn" id="btn-copy">📎 复制 TS 代码</button>';
+  html += '<button class="btn danger" id="btn-clamp">⚠ 钳制到约束</button>';
+  html += '</div>';
+
+  // 输出区
+  html += '<div class="output" id="output">选择骨骼滑块调节参数...</div>';
+
+  panel.innerHTML = html;
+  bindEvents();
+}
+
+function bindEvents() {
+  // 姿态按钮
+  document.querySelectorAll('.pose-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const pid = btn.dataset.pose;
+      loadPose(pid);
+    });
+  });
+
+  // 骨骼滑块
+  document.querySelectorAll('input[type=range][data-bone]').forEach(slider => {
+    slider.addEventListener('input', () => {
+      const bone = slider.dataset.bone;
+      const axis = parseInt(slider.dataset.axis);
+      const val = parseFloat(slider.value);
+      if (!curPose.rotations[bone]) curPose.rotations[bone] = [0, 0, 0];
+      curPose.rotations[bone][axis] = val;
+      updateSliderDisplay(bone, slider);
+      drawBoneFigure(curPose.rotations, curPose.blendShapes, time);
+    });
+  });
+
+  // 混合变形滑块
+  document.querySelectorAll('input[type=range][data-bs]').forEach(slider => {
+    slider.addEventListener('input', () => {
+      const bs = slider.dataset.bs;
+      curPose.blendShapes[bs] = parseFloat(slider.value);
+      drawBoneFigure(curPose.rotations, curPose.blendShapes, time);
+    });
+  });
+
+  // 组折叠
+  document.querySelectorAll('.bone-group-header').forEach(header => {
+    header.addEventListener('click', () => {
+      const group = header.parentElement.dataset.group;
+      header.parentElement.classList.toggle('collapsed');
+      boneCollapsed[group] = header.parentElement.classList.contains('collapsed');
+    });
+  });
+
+  // 按钮
+  document.getElementById('btn-reset').addEventListener('click', () => loadPose(curPoseId));
+  document.getElementById('btn-export').addEventListener('click', exportJSON);
+  document.getElementById('btn-copy').addEventListener('click', copyTS);
+  document.getElementById('btn-clamp').addEventListener('click', clampAll);
+}
+
+function updateSliderDisplay(bone, changedSlider) {
+  // 更新值显示
+  const row = changedSlider.closest('.slider-row');
+  const valSpan = row.querySelector('.val');
+  const degVal = (parseFloat(changedSlider.value) * 180 / Math.PI).toFixed(1);
+  valSpan.textContent = degVal + '°';
+
+  // 更新警告级别
+  const limits = JOINT_CONSTRAINTS[bone];
+  if (limits) {
+    const val = parseFloat(changedSlider.value);
+    const lim = limits[changedSlider.dataset.axis === '0' ? 'x' : changedSlider.dataset.axis === '1' ? 'y' : 'z'];
+    const range = lim[1] - lim[0];
+    const nearEdge = range > 0 ? Math.min(Math.abs(val - lim[0]), Math.abs(val - lim[1])) / range : 1;
+    changedSlider.classList.remove('warn', 'danger');
+    if (nearEdge < 0.05) changedSlider.classList.add('danger');
+    else if (nearEdge < 0.15) changedSlider.classList.add('warn');
+  }
+}
+
+function loadPose(poseId) {
+  curPoseId = poseId;
+  curPose = JSON.parse(JSON.stringify(POSE_TARGETS[poseId]));
+  buildPanel();
+  drawBoneFigure(curPose.rotations, curPose.blendShapes, time);
+}
+
+function exportJSON() {
+  const out = JSON.stringify(curPose, null, 2);
+  document.getElementById('output').textContent = out;
+  showToast('已生成 JSON');
+}
+
+function copyTS() {
+  // 精简输出，只含非零骨骼
+  const rotEntries = [];
+  for (const [b, r] of Object.entries(curPose.rotations)) {
+    if (r[0] !== 0 || r[1] !== 0 || r[2] !== 0) {
+      rotEntries.push(`    ${b}:[${r.map(v => v.toFixed(2)).join(',')}]`);
+    }
+  }
+  const bsEntries = [];
+  for (const [bs, v] of Object.entries(curPose.blendShapes)) {
+    if (v > 0) bsEntries.push(`      ${bs}:${v.toFixed(2)}`);
+  }
+
+  const ts = `{\n  label:'${curPose.label}',icon:'${curPose.icon}',\n` +
+    `  tags:[${curPose.tags.map(t => `'${t}'`).join(',')}],\n` +
+    `  energy:${curPose.energy},duration:${curPose.duration},loop:${curPose.loop},\n` +
+    `  rotations:{\n${rotEntries.join(',\n')}\n  },\n` +
+    `  blendShapes:{\n${bsEntries.join(',\n')}\n  }\n}`;
+
+  navigator.clipboard.writeText(ts).then(() => showToast('已复制 TS 代码到剪贴板'));
+  document.getElementById('output').textContent = ts;
+}
+
+function clampAll() {
+  let clamped = 0;
+  for (const [bone, r] of Object.entries(curPose.rotations)) {
+    const limits = JOINT_CONSTRAINTS[bone];
+    if (!limits) continue;
+    for (let i = 0; i < 3; i++) {
+      const axis = i === 0 ? 'x' : i === 1 ? 'y' : 'z';
+      const lim = limits[axis];
+      if (r[i] < lim[0]) { r[i] = lim[0]; clamped++; }
+      if (r[i] > lim[1]) { r[i] = lim[1]; clamped++; }
+    }
+  }
+  showToast(`已钳制 ${clamped} 个越界值`);
+  buildPanel();
+  drawBoneFigure(curPose.rotations, curPose.blendShapes, time);
+}
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2000);
+}
+
+// ─── 动画循环 ───
+function animate(ts) {
+  time = ts;
+  drawBoneFigure(curPose.rotations, curPose.blendShapes, time);
+  requestAnimationFrame(animate);
+}
+
+// ─── 启动 ───
+buildPanel();
+drawBoneFigure(curPose.rotations, curPose.blendShapes, 0);
+requestAnimationFrame(animate);
+</script>
+</body>
+</html>

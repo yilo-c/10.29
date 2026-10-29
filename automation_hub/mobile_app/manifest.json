@@ -1,0 +1,25 @@
+{
+  "name": "思忆集 - 手机伴侣",
+  "short_name": "思忆集",
+  "description": "思忆集桌面应用的手机伴侣，随时随地记录和查看",
+  "start_url": "/mobile/",
+  "scope": "/mobile/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f5f6fa",
+  "theme_color": "#4A90D9",
+  "icons": [
+    {
+      "src": "icons/icon-192.svg",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icons/icon-512.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

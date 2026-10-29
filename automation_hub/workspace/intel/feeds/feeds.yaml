@@ -1,0 +1,15 @@
+# RSS / 站点源配置（MVP）
+# - id: 稳定的源标识
+# - url: RSS 地址
+# - name: 展示名称
+# - tags: 用于主题分组（宏观/政策/产业/海外...）
+# - is_enabled: 是否启用
+#
+# 后续可扩展字段：language, country, weight, crawl_interval_minutes
+
+sources:
+  - id: people_politics
+    name: 人民网-时政
+    url: https://www.people.com.cn/rss/politics.xml
+    tags: ["政策", "国内"]
+    is_enabled: true

@@ -1,0 +1,631 @@
+[
+  {
+    "path": "public\\pet\\xiaowen\\frames\\click_defend\\click_defend_01.png",
+    "size": [
+      256,
+      256
+    ],
+    "bbox": [
+      68,
+      28,
+      187,
+      224
+    ],
+    "transparent_rgb_residue": 0,
+    "semi_transparent_white_pixels": 0,
+    "opaque_white_border_pixels": 0,
+    "ok": true
+  },
+  {
+    "path": "public\\pet\\xiaowen\\frames\\click_defend\\click_defend_02.png",
+    "size": [
+      256,
+      256
+    ],
+    "bbox": [
+      68,
+      25,
+      188,
+      224
+    ],
+    "transparent_rgb_residue": 0,
+    "semi_transparent_white_pixels": 3,
+    "opaque_white_border_pixels": 0,
+    "ok": true
+  },
+  {
+    "path": "public\\pet\\xiaowen\\frames\\click_defend\\click_defend_03.png",
+    "size": [
+      256,
+      256
+    ],
+    "bbox": [
+      68,
+      26,
+      188,
+      224
+    ],
+    "transparent_rgb_residue": 0,
+    "semi_transparent_white_pixels": 1,
+    "opaque_white_border_pixels": 0,
+    "ok": true
+  },
+  {
+    "path": "public\\pet\\xiaowen\\frames\\click_defend\\click_defend_04.png",
+    "size": [
+      256,
+      256
+    ],
+    "bbox": [
+      70,
+      28,
+      185,
+      224
+    ],
+    "transparent_rgb_residue": 0,
+    "semi_transparent_white_pixels": 0,
+    "opaque_white_border_pixels": 0,
+    "ok": true
+  },
+  {
+    "path": "public\\pet\\xiaowen\\frames\\click_defend\\click_defend_05.png",
+    "size": [
+      256,
+      256
+    ],
+    "bbox": [
+      72,
+      28,
+      184,
+      224
+    ],
+    "transparent_rgb_residue": 0,
+    "semi_transparent_white_pixels": 0,
+    "opaque_white_border_pixels": 0,
+    "ok": true
+  },
+  {
+    "path": "public\\pet\\xiaowen\\frames\\click_defend\\click_defend_06.png",
+    "size": [
+      256,
+      256
+    ],
+    "bbox": [
+      73,
+      28,
+      183,
+      224
+    ],
+    "transparent_rgb_residue": 0,
+    "semi_transparent_white_pixels": 0,
+    "opaque_white_border_pixels": 0,
+    "ok": true
+  },
+  {
+    "path": "public\\pet\\xiaowen\\frames\\combo3\\combo3_01.png",
+    "size": [
+      256,
+      256
+    ],
+    "bbox": [
+      72,
+      22,
+      183,
+      224
+    ],
+    "transparent_rgb_residue": 0,
+    "semi_transparent_white_pixels": 1,
+    "opaque_white_border_pixels": 0,
+    "ok": true
+  },
+  {
+    "path": "public\\pet\\xiaowen\\frames\\combo3\\combo3_02.png",
+    "size": [
+      256,
+      256
+    ],
+    "bbox": [
+      65,
+      28,
+      191,
+      224
+    ],
+    "transparent_rgb_residue": 0,
+    "semi_transparent_white_pixels": 1,
+    "opaque_white_border_pixels": 0,
+    "ok": true
+  },
+  {
+    "path": "public\\pet\\xiaowen\\frames\\combo3\\combo3_03.png",
+    "size": [
+      256,
+      256
+    ],
+    "bbox": [
+      65,
+      29,
+      191,
+      224
+    ],
+    "transparent_rgb_residue": 0,
+    "semi_transparent_white_pixels": 0,
+    "opaque_white_border_pixels": 0,
+    "ok": true
+  },
+  {
+    "path": "public\\pet\\xiaowen\\frames\\combo3\\combo3_04.png",
+    "size": [
+      256,
+      256
+    ],
+    "bbox": [
+      37,
+      29,
+      219,
+      224
+    ],
+    "transparent_rgb_residue": 0,
+    "semi_transparent_white_pixels": 3,
+    "opaque_white_border_pixels": 0,
+    "ok": true
+  },
+  {
+    "path": "public\\pet\\xiaowen\\frames\\combo3\\combo3_05.png",
+    "size": [
+      256,
+      256
+    ],
+    "bbox": [
+      50,
+      30,
+      206,
+      224
+    ],
+    "transparent_rgb_residue": 0,
+    "semi_transparent_white_pixels": 0,
+    "opaque_white_border_pixels": 0,
+    "ok": true
+  },
+  {
+    "path": "public\\pet\\xiaowen\\frames\\combo3\\combo3_06.png",
+    "size": [
+      256,
+      256
+    ],
+    "bbox": [
+      64,
+      28,
+      191,
+      224
+    ],
+    "transparent_rgb_residue": 0,
+    "semi_transparent_white_pixels": 1,
+    "opaque_white_border_pixels": 0,
+    "ok": true
+  },
+  {
+    "path": "public\\pet\\xiaowen\\frames\\combo3\\combo3_07.png",
+    "size": [
+      256,
+      256
+    ],
+    "bbox": [
+      73,
+      20,
+      183,
+      224
+    ],
+    "transparent_rgb_residue": 0,
+    "semi_transparent_white_pixels": 1,
+    "opaque_white_border_pixels": 0,
+    "ok": true
+  },
+  {
+    "path": "public\\pet\\xiaowen\\frames\\drag_fly\\drag_fly_01.png",
+    "size": [
+      256,
+      256
+    ],
+    "bbox": [
+      59,
+      16,
+      197,
+      224
+    ],
+    "transparent_rgb_residue": 0,
+    "semi_transparent_white_pixels": 0,
+    "opaque_white_border_pixels": 0,
+    "ok": true
+  },
+  {
+    "path": "public\\pet\\xiaowen\\frames\\drag_fly\\drag_fly_02.png",
+    "size": [
+      256,
+      256
+    ],
+    "bbox": [
+      42,
+      21,
+      213,
+      224
+    ],
+    "transparent_rgb_residue": 0,
+    "semi_transparent_white_pixels": 1,
+    "opaque_white_border_pixels": 0,
+    "ok": true
+  },
+  {
+    "path": "public\\pet\\xiaowen\\frames\\drag_fly\\drag_fly_03.png",
+    "size": [
+      256,
+      256
+    ],
+    "bbox": [
+      37,
+      35,
+      218,
+      224
+    ],
+    "transparent_rgb_residue": 0,
+    "semi_transparent_white_pixels": 0,
+    "opaque_white_border_pixels": 0,
+    "ok": true
+  },
+  {
+    "path": "public\\pet\\xiaowen\\frames\\drag_fly\\drag_fly_04.png",
+    "size": [
+      256,
+      256
+    ],
+    "bbox": [
+      22,
+      47,
+      233,
+      224
+    ],
+    "transparent_rgb_residue": 0,
+    "semi_transparent_white_pixels": 0,
+    "opaque_white_border_pixels": 0,
+    "ok": true
+  },
+  {
+    "path": "public\\pet\\xiaowen\\frames\\idle\\idle_01.png",
+    "size": [
+      256,
+      256
+    ],
+    "bbox": [
+      78,
+      30,
+      178,
+      224
+    ],
+    "transparent_rgb_residue": 0,
+    "semi_transparent_white_pixels": 1,
+    "opaque_white_border_pixels": 0,
+    "ok": true
+  },
+  {
+    "path": "public\\pet\\xiaowen\\frames\\idle\\idle_02.png",
+    "size": [
+      256,
+      256
+    ],
+    "bbox": [
+      78,
+      29,
+      178,
+      224
+    ],
+    "transparent_rgb_residue": 0,
+    "semi_transparent_white_pixels": 2,
+    "opaque_white_border_pixels": 0,
+    "ok": true
+  },
+  {
+    "path": "public\\pet\\xiaowen\\frames\\idle\\idle_03.png",
+    "size": [
+      256,
+      256
+    ],
+    "bbox": [
+      75,
+      27,
+      181,
+      224
+    ],
+    "transparent_rgb_residue": 0,
+    "semi_transparent_white_pixels": 1,
+    "opaque_white_border_pixels": 0,
+    "ok": true
+  },
+  {
+    "path": "public\\pet\\xiaowen\\frames\\idle\\idle_04.png",
+    "size": [
+      256,
+      256
+    ],
+    "bbox": [
+      74,
+      25,
+      182,
+      224
+    ],
+    "transparent_rgb_residue": 0,
+    "semi_transparent_white_pixels": 0,
+    "opaque_white_border_pixels": 0,
+    "ok": true
+  },
+  {
+    "path": "public\\pet\\xiaowen\\frames\\land\\land_01.png",
+    "size": [
+      256,
+      256
+    ],
+    "bbox": [
+      66,
+      49,
+      189,
+      224
+    ],
+    "transparent_rgb_residue": 0,
+    "semi_transparent_white_pixels": 1,
+    "opaque_white_border_pixels": 0,
+    "ok": true
+  },
+  {
+    "path": "public\\pet\\xiaowen\\frames\\land\\land_02.png",
+    "size": [
+      256,
+      256
+    ],
+    "bbox": [
+      61,
+      35,
+      195,
+      224
+    ],
+    "transparent_rgb_residue": 0,
+    "semi_transparent_white_pixels": 1,
+    "opaque_white_border_pixels": 0,
+    "ok": true
+  },
+  {
+    "path": "public\\pet\\xiaowen\\frames\\land\\land_03.png",
+    "size": [
+      256,
+      256
+    ],
+    "bbox": [
+      57,
+      30,
+      198,
+      224
+    ],
+    "transparent_rgb_residue": 0,
+    "semi_transparent_white_pixels": 0,
+    "opaque_white_border_pixels": 0,
+    "ok": true
+  },
+  {
+    "path": "public\\pet\\xiaowen\\frames\\land\\land_04.png",
+    "size": [
+      256,
+      256
+    ],
+    "bbox": [
+      44,
+      24,
+      211,
+      224
+    ],
+    "transparent_rgb_residue": 0,
+    "semi_transparent_white_pixels": 5,
+    "opaque_white_border_pixels": 0,
+    "ok": true
+  },
+  {
+    "path": "public\\pet\\xiaowen\\frames\\land\\land_05.png",
+    "size": [
+      256,
+      256
+    ],
+    "bbox": [
+      66,
+      26,
+      189,
+      224
+    ],
+    "transparent_rgb_residue": 0,
+    "semi_transparent_white_pixels": 1,
+    "opaque_white_border_pixels": 0,
+    "ok": true
+  },
+  {
+    "path": "public\\pet\\xiaowen\\frames\\land\\land_06.png",
+    "size": [
+      256,
+      256
+    ],
+    "bbox": [
+      67,
+      24,
+      189,
+      224
+    ],
+    "transparent_rgb_residue": 0,
+    "semi_transparent_white_pixels": 0,
+    "opaque_white_border_pixels": 0,
+    "ok": true
+  },
+  {
+    "path": "public\\pet\\xiaowen\\frames\\notice\\notice_01.png",
+    "size": [
+      256,
+      256
+    ],
+    "bbox": [
+      77,
+      29,
+      178,
+      224
+    ],
+    "transparent_rgb_residue": 0,
+    "semi_transparent_white_pixels": 3,
+    "opaque_white_border_pixels": 0,
+    "ok": true
+  },
+  {
+    "path": "public\\pet\\xiaowen\\frames\\notice\\notice_02.png",
+    "size": [
+      256,
+      256
+    ],
+    "bbox": [
+      77,
+      28,
+      179,
+      224
+    ],
+    "transparent_rgb_residue": 0,
+    "semi_transparent_white_pixels": 2,
+    "opaque_white_border_pixels": 0,
+    "ok": true
+  },
+  {
+    "path": "public\\pet\\xiaowen\\frames\\notice\\notice_03.png",
+    "size": [
+      256,
+      256
+    ],
+    "bbox": [
+      77,
+      28,
+      179,
+      224
+    ],
+    "transparent_rgb_residue": 0,
+    "semi_transparent_white_pixels": 2,
+    "opaque_white_border_pixels": 0,
+    "ok": true
+  },
+  {
+    "path": "public\\pet\\xiaowen\\frames\\notice\\notice_04.png",
+    "size": [
+      256,
+      256
+    ],
+    "bbox": [
+      77,
+      26,
+      179,
+      224
+    ],
+    "transparent_rgb_residue": 0,
+    "semi_transparent_white_pixels": 1,
+    "opaque_white_border_pixels": 0,
+    "ok": true
+  },
+  {
+    "path": "public\\pet\\xiaowen\\frames\\shy\\shy_01.png",
+    "size": [
+      256,
+      256
+    ],
+    "bbox": [
+      65,
+      27,
+      190,
+      224
+    ],
+    "transparent_rgb_residue": 0,
+    "semi_transparent_white_pixels": 0,
+    "opaque_white_border_pixels": 0,
+    "ok": true
+  },
+  {
+    "path": "public\\pet\\xiaowen\\frames\\shy\\shy_02.png",
+    "size": [
+      256,
+      256
+    ],
+    "bbox": [
+      65,
+      26,
+      191,
+      224
+    ],
+    "transparent_rgb_residue": 0,
+    "semi_transparent_white_pixels": 0,
+    "opaque_white_border_pixels": 0,
+    "ok": true
+  },
+  {
+    "path": "public\\pet\\xiaowen\\frames\\shy\\shy_03.png",
+    "size": [
+      256,
+      256
+    ],
+    "bbox": [
+      64,
+      27,
+      192,
+      224
+    ],
+    "transparent_rgb_residue": 0,
+    "semi_transparent_white_pixels": 1,
+    "opaque_white_border_pixels": 0,
+    "ok": true
+  },
+  {
+    "path": "public\\pet\\xiaowen\\frames\\shy\\shy_04.png",
+    "size": [
+      256,
+      256
+    ],
+    "bbox": [
+      66,
+      30,
+      190,
+      224
+    ],
+    "transparent_rgb_residue": 0,
+    "semi_transparent_white_pixels": 0,
+    "opaque_white_border_pixels": 0,
+    "ok": true
+  },
+  {
+    "path": "public\\pet\\xiaowen\\frames\\shy\\shy_05.png",
+    "size": [
+      256,
+      256
+    ],
+    "bbox": [
+      65,
+      31,
+      191,
+      224
+    ],
+    "transparent_rgb_residue": 0,
+    "semi_transparent_white_pixels": 0,
+    "opaque_white_border_pixels": 0,
+    "ok": true
+  },
+  {
+    "path": "public\\pet\\xiaowen\\frames\\shy\\shy_06.png",
+    "size": [
+      256,
+      256
+    ],
+    "bbox": [
+      64,
+      29,
+      192,
+      224
+    ],
+    "transparent_rgb_residue": 0,
+    "semi_transparent_white_pixels": 1,
+    "opaque_white_border_pixels": 0,
+    "ok": true
+  }
+]

@@ -1,0 +1,57 @@
+{
+  "tool_id": "copilot",
+  "display_name": "GitHub Copilot CLI",
+  "cli_path": "gh",
+  "description": "GitHub Copilot CLI — 通过 gh 扩展提供 AI 命令行建议和解释。需要先执行 `gh auth login` 登录并 `gh extension install github/gh-copilot` 安装扩展。",
+  "enabled": true,
+  "env_keys": ["GH_TOKEN"],
+  "health_check_command": "gh auth status",
+  "commands": {
+    "suggest": {
+      "description": "根据自然语言任务描述生成 shell 命令建议。示例：task='查找当前目录下所有 .py 文件中包含 TODO 的行'",
+      "template": "{cli} copilot suggest --shell -t",
+      "stdin_template": "{task}",
+      "params": {
+        "task": {
+          "type": "string",
+          "required": true,
+          "description": "任务描述（自然语言）"
+        }
+      },
+      "risk": "low",
+      "timeout": 60,
+      "output_regex": "(?s)```\\s*(?:shell|bash|sh)?\\s*\\n(?P<command>[^`]+?)\\n```",
+      "output_fields": {
+        "command": "string"
+      }
+    },
+    "explain": {
+      "description": "解释一个 shell 命令的作用。示例：command='find . -name *.py -exec grep -l TODO {} \\;'",
+      "template": "{cli} copilot explain -t",
+      "stdin_template": "{command}",
+      "params": {
+        "command": {
+          "type": "string",
+          "required": true,
+          "description": "要解释的 shell 命令"
+        }
+      },
+      "risk": "low",
+      "timeout": 60
+    },
+    "execute_suggested": {
+      "description": "执行 Copilot suggest 返回的命令。⚠️ 高风险，必须经过 sandbox 审批",
+      "template": "{cli} -- {command}",
+      "params": {
+        "command": {
+          "type": "string",
+          "required": true,
+          "description": "由 copilot.suggest 返回的命令字符串"
+        }
+      },
+      "risk": "high",
+      "confirmation": "every_time",
+      "timeout": 300
+    }
+  }
+}

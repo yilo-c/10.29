@@ -1,0 +1,39 @@
+# 思忆集 pre-commit 钩子（T3.3，2026-08-22）
+# 与 T1.2 基线策略一致：本地提交即拦截 ruff lint + ruff-format，
+# 避免把明显违规推到 CI 才红。CI 侧（python-tests.yml）仍跑
+# gen_quality_baseline.py --check-changed 做"改动/新增文件比基线"的阻塞门禁。
+#
+# 使用：
+#   pip install pre-commit
+#   pre-commit install        # 一次性安装钩子
+#   pre-commit run --all-files  # 手动全量跑
+#
+# 注意：ruff 配置来自根 pyproject.toml 的 [tool.ruff]，无需重复声明。
+
+minimum_pre_commit_version: "3.5.0"
+
+repos:
+  # ── ruff：lint + format 二合一（mirror 官方推荐配置）──────────
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.10
+    hooks:
+      - id: ruff
+        # lint：自动修复可修复项；剩馀违规阻塞提交
+        args: [--fix, --exit-non-zero-on-fix]
+      - id: ruff-format
+        # 格式化：不阻塞（仅改写），避免与 lint 双重报错干扰
+        stages: [commit]
+
+  # ── 通用基础钩子：防止提交大文件 / 合并冲突残留 ──────────────
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+        exclude: \.md$
+      - id: end-of-file-fixer
+        exclude: \.md$
+      - id: check-yaml
+        exclude: ^\.github/  # workflow 含中文 path 通配，yaml 解析可能误报，跳过
+      - id: check-added-large-files
+        args: [--maxkb=5120]  # 5MB 阈值，超大文件需显式 --add
+      - id: check-merge-conflict

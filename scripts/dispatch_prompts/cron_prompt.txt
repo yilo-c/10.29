@@ -1,0 +1,17 @@
+你是一个 FastAPI 后端开发者。请在 automation-hub/api/routes/ 下创建 cron.py，实现 Cron 定时任务管理 API。
+
+## 参考
+- 路由风格参考 automation-hub/api/routes/agent.py
+- 桌面端 cron_service.py 中有 CronService，提供 add_job/remove_job/toggle_job/list_jobs/get_status_snapshot
+
+## 端点
+1. GET /cron/jobs — 列出任务（?include_disabled=true）
+2. POST /cron/jobs — 创建任务（body: {name, action_id, payload?, schedule?, run_at?, repeat?}）
+3. DELETE /cron/jobs/{job_id} — 删除
+4. POST /cron/jobs/{job_id}/toggle — 启用/禁用（body: {enabled}）
+5. GET /cron/status — 调度器状态
+
+## 约束
+- 内存存储，TODO 替换为数据库
+- APIRouter(prefix="/cron", tags=["cron"]), require_scope("cron:admin")
+- 错误处理同 agent.py

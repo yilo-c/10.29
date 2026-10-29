@@ -1,0 +1,187 @@
+{
+  "id": "xiaowen",
+  "displayName": "小问",
+  "version": 1,
+  "assetMode": "frame-sequence-with-fallback",
+  "cell": {
+    "width": 256,
+    "height": 256,
+    "safePadding": 16
+  },
+  "references": {
+    "fullbody": "/pet/xiaowen/references/xiaowen_fullbody.png",
+    "idleStoryboard": "/pet/xiaowen/references/storyboard_idle.png",
+    "interactionStoryboard": "/pet/xiaowen/references/storyboard_interactions.png"
+  },
+  "fallbacks": {
+    "spriteIdle": "/pet/sprite_idle.png",
+    "fullbody": "/pet/xiaowen_fullbody.png"
+  },
+  "clips": {
+    "idle": {
+      "fps": 2,
+      "loop": true,
+      "folder": "frames/idle",
+      "frames": [
+        "idle_01.png",
+        "idle_02.png",
+        "idle_03.png",
+        "idle_04.png",
+        "idle_05.png",
+        "idle_06.png"
+      ]
+    },
+    "clickDefend": {
+      "fps": 9,
+      "loop": false,
+      "folder": "frames/click_defend",
+      "frames": [
+        "click_defend_01.png",
+        "click_defend_02.png",
+        "click_defend_03.png",
+        "click_defend_04.png",
+        "click_defend_05.png",
+        "click_defend_06.png"
+      ]
+    },
+    "shy": {
+      "fps": 6,
+      "loop": false,
+      "folder": "frames/shy",
+      "frames": [
+        "shy_01.png",
+        "shy_02.png",
+        "shy_03.png",
+        "shy_04.png",
+        "shy_05.png",
+        "shy_06.png"
+      ]
+    },
+    "dragFly": {
+      "fps": 9,
+      "loop": true,
+      "folder": "frames/drag_fly",
+      "frames": [
+        "drag_fly_01.png",
+        "drag_fly_02.png",
+        "drag_fly_03.png",
+        "drag_fly_04.png"
+      ]
+    },
+    "land": {
+      "fps": 7,
+      "loop": false,
+      "folder": "frames/land",
+      "frames": [
+        "land_01.png",
+        "land_02.png",
+        "land_03.png",
+        "land_04.png",
+        "land_05.png",
+        "land_06.png"
+      ]
+    },
+    "combo3": {
+      "fps": 11,
+      "loop": false,
+      "folder": "frames/combo3",
+      "frames": [
+        "combo3_01.png",
+        "combo3_02.png",
+        "combo3_03.png",
+        "combo3_04.png",
+        "combo3_05.png",
+        "combo3_06.png",
+        "combo3_07.png"
+      ]
+    },
+    "combo5": {
+      "fps": 11,
+      "loop": false,
+      "folder": "frames/combo3",
+      "frames": [
+        "combo3_01.png",
+        "combo3_02.png",
+        "combo3_03.png",
+        "combo3_04.png",
+        "combo3_05.png",
+        "combo3_06.png",
+        "combo3_07.png"
+      ]
+    },
+    "chatOpen": {
+      "fps": 2,
+      "loop": true,
+      "folder": "frames/idle",
+      "frames": [
+        "idle_01.png",
+        "idle_02.png",
+        "idle_03.png",
+        "idle_04.png"
+      ]
+    },
+    "notice": {
+      "fps": 6,
+      "loop": false,
+      "folder": "frames/notice",
+      "frames": [
+        "notice_01.png",
+        "notice_02.png",
+        "notice_03.png",
+        "notice_04.png"
+      ]
+    },
+    "glance": {
+      "fps": 8,
+      "loop": false,
+      "folder": "frames/i2_glance",
+      "frames": [
+        "i2_glance_01.png",
+        "i2_glance_02.png",
+        "i2_glance_03.png",
+        "i2_glance_04.png",
+        "i2_glance_05.png",
+        "i2_glance_06.png",
+        "i2_glance_07.png",
+        "i2_glance_08.png"
+      ]
+    },
+    "hmph": {
+      "fps": 8,
+      "loop": false,
+      "folder": "frames/i3_hmph",
+      "frames": [
+        "i3_hmph_01.png",
+        "i3_hmph_02.png",
+        "i3_hmph_03.png",
+        "i3_hmph_04.png",
+        "i3_hmph_05.png",
+        "i3_hmph_06.png",
+        "i3_hmph_07.png",
+        "i3_hmph_08.png"
+      ]
+    },
+    "sleepy": {
+      "fps": 2,
+      "loop": false,
+      "folder": "frames/idle",
+      "frames": [
+        "idle_01.png",
+        "idle_02.png",
+        "idle_03.png",
+        "idle_04.png"
+      ]
+    },
+    "startup": {
+      "fps": 2,
+      "loop": false,
+      "folder": "frames/idle",
+      "frames": [
+        "idle_01.png",
+        "idle_02.png",
+        "idle_03.png",
+        "idle_04.png"
+      ]
+    }
+  }
+}

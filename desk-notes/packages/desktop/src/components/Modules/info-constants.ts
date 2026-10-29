@@ -1,0 +1,18 @@
+export const SOURCE_META: Record<string, { label: string; icon: string; color: string }> = {
+  hackernews: { label: 'Hacker News', icon: 'fa-brands fa-hacker-news', color: '#ff6600' },
+  devto: { label: 'Dev.to', icon: 'fa-brands fa-dev', color: '#3b49df' },
+  github: { label: 'GitHub', icon: 'fa-brands fa-github', color: '#6e40c9' },
+  reddit: { label: 'Reddit', icon: 'fa-brands fa-reddit', color: '#ff4500' },
+  v2ex: { label: 'V2EX', icon: 'fa-brands fa-vimeo', color: '#a0a0a0' },
+  juejin: { label: '掘金', icon: 'fa-solid fa-gem', color: '#1e80ff' },
+  arxiv: { label: 'arXiv', icon: 'fa-solid fa-graduation-cap', color: '#b31b1b' },
+  producthunt: { label: 'Product Hunt', icon: 'fa-brands fa-product-hunt', color: '#da552f' },
+  zhihu: { label: '知乎', icon: 'fa-solid fa-message', color: '#0084ff' },
+  'bbc-zh': { label: 'BBC中文', icon: 'fa-solid fa-newspaper', color: '#bb1919' },
+  'nytimes-zh': { label: '纽约时报中文', icon: 'fa-solid fa-newspaper', color: '#333333' },
+  '36kr': { label: '36氪', icon: 'fa-solid fa-chart-line', color: '#3b82f6' },
+  'thepaper': { label: '澎湃', icon: 'fa-solid fa-newspaper', color: '#e03131' },
+  'cls': { label: '财联社', icon: 'fa-solid fa-chart-simple', color: '#dc2626' },
+  'scol-cd': { label: '四川在线', icon: 'fa-solid fa-newspaper', color: '#16a34a' },
+  '36kr-flash': { label: '36氪快讯', icon: 'fa-solid fa-bolt', color: '#2563eb' },
+}

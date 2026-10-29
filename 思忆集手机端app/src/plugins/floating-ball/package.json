@@ -1,0 +1,19 @@
+{
+  "name": "@siyi/floating-ball",
+  "version": "0.1.0",
+  "description": "思忆集 Android 悬浮球插件 — 系统级悬浮窗 + 情绪系统 + 桌宠升级路径",
+  "main": "dist/index.js",
+  "module": "dist/esm/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "echo 'TS types are defined inline'"
+  },
+  "capacitor": {
+    "android": {
+      "src": "android"
+    }
+  },
+  "peerDependencies": {
+    "@capacitor/core": "^6.0.0"
+  }
+}

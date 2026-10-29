@@ -1,0 +1,9 @@
+# Automation Hub CLI 依赖
+
+# 命令行工具
+click>=8.1.0
+rich>=13.0.0
+
+# 如果需要HTTP API调用（可选）
+# requests>=2.31.0
+# httpx>=0.25.0

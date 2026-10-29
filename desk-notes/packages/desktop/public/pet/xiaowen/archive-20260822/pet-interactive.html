@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>小问桌宠 · 交互预览</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #0f1117; color: #d8dde8;
+    font-family: system-ui, "Microsoft YaHei", sans-serif;
+    min-height: 100vh; display: flex; flex-direction: column; align-items: center;
+    padding: 24px; gap: 16px;
+  }
+  h1 { font-size: 20px; color: #7fd0ff; letter-spacing: 1px; }
+  .sub { font-size: 12px; color: #66707e; }
+  #stage {
+    width: 256px; height: 256px; border-radius: 14px; overflow: hidden;
+    position: relative; cursor: grab; user-select: none;
+    background: repeating-conic-gradient(#1d1e28 0% 25%, #14151d 0% 50%) 0 0 / 32px 32px, #14151d;
+    border: 1px solid #2a2f3d; box-shadow: 0 8px 30px rgba(0,0,0,.4);
+  }
+  #stage.dragging { cursor: grabbing; }
+  canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .controls { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; max-width: 720px; }
+  button {
+    padding: 8px 14px; background: #1a2230; color: #a9d7f5; font-size: 13px;
+    border: 1px solid #2c3b52; border-radius: 8px; cursor: pointer; transition: all .15s;
+  }
+  button:hover { background: #24364d; border-color: #3e5a7d; }
+  button.on { background: #3b6ea5; color: #fff; border-color: #6aa9e8; }
+  button:disabled { opacity: .35; cursor: not-allowed; }
+  .status {
+    min-height: 20px; font-size: 13px; color: #8b96a6;
+    background: #141821; border: 1px solid #232a38; border-radius: 8px;
+    padding: 6px 14px; text-align: center;
+  }
+  .status b { color: #7fd0ff; }
+  .legend { font-size: 11px; color: #5a6472; text-align: center; line-height: 1.8; max-width: 640px; }
+  kbd { background: #222a38; border: 1px solid #33405a; border-radius: 4px; padding: 0 5px; font-size: 11px; }
+</style>
+</head>
+<body>
+  <h1>⚔️ 小问 · 桌宠交互预览</h1>
+  <div class="sub">6 组动作整合 · 帧序列动画 · 状态机可交互</div>
+
+  <div id="stage">
+    <canvas id="c" width="256" height="256"></canvas>
+  </div>
+
+  <div class="controls">
+    <button data-act="idle">待机</button>
+    <button data-act="idle_video">待机·视频版</button>
+    <button data-act="blink">眨眼</button>
+    <button data-act="click_defend">单击受惊</button>
+    <button data-act="shy">双击害羞</button>
+    <button data-act="combo3">三连击剑势</button>
+    <button data-act="drag_fly">御剑飞行</button>
+  </div>
+  <div class="controls" style="gap:6px">
+    <span style="font-size:12px;color:#5a6472">速度</span>
+    <button data-fps="6">慢</button>
+    <button data-fps="10" class="on">中</button>
+    <button data-fps="16">快</button>
+  </div>
+
+  <div class="status" id="status">加载中…</div>
+
+  <div class="legend">
+    直接在 <kbd>小问</kbd> 身上操作：<kbd>单击</kbd>受惊 · <kbd>双击</kbd>害羞 · <kbd>三连击</kbd>剑势 · <kbd>按住拖拽</kbd>御剑飞行（8px 判阈）<br>
+    超过 280ms 的两次点击算两次单击；900ms 内连击累计。combo5/land 未生成（额度耗尽），连击 5 次会提示。
+  </div>
+
+<script>
+// ── 动作配置（对应 manifest/clips 语义）──────────────
+const BASE = 'frames/'
+const CLIPS = {
+  idle: {
+    src: 'idle', frames: ['idle_01','idle_02','idle_03','idle_04','idle_05','idle_06'],
+    dur: [160,160,160,160,160,160], loop: true,
+  },
+  idle_video: {
+    src: 'idle_videoversion', frames: ['frame_00','frame_01','frame_02','frame_03','frame_04','frame_05','frame_06','frame_07','frame_08','frame_09','frame_10','frame_11'],
+    dur: 110, loop: true,
+  },
+  blink: {
+    src: 'idle_i1', frames: ['idle_i1_01','idle_i1_02','idle_i1_03','idle_i1_04'],
+    dur: [180,120,120,200], loop: false, next: 'idle',
+  },
+  click_defend: {
+    src: 'click_defend', frames: Array.from({length:8},(_,i)=>'click_defend_0'+(i+1)),
+    dur: [120,100,100,90,90,90,90,350], loop: false, next: 'idle',
+  },
+  shy: {
+    src: 'shy', frames: Array.from({length:8},(_,i)=>'shy_0'+(i+1)),
+    dur: [200,150,160,180,200,220,240,350], loop: false, next: 'idle',
+  },
+  combo3: {
+    src: 'combo3', frames: Array.from({length:10},(_,i)=>'combo3_0'+(i+1)),
+    dur: [80,80,80,90,100,110,130,160,200,300], loop: false, next: 'idle',
+  },
+  drag_fly: {
+    src: 'drag_fly', frames: Array.from({length:8},(_,i)=>'drag_fly_0'+(i+1)),
+    dur: 110, loop: true,
+  },
+}
+// 优先级：小=高。drag > combo > click/shy > idle
+const PRIORITY = { drag_fly: 1, combo3: 2, shy: 3, click_defend: 4, blink: 5, idle: 10, idle_video: 10 }
+const NON_LOOP_HOLD = { click_defend: 1300, shy: 1600, combo3: 1500, blink: 900 }
+
+const canvas = document.getElementById('c')
+const ctx = canvas.getContext('2d')
+const status = document.getElementById('status')
+
+let imgs = {}        // clip src -> [HTMLImageElement]
+let loadedCount = 0, totalCount = 0
+let cur = 'idle'      // 当前 clip key
+let frameIdx = 0, frameTime = 0, lastT = 0
+let fps = 10
+let play = true
+
+// 交互状态
+let mouseDown = false, downPos = { x: 0, y: 0 }, dragging = false
+let clickTimes = [], lastClick = 0, combo = 0, pendingCombo = null
+
+// ── 预加载所有帧 ──
+const keys = Object.keys(CLIPS)
+totalCount = keys.reduce((n, k) => n + CLIPS[k].frames.length, 0)
+for (const k of keys) {
+  imgs[k] = []
+  CLIPS[k].frames.forEach(f => {
+    const img = new Image()
+    img.src = BASE + CLIPS[k].src + '/' + f + '.png'
+    img.onload = () => { loadedCount++; if (loadedCount === totalCount) status.textContent = '✅ 全部帧加载完成 — 现在可以互动了' }
+    img.onerror = () => { status.textContent = '⚠ 帧加载失败: ' + f }
+    imgs[k].push(img)
+  })
+}
+
+// ── 状态机 ──
+function canInterrupt(newKey) {
+  return PRIORITY[newKey] < PRIORITY[cur]
+}
+function playClip(key) {
+  if (!imgs[key] || imgs[key].length === 0) return
+  cur = key; frameIdx = 0; frameTime = 0
+  const info = key === cur ? '' : ''
+  updateStatus()
+}
+function backToIdle() { playClip('idle') }
+
+function tick(ts) {
+  requestAnimationFrame(tick)
+  if (!play) return
+  const dt = lastT ? ts - lastT : 16
+  lastT = ts
+  const clip = CLIPS[cur]
+  frameTime += dt
+  const durs = Array.isArray(clip.dur) ? clip.dur : new Array(clip.frames.length).fill(clip.dur)
+  let guard = 0
+  while (frameTime >= (durs[frameIdx] || 100) && guard++ < clip.frames.length * 2) {
+    frameTime -= (durs[frameIdx] || 100)
+    frameIdx++
+    if (frameIdx >= clip.frames.length) {
+      if (clip.loop) { frameIdx = 0 }
+      else { frameIdx = clip.frames.length - 1; frameTime = 0; if (clip.next) { setTimeout(() => playClip(clip.next), NON_LOOP_HOLD[cur] ?? 0); break } }
+    }
+  }
+  draw()
+}
+
+function draw() {
+  ctx.clearRect(0, 0, 256, 256)
+  const clip = CLIPS[cur]
+  const img = imgs[cur] && imgs[cur][frameIdx]
+  if (img && img.complete) ctx.drawImage(img, 0, 0, 256, 256)
+}
+
+// ── 交互：单击/双击/连击 ──
+function onTap() {
+  const now = Date.now()
+  const dt = now - lastClick
+  if (dt < 280) { // 双击
+    combo = 0
+    if (canInterrupt('shy')) playClip('shy')
+    lastClick = 0; return
+  }
+  lastClick = now
+  setTimeout(() => {
+    if (lastClick === now) {
+      if (dragging) return
+      combo++
+      if (combo >= 5) { status.textContent = '🔥 combo5 未生成（额度耗尽），回落待机'; combo = 0; setTimeout(()=>backToIdle(), 400) }
+      else if (combo >= 3) { if (canInterrupt('combo3')) playClip('combo3'); combo = 0 }
+      else { if (canInterrupt('click_defend')) playClip('click_defend') }
+      setTimeout(() => { combo = 0 }, 900)
+    }
+    lastClick = 0
+  }, 280)
+}
+
+// 拖拽
+const stage = document.getElementById('stage')
+stage.addEventListener('mousedown', e => {
+  mouseDown = true; downPos = { x: e.clientX, y: e.clientY }
+})
+stage.addEventListener('mousemove', e => {
+  if (!mouseDown) return
+  const dx = e.clientX - downPos.x, dy = e.clientY - downPos.y
+  if (!dragging && Math.hypot(dx, dy) > 8) {
+    dragging = true; stage.classList.add('dragging')
+    if (canInterrupt('drag_fly')) playClip('drag_fly')
+  }
+})
+window.addEventListener('mouseup', () => {
+  if (dragging) {
+    dragging = false; stage.classList.remove('dragging')
+    combo = 0
+    setTimeout(() => { if (!mouseDown) backToIdle() }, 500)
+  }
+  mouseDown = false
+})
+
+// ── 按钮触发 ──
+document.querySelectorAll('[data-act]').forEach(b => {
+  b.addEventListener('click', () => {
+    if (b.dataset.fps) { fps = +b.dataset.fps; document.querySelectorAll('[data-fps]').forEach(x => x.classList.remove('on')); b.classList.add('on'); return }
+    const act = b.dataset.act
+    if (act === 'idle') { cur = 'idle'; combo = 0; }
+    else if (act === 'idle_video') { cur = 'idle_video' }
+    else if (canInterrupt(act)) playClip(act)
+    updateStatus()
+  })
+})
+
+function updateStatus() {
+  status.textContent = `当前动作：${cur} · 帧 ${frameIdx + 1}/${CLIPS[cur].frames.length} · ${dragging ? '拖拽中' : (cur==='idle'?'待机':'')}`
+}
+requestAnimationFrame(tick)
+</script>
+</body>
+</html>

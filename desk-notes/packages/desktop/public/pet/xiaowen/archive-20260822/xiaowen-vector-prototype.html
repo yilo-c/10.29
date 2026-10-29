@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>小问 · 矢量程序化桌宠原型</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #0f1117; color: #d8dde8; font-family: system-ui, "Microsoft YaHei", sans-serif;
+    min-height: 100vh; display: flex; flex-direction: column; align-items: center; padding: 20px; gap: 12px;
+  }
+  h1 { font-size: 19px; color: #7fd0ff; }
+  .sub { font-size: 12px; color: #66707e; }
+  #stage {
+    width: 380px; height: 380px; border-radius: 14px; overflow: hidden; position: relative;
+    cursor: grab; user-select: none; border: 1px solid #2a2f3d; box-shadow: 0 10px 34px rgba(0,0,0,.45);
+    background: repeating-conic-gradient(#1d1e28 0% 25%, #14151d 0% 50%) 0 0 / 36px 36px, #14151d;
+  }
+  #stage.drag { cursor: grabbing; }
+  canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .controls { display: flex; gap: 7px; flex-wrap: wrap; justify-content: center; max-width: 760px; }
+  button {
+    padding: 7px 13px; background: #1a2230; color: #a9d7f5; font-size: 12.5px; cursor: pointer;
+    border: 1px solid #2c3b52; border-radius: 8px; transition: all .15s;
+  }
+  button:hover { background: #24364d; border-color: #3e5a7d; }
+  button.on { background: #3b6ea5; color: #fff; border-color: #6aa9e8; }
+  .status { min-height: 19px; font-size: 12.5px; color: #8b96a6; background: #141821; border: 1px solid #232a38; border-radius: 8px; padding: 5px 14px; text-align: center; }
+  .status b { color: #7fd0ff; }
+  .legend { font-size: 11px; color: #5a6472; text-align: center; line-height: 1.9; max-width: 700px; }
+  kbd { background: #222a38; border: 1px solid #33405a; border-radius: 4px; padding: 0 5px; font-size: 11px; }
+</style>
+</head>
+<body>
+  <h1>⚔️ 小问 · 矢量程序化桌宠原型</h1>
+  <div class="sub">无帧、无生成 —— 全部运动由参数插值算出，动作 = 一个 tween 函数，可无限加</div>
+
+  <div id="stage"><canvas id="c" width="512" height="512"></canvas></div>
+
+  <div class="controls">
+    <button data-a="idle">待机</button>
+    <button data-a="click_defend">单击受惊</button>
+    <button data-a="shy">双击害羞</button>
+    <button data-a="combo3">三连击剑势</button>
+    <button data-a="drag_fly">御剑飞行</button>
+    <button data-a="notice">侧耳听</button>
+    <button data-a="sleepy">犯困</button>
+    <button data-a="happy">开心</button>
+  </div>
+  <div class="status" id="st">待机 · 呼吸参数插值中</div>
+
+  <div class="legend">
+    <kbd>单击</kbd>受惊 · <kbd>双击</kbd>害羞 · <kbd>三连击</kbd>剑势 · <kbd>按住拖拽</kbd>御剑飞行<br>
+    每个动作就是一段 <b>VState 参数补间</b>（headTilt/eyeOpen/swordAngle/blush…），加新动作=加一段补间，<b>不占额度、不重画帧</b>
+  </div>
+
+<script>
+// ═════════ 调色板（沿用 xiaowenVector.ts）═════════
+const VW = {
+  skin:'#FDE3C8', skinShd:'#F3CDa4', skinLine:'#8a6a4a',
+  hair:'#5D6E86', hairShd:'#47546B', hairHl:'#93A5BD', hairLine:'#333C4E',
+  irisTop:'#A6D8F7', irisBot:'#4A8FD9', pupil:'#1E2A44',
+  eyeLine:'#2A2E3A', eyeWhite:'#FFFFFF',
+  top:'#BFE0F5', topShd:'#9CC8E8', topLine:'#5B7A94', trim:'#FFFFFF',
+  skirt:'#3A4260', skirtShd:'#2C3350', skirtLine:'#232941',
+  sash:'#2E6FB8', sashShd:'#245C9C',
+  socks:'#FFFFFF', socksShd:'#E3E6F0', shoes:'#26262E', shoesHl:'#4A4A56',
+  blade:'#1B1E26', bladeHl:'#4A5266', hilt:'#2B3550', guard:'#8B6914',
+  tassel:'#3E8FD6', bear:'#C9A06A', bearShd:'#A9834F',
+  blush:'#FF9DB0', line:'#2A2E3A', ice:'#9FDBFF',
+}
+const vDefaults = () => ({
+  bodyTilt:0, bodyBob:0, squash:1, headTilt:0,
+  armLAngle:0.18, armLFore:0.15, armRAngle:0.14, armRFore:0.1,
+  swordAngle:0.15, swordMode:0, legs:0,
+  eyeOpen:1, gazeX:0, gazeY:0, browRaise:0,
+  mouthOpen:0, mouthSmile:0.5, blush:0,
+  ponySway:0, skirtSway:0, sashSway:0, slash:0,
+})
+const clamp = (v,a,b)=>Math.max(a,Math.min(b,v))
+const ease = t => t<0.5 ? 2*t*t : 1-Math.pow(-2*t+2,2)/2
+
+// ═════════ 绘制（移植自 xiaowenVector.ts，无帧=确定性一致）═════════
+const ctx = document.getElementById('c').getContext('2d')
+function draw(s){
+  ctx.clearRect(0,0,512,512)
+  ctx.save()
+  ctx.translate(256, 486 + s.bodyBob)
+  ctx.rotate(s.bodyTilt)
+  ctx.scale(2 - s.squash, s.squash)
+  ctx.translate(-256, -486)
+  drawPony(s); if(s.legs===1)drawSitLegs(s); else if(s.legs===2)drawFlyLegs(s); else drawStandLegs(s)
+  if(s.swordMode===2) drawSwordAcross(256,396,0)
+  drawSkirt(s); drawTorso(s); drawArm(s,true)
+  if(s.swordMode===1) drawSwordAcross(256,468,-0.06)
+  drawArm(s,false); drawHead(s)
+  if(s.slash>0.01) drawSlash(s)
+  ctx.restore()
+}
+function drawPony(s){
+  ctx.save(); ctx.translate(285,128); ctx.rotate(0.35+s.ponySway)
+  const g=ctx.createLinearGradient(0,0,60,210); g.addColorStop(0,VW.hair); g.addColorStop(1,VW.hairShd)
+  ctx.fillStyle=g; ctx.beginPath()
+  ctx.moveTo(-14,-6); ctx.bezierCurveTo(46,20,66,90,52,170); ctx.bezierCurveTo(48,200,30,218,18,224)
+  ctx.bezierCurveTo(26,190,24,150,14,110); ctx.bezierCurveTo(4,70,-12,30,-22,8); ctx.closePath(); ctx.fill()
+  ctx.strokeStyle=VW.hairHl; ctx.lineWidth=3; ctx.lineCap='round'; ctx.beginPath()
+  ctx.moveTo(8,26); ctx.bezierCurveTo(34,60,42,120,32,180); ctx.stroke()
+  ctx.fillStyle=VW.hair; ctx.beginPath()
+  ctx.moveTo(18,224); ctx.quadraticCurveTo(20,244,10,258); ctx.quadraticCurveTo(12,236,6,224); ctx.closePath(); ctx.fill()
+  ctx.restore()
+  ctx.save(); ctx.translate(288,120); ctx.fillStyle=VW.bear
+  ctx.beginPath(); ctx.arc(-8,-8,4.5,0,7); ctx.fill(); ctx.beginPath(); ctx.arc(8,-8,4.5,0,7); ctx.fill()
+  ctx.beginPath(); ctx.arc(0,0,9,0,7); ctx.fill(); ctx.fillStyle=VW.bearShd; ctx.beginPath(); ctx.arc(0,3,3.5,0,7); ctx.fill()
+  ctx.fillStyle='#3A2E1E'; ctx.beginPath(); ctx.arc(-3.5,-1,1.2,0,7); ctx.fill(); ctx.beginPath(); ctx.arc(3.5,-1,1.2,0,7); ctx.fill()
+  ctx.restore()
+}
+function drawStandLegs(s){ for(const side of [-1,1]){ const x=256+side*24
+  ctx.fillStyle=VW.socks; ctx.beginPath(); ctx.moveTo(x-13,412)
+  ctx.quadraticCurveTo(x-6,406,x,411); ctx.quadraticCurveTo(x+6,406,x+13,412)
+  ctx.lineTo(x+12,462); ctx.lineTo(x-12,462); ctx.closePath(); ctx.fill()
+  ctx.fillStyle=VW.socksShd; ctx.fillRect(x+6,414,5,46)
+  ctx.fillStyle=VW.shoes; ctx.beginPath(); ctx.roundRect(x-14,460,30,22,[4,4,9,9]); ctx.fill()
+  ctx.fillStyle=VW.shoesHl; ctx.beginPath(); ctx.roundRect(x-14,474,30,8,4); ctx.fill()
+}}
+function drawSitLegs(){ ctx.fillStyle=VW.socks; ctx.beginPath(); ctx.roundRect(196,428,120,34,16); ctx.fill()
+  ctx.fillStyle=VW.socksShd; ctx.beginPath(); ctx.roundRect(196,446,120,16,8); ctx.fill()
+  ctx.fillStyle=VW.shoes; ctx.beginPath(); ctx.ellipse(208,452,15,10,0.3,0,7); ctx.fill(); ctx.beginPath(); ctx.ellipse(304,452,15,10,-0.3,0,7); ctx.fill() }
+function drawFlyLegs(){ for(const side of [-1,1]){ const x=256+side*20
+  ctx.save(); ctx.translate(x,420); ctx.rotate(side*0.12-0.1)
+  ctx.fillStyle=VW.socks; ctx.beginPath(); ctx.roundRect(-12,-6,24,46,10); ctx.fill()
+  ctx.fillStyle=VW.shoes; ctx.beginPath(); ctx.roundRect(-14,36,30,18,[4,4,8,8]); ctx.fill(); ctx.restore() }}
+function drawSkirt(s){ const topY=s.legs===1?358:352, botY=s.legs===1?428:424, sway=s.skirtSway*18
+  ctx.save(); const g=ctx.createLinearGradient(0,topY,0,botY); g.addColorStop(0,VW.skirt); g.addColorStop(1,VW.skirtShd)
+  ctx.fillStyle=g; ctx.beginPath(); ctx.moveTo(256-46,topY); ctx.lineTo(256+46,topY)
+  ctx.quadraticCurveTo(256+66,(topY+botY)/2,256+74+sway,botY)
+  for(let i=3;i>=-3;i--){ const bx=256+i*21+sway*(0.6+0.4*Math.abs(i)/3); ctx.quadraticCurveTo(bx+10,botY+8,bx,botY) }
+  ctx.quadraticCurveTo(256-66,(topY+botY)/2,256-46,topY); ctx.closePath(); ctx.fill()
+  ctx.strokeStyle=VW.skirtLine; ctx.lineWidth=2
+  for(const fx of [-30,-10,10,30]){ ctx.beginPath(); ctx.moveTo(256+fx,topY+6); ctx.quadraticCurveTo(256+fx*1.4+sway*0.5,(topY+botY)/2,256+fx*1.9+sway,botY-4); ctx.stroke() }
+  ctx.restore() }
+function drawTorso(s){ const sitting=s.legs===1, topY=sitting?306:300, waistY=sitting?362:356
+  const g=ctx.createLinearGradient(0,topY,0,waistY); g.addColorStop(0,VW.top); g.addColorStop(1,VW.topShd)
+  ctx.fillStyle=g; ctx.beginPath(); ctx.moveTo(256-52,topY+8); ctx.quadraticCurveTo(256,topY-6,256+52,topY+8)
+  ctx.lineTo(256+46,waistY); ctx.lineTo(256-46,waistY); ctx.closePath(); ctx.fill()
+  ctx.fillStyle=VW.trim; ctx.beginPath(); ctx.moveTo(256-26,topY+4); ctx.lineTo(256+6,topY+30); ctx.lineTo(256+14,topY+24); ctx.lineTo(256-14,topY+2); ctx.closePath(); ctx.fill()
+  ctx.beginPath(); ctx.moveTo(256+26,topY+4); ctx.lineTo(256-2,topY+32); ctx.lineTo(256-10,topY+26); ctx.lineTo(256+14,topY+2); ctx.closePath(); ctx.fill()
+  ctx.fillStyle=VW.line; for(const by of [topY+38,topY+48]){ ctx.beginPath(); ctx.arc(256,by,2.6,0,7); ctx.fill() }
+  ctx.strokeStyle=VW.trim; ctx.lineWidth=3; ctx.beginPath(); ctx.moveTo(256-50,topY+12); ctx.quadraticCurveTo(256-56,topY+22,256-50,topY+30); ctx.stroke()
+  ctx.beginPath(); ctx.moveTo(256+50,topY+12); ctx.quadraticCurveTo(256+56,topY+22,256+50,topY+30); ctx.stroke()
+  ctx.fillStyle=VW.sash; ctx.fillRect(256-47,waistY-10,94,14); drawBow(256,waistY-2,s.sashSway) }
+function drawBow(x,y,sway){ ctx.save(); ctx.translate(x,y); ctx.fillStyle=VW.sash
+  ctx.beginPath(); ctx.moveTo(0,0); ctx.quadraticCurveTo(-24,-12,-26,2); ctx.quadraticCurveTo(-22,12,0,4); ctx.closePath(); ctx.fill()
+  ctx.beginPath(); ctx.moveTo(0,0); ctx.quadraticCurveTo(24,-12,26,2); ctx.quadraticCurveTo(22,12,0,4); ctx.closePath(); ctx.fill()
+  ctx.fillStyle=VW.trim; ctx.beginPath(); ctx.arc(0,1,5.5,0,7); ctx.fill()
+  ctx.fillStyle=VW.sashShd; for(const side of [-1,1]){ ctx.save(); ctx.rotate(sway*side*0.5)
+    ctx.beginPath(); ctx.moveTo(side*5,4); ctx.quadraticCurveTo(side*10,26,side*7+sway*8,44); ctx.lineTo(side*13+sway*8,42); ctx.quadraticCurveTo(side*15,22,side*10,3); ctx.closePath(); ctx.fill()
+    ctx.fillStyle=VW.trim; ctx.beginPath(); ctx.arc(side*10+sway*8,44,3,0,7); ctx.fill(); ctx.fillStyle=VW.sashShd; ctx.restore() }
+  ctx.restore() }
+function drawArm(s,isLeft){ const side=isLeft?-1:1, angle=isLeft?s.armLAngle:s.armRAngle, fore=isLeft?s.armLFore:s.armRFore
+  const sx=256+side*54, sy=312, ul=44, fl=38, a0=angle*side+Math.PI/2
+  const ex=sx+Math.cos(a0)*ul, ey=sy+Math.sin(a0)*ul, a1=a0-fore*side*1.6
+  const hx=ex+Math.cos(a1)*fl, hy=ey+Math.sin(a1)*fl
+  ctx.save(); const g=ctx.createLinearGradient(sx,sy,hx,hy); g.addColorStop(0,VW.top); g.addColorStop(1,VW.topShd)
+  ctx.fillStyle=g; const nx=Math.cos(a0+Math.PI/2), ny=Math.sin(a0+Math.PI/2)
+  ctx.beginPath(); ctx.moveTo(sx+nx*15,sy+ny*15)
+  ctx.quadraticCurveTo((sx+hx)/2+nx*22,(sy+hy)/2+ny*22,hx+nx*13,hy+ny*13)
+  ctx.lineTo(hx+Math.cos(a0)*6-nx*11,hy+Math.sin(a0)*6-ny*11)
+  ctx.quadraticCurveTo((sx+hx)/2-nx*16,(sy+hy)/2-ny*16,sx-nx*13,sy-ny*13); ctx.closePath(); ctx.fill()
+  ctx.strokeStyle=VW.trim; ctx.lineWidth=4; ctx.beginPath(); ctx.moveTo(hx+nx*12,hy+ny*12); ctx.lineTo(hx+Math.cos(a0)*5-nx*10,hy+Math.sin(a0)*5-ny*10); ctx.stroke()
+  ctx.fillStyle=VW.skin; ctx.beginPath(); ctx.arc(hx+Math.cos(a1)*6,hy+Math.sin(a1)*6,8,0,7); ctx.fill(); ctx.restore()
+  if(!isLeft && s.swordMode===0) drawSwordInHand(hx+Math.cos(a1)*6, hy+Math.sin(a1)*6, a1+s.swordAngle) }
+function drawSwordInHand(hx,hy,angle){ ctx.save(); ctx.translate(hx,hy); ctx.rotate(angle)
+  ctx.fillStyle=VW.blade; ctx.beginPath(); ctx.roundRect(-4,10,8,130,3); ctx.fill()
+  ctx.fillStyle=VW.bladeHl; ctx.fillRect(-1,12,2,124)
+  ctx.fillStyle=VW.guard; ctx.beginPath(); ctx.roundRect(-11,4,22,7,3); ctx.fill()
+  ctx.fillStyle=VW.hilt; ctx.beginPath(); ctx.roundRect(-3.5,-16,7,22,3); ctx.fill()
+  ctx.strokeStyle=VW.tassel; ctx.lineWidth=2.5; ctx.lineCap='round'
+  ctx.beginPath(); ctx.moveTo(0,-14); ctx.quadraticCurveTo(10,-22,14,-34); ctx.stroke()
+  ctx.beginPath(); ctx.moveTo(14,-34); ctx.moveTo(12,-32); ctx.lineTo(18,-44); ctx.moveTo(14,-34); ctx.lineTo(10,-46); ctx.moveTo(14,-34); ctx.lineTo(16,-48); ctx.stroke()
+  ctx.restore() }
+function drawSwordAcross(x,y,angle){ ctx.save(); ctx.translate(x,y); ctx.rotate(angle)
+  ctx.fillStyle=VW.blade; ctx.beginPath(); ctx.roundRect(-120,-4,240,8,4); ctx.fill()
+  ctx.fillStyle=VW.bladeHl; ctx.fillRect(-116,-2,228,2)
+  ctx.fillStyle=VW.guard; ctx.beginPath(); ctx.roundRect(96,-9,8,18,3); ctx.fill()
+  ctx.fillStyle=VW.hilt; ctx.beginPath(); ctx.roundRect(104,-4,30,8,3); ctx.fill()
+  ctx.strokeStyle=VW.tassel; ctx.lineWidth=2.5; ctx.beginPath(); ctx.moveTo(134,0); ctx.quadraticCurveTo(146,10,144,24); ctx.stroke(); ctx.restore() }
+function drawHead(s){ ctx.save(); ctx.translate(256,200); ctx.rotate(s.headTilt)
+  ctx.fillStyle=VW.hairShd; ctx.beginPath(); ctx.ellipse(0,-8,96,98,0,0,7); ctx.fill()
+  ctx.fillStyle=VW.skin; ctx.beginPath(); ctx.ellipse(0,4,88,90,0,0,7); ctx.fill()
+  ctx.fillStyle='rgba(240,190,150,0.25)'; ctx.beginPath(); ctx.ellipse(0,46,66,34,0,0,Math.PI); ctx.fill()
+  drawFace(s); drawBangs(s); ctx.restore() }
+function drawFace(s){ const eyeY=16
+  for(const side of [-1,1]){ const ex=side*38
+    ctx.strokeStyle=VW.hairShd; ctx.lineWidth=3.5; ctx.lineCap='round'; ctx.beginPath()
+    const browY=-14-s.browRaise*6; ctx.moveTo(ex-12,browY+side*s.browRaise*2); ctx.quadraticCurveTo(ex,browY-4,ex+12,browY); ctx.stroke()
+    const open=Math.max(0.05,s.eyeOpen)
+    if(open<0.15){ ctx.strokeStyle=VW.eyeLine; ctx.lineWidth=3.5; ctx.beginPath(); ctx.arc(ex,eyeY+2,13,Math.PI*0.15,Math.PI*0.85); ctx.stroke(); continue }
+    ctx.fillStyle=VW.eyeWhite; ctx.beginPath(); ctx.ellipse(ex,eyeY,17,21*open,0,0,7); ctx.fill()
+    const gx=s.gazeX*5, gy=s.gazeY*4
+    const ig=ctx.createLinearGradient(0,eyeY-16,0,eyeY+16); ig.addColorStop(0,VW.irisTop); ig.addColorStop(1,VW.irisBot)
+    ctx.fillStyle=ig; ctx.beginPath(); ctx.ellipse(ex+gx,eyeY+gy+1,12.5,16*open,0,0,7); ctx.fill()
+    ctx.fillStyle=VW.pupil; ctx.beginPath(); ctx.ellipse(ex+gx,eyeY+gy+2,6,8.5*open,0,0,7); ctx.fill()
+    ctx.fillStyle=VW.eyeWhite; ctx.beginPath(); ctx.ellipse(ex+gx-4,eyeY+gy-6*open,3.6,4.4*open,0,0,7); ctx.fill()
+    ctx.beginPath(); ctx.ellipse(ex+gx+5,eyeY+gy+6*open,1.8,2.2*open,0,0,7); ctx.fill()
+    ctx.strokeStyle=VW.eyeLine; ctx.lineWidth=4; ctx.beginPath(); ctx.ellipse(ex,eyeY-2,18,21*open,0,Math.PI*1.05,Math.PI*1.95); ctx.stroke()
+  }
+  if(s.blush>0.02){ ctx.fillStyle=`rgba(255,157,176,${0.45*s.blush})`; ctx.beginPath(); ctx.ellipse(-52,40,13,8,0,0,7); ctx.fill(); ctx.beginPath(); ctx.ellipse(52,40,13,8,0,0,7); ctx.fill() }
+  const my=56
+  if(s.mouthOpen>0.1){ ctx.fillStyle='#B8505E'; ctx.beginPath(); ctx.ellipse(0,my,9,7*s.mouthOpen+3,0,0,7); ctx.fill()
+    ctx.fillStyle='#E8808E'; ctx.beginPath(); ctx.ellipse(0,my+3,5,3*s.mouthOpen+1,0,0,Math.PI); ctx.fill() }
+  else { ctx.strokeStyle='#B8505E'; ctx.lineWidth=3; ctx.lineCap='round'; ctx.beginPath()
+    const sm=s.mouthSmile; ctx.moveTo(-9,my-sm*2); ctx.quadraticCurveTo(0,my+6*sm,9,my-sm*2); ctx.stroke() }
+}
+function drawBangs(s){ ctx.fillStyle=VW.hair
+  ctx.beginPath(); ctx.moveTo(-92,6); ctx.quadraticCurveTo(-100,-66,-46,-92); ctx.quadraticCurveTo(0,-108,46,-92); ctx.quadraticCurveTo(100,-66,92,6)
+  ctx.lineTo(74,-8); ctx.quadraticCurveTo(66,-30,54,-34); ctx.lineTo(44,-2); ctx.quadraticCurveTo(34,-34,18,-40); ctx.lineTo(6,2)
+  ctx.quadraticCurveTo(-6,-36,-22,-40); ctx.lineTo(-34,-4); ctx.quadraticCurveTo(-46,-32,-58,-32); ctx.lineTo(-70,-4)
+  ctx.quadraticCurveTo(-80,-24,-92,6); ctx.closePath(); ctx.fill()
+  for(const side of [-1,1]){ ctx.beginPath(); ctx.moveTo(side*88,-20); ctx.quadraticCurveTo(side*100,30,side*84,76); ctx.quadraticCurveTo(side*78,88,side*70,92); ctx.quadraticCurveTo(side*80,50,side*74,8); ctx.closePath(); ctx.fill() }
+  ctx.strokeStyle=VW.hairHl; ctx.lineWidth=4; ctx.lineCap='round'
+  ctx.beginPath(); ctx.arc(0,-60,52,Math.PI*1.25,Math.PI*1.55); ctx.stroke(); ctx.beginPath(); ctx.arc(0,-60,52,Math.PI*1.65,Math.PI*1.75); ctx.stroke()
+  ctx.fillStyle=VW.hairShd; ctx.beginPath(); ctx.ellipse(30,-88,16,12,0.5,0,7); ctx.fill() }
+function drawSlash(s){ const p=s.slash, alpha=Math.sin(Math.PI*Math.min(1,p))*0.8
+  ctx.save(); ctx.translate(256,300); ctx.strokeStyle=`rgba(159,219,255,${alpha})`; ctx.lineCap='round'
+  const sweep=-1.6+p*2.6
+  for(let i=0;i<3;i++){ ctx.lineWidth=7-i*2; ctx.globalAlpha=alpha*(1-i*0.25); ctx.beginPath(); ctx.arc(0,0,120+i*14,sweep-0.9+i*0.08,sweep+0.25); ctx.stroke() }
+  ctx.restore() }
+
+// ═════════ 运动引擎：参数插值，无帧 ═════════
+let cur='idle', t0=performance.now()/1000
+const DUR={ idle:Infinity, click_defend:1100, shy:2200, combo3:800, drag_fly:Infinity, notice:1700, sleepy:Infinity, happy:1200 }
+let ponySmooth=0
+const drag={active:false,dx:0}
+
+function setAction(name){ cur=name; t0=performance.now()/1000; st.innerHTML='<b>'+name+'</b> · 参数补间中' }
+
+function blink(t){ const period=3.4+((Math.sin(t*0.6)+1)*0.8), ph=t%period, bl=0.16
+  return ph<bl ? 1-Math.sin(ph/bl*Math.PI)*0.98 : 1 }
+
+function frame(){
+  const t=performance.now()/1000, at=t-t0
+  const s=vDefaults()
+  // ── idle 基座：呼吸/晃动/眨眼（拖拽时弱化）──
+  const fly = cur==='drag_fly'
+  if(!fly){
+    s.bodyBob = Math.sin(t*1.6)*2.1
+    s.squash = 1+Math.sin(t*1.6)*0.025
+    s.skirtSway = Math.sin(t*1.2)*0.06
+    s.sashSway = Math.sin(t*1.2)*0.05
+    s.mouthSmile = 0.5
+  }
+  s.eyeOpen = cur==='sleepy' ? 0.14 : blink(t)
+  // ── 马尾滞后跟随（物理低通）──
+  ponySmooth += (s.headTilt - ponySmooth)*0.09
+  s.ponySway = (fly?0.22:0.12)*Math.sin(t*(fly?3.2:0.8)) + ponySmooth*1.4
+
+  // ── 动作补间 ──
+  switch(cur){
+    case 'click_defend': {
+      const att=ease(clamp(at/0.10,0,1)), rel=ease(clamp((at-0.10)/0.28,0,1))
+      s.browRaise=0.85*(1-rel); s.mouthOpen=0.7*(1-rel); s.bodyTilt=-0.055*(1-rel)
+      s.squash=0.955+0.045*rel; s.eyeOpen=1.05*(1-rel)+rel
+      break }
+    case 'shy': {
+      const rise=ease(clamp(at/0.30,0,1)), fall=ease(clamp((at-1.6)/0.4,0,1))
+      s.blush=(1-fall); s.gazeY=0.55*(1-fall); s.headTilt=0.09*(1-fall)
+      s.mouthSmile=0.85*(1-fall)+0.5*fall; s.browRaise=0.2*(1-fall)
+      break }
+    case 'combo3': {
+      const p1=ease(clamp(at/0.13,0,1)), p2=ease(clamp((at-0.13)/0.2,0,1)), p3=ease(clamp((at-0.33)/0.3,0,1))
+      s.swordAngle = 0.15 - 0.7*p1*(1-p2) + 0.45*p2*(1-p3)
+      s.bodyTilt = 0.06*p1 - 0.04*p2
+      s.slash = Math.max(p1, p2*(1-p3))
+      s.mouthOpen = 0.4*p1
+      break }
+    case 'drag_fly': {
+      s.legs=2; s.swordMode=1; s.bodyTilt=0.13+drag.dx*0.0016
+      s.bodyBob=Math.sin(t*3.4)*4; s.headTilt=-drag.dx*0.001
+      break }
+    case 'notice': {
+      const in2=ease(clamp(at/0.3,0,1)), out2=ease(clamp((at-0.9)/0.5,0,1))
+      const k=(1-out2); s.headTilt=0.13*k; s.browRaise=0.5*k; s.gazeX=0.55*k; s.mouthSmile=0.3
+      break }
+    case 'sleepy': {
+      s.headTilt=0.05; s.bodyBob=Math.sin(t*0.9)*1.4; s.mouthSmile=0.2
+      break }
+    case 'happy': {
+      const p=ease(clamp(at/0.25,0,1)), q=ease(clamp((at-0.7)/0.3,0,1))
+      s.blush=1-q; s.mouthOpen=0.5*p*(1-q); s.bodyBob=Math.abs(Math.sin(t*2.4))*7*(1-q)
+      s.mouthSmile=0.95
+      break }
+  }
+  draw(s)
+  if(at>DUR[cur] && DUR[cur]!==Infinity) setAction('idle')
+  requestAnimationFrame(frame)
+}
+
+// ── 交互 ──
+const stage=document.getElementById('stage'), st=document.getElementById('st')
+let mDown=false, mPos={x:0,y:0}, lastClick=0, combo=0
+stage.addEventListener('mousedown',e=>{ mDown=true; mPos={x:e.clientX,y:e.clientY} })
+stage.addEventListener('mousemove',e=>{
+  if(!mDown)return; const dx=e.clientX-mPos.x, dy=e.clientY-mPos.y
+  if(!drag.active && Math.hypot(dx,dy)>8){ drag.active=true; drag.dx=0; stage.classList.add('drag'); setAction('drag_fly') }
+  if(drag.active) drag.dx=(e.clientX-mPos.x)/90
+})
+window.addEventListener('mouseup',()=>{
+  if(drag.active){ drag.active=false; stage.classList.remove('drag'); setAction('idle') }
+  mDown=false
+})
+stage.addEventListener('click',()=>{   // 双击判定由 mouseup 时序简化
+  if(drag.active)return
+  const now=Date.now(), dt=now-lastClick
+  if(dt<280){ combo=0; setAction('shy'); lastClick=0; return }
+  lastClick=now
+  setTimeout(()=>{ if(lastClick===now){ combo++
+    if(combo>=3){ setAction('combo3'); combo=0 }
+    else setAction('click_defend')
+    setTimeout(()=>{combo=0},900) }
+    lastClick=0 },280)
+})
+document.querySelectorAll('[data-a]').forEach(b=>b.addEventListener('click',()=>{ drag.active=false; setAction(b.dataset.a) }))
+
+requestAnimationFrame(frame)
+</script>
+</body>
+</html>

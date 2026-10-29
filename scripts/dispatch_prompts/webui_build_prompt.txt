@@ -1,0 +1,7 @@
+你在思忆集项目目录。请执行以下操作：
+1. 进入 web-ui/ 目录，运行 npm install（如果需要）然后 npm run build
+2. 确认构建成功（dist/index.html 存在）
+3. 读取思忆集app/web_bridge_service.py，理解当前 QWebEngineView 是怎么加载占位 HTML 的
+4. 修改 web_bridge_service.py，让 QWebEngineView 加载 web-ui/dist/index.html 而不是 setHtml 占位内容
+5. 注意保持原有的 QWebChannel 桥接逻辑不变
+6. 完成后报告 web-ui 构建状态和 bridge 修改内容

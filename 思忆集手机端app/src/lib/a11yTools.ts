@@ -76,7 +76,11 @@ export const a11yTools: AiTool[] = [
       },
       required: ['packageName'],
     },
-    tags: ['打开', '启动', '应用', 'app', '微信', '打开应用'],
+    // 注意：这里不要放泛化的「应用」单字 tag。
+    // matchTools 是纯关键词计数，「手机上装了什么应用」会同时命中
+    // launch_app 的「应用」和 list_apps 的「应用列表」，
+    // 若计分相同则按注册顺序选前者 → 误调用启动而非查询。
+    tags: ['打开', '启动', '打开应用', '启动应用', '打开app', 'launch'],
     riskLevel: 'R1_LIGHT',
     execute: async (params) => {
       const pkg = String(params.packageName || '').trim()
@@ -101,7 +105,8 @@ export const a11yTools: AiTool[] = [
         limit: { type: 'number', description: '最多返回多少个，默认 60' },
       },
     },
-    tags: ['应用列表', '装了什么', '有哪些应用', '找应用'],
+    tags: ['应用列表', '装了什么', '装了什么应用', '有哪些应用', '有什么应用',
+           '手机上装', '已安装', '找应用', '应用清单'],
     riskLevel: 'R0_INFO',
     execute: async (params) => {
       try {

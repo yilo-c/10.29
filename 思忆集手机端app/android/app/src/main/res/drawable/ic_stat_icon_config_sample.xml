@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  通知栏小图标（LocalNotifications.smallIcon）
+
+  为什么需要这个文件：
+    capacitor.config.ts 与两处业务代码引用了 'ic_stat_icon_config_sample'，
+    这是 Capacitor 官方示例里的占位名，但工程 res/ 下从未提供对应
+    drawable。Android 要求通知小图标必须存在，否则通知无法显示，
+    部分版本在资源处理阶段报错。
+
+  设计约束（Android 通知图标规范）：
+    - 必须是纯白剪影 + 透明背景，系统会按通知栏主题自动着色
+    - 尺寸 24dp，四周留 2dp 安全边距，避免被裁切
+    - 因此这里只用 alpha 通道，不写彩色 fill
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+
+    <!-- 便签纸主体轮廓 -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M6,2h9l5,5v13a2,2 0,0 1,-2 2H6a2,2 0,0 1,-2 -2V4a2,2 0,0 1,2 -2zM14.5,3.5V8h4.5z" />
+
+    <!-- 三条内容线（挖空，形成剪影对比） -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="0"
+        android:pathData="M7,11h10M7,14h10M7,17h6" />
+</vector>

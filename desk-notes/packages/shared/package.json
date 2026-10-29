@@ -16,6 +16,9 @@
     "lunar-javascript": "^1.7.7"
   },
   "devDependencies": {
-    "typescript": "^5.3.3"
+    "typescript": "^5.3.3",
+    "@types/react": "^18.2.55",
+    "@types/react-dom": "^18.2.19",
+    "vitest": "^4.1.6"
   }
 }

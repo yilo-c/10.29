@@ -183,7 +183,7 @@ function presetNotifications(python: string, appDir: string, dataDir: string): v
     'if not isinstance(records, list):',
     '    records = []',
     "preset_ids = set(p['id'] for p in presets)",
-    'records = [r for r in records if not (isinstance(r, dict) and r.get(\"id\") in preset_ids)]',
+    'records = [r for r in records if not (isinstance(r, dict) and r.get("id") in preset_ids)]',
     'now = datetime.datetime.now(datetime.timezone.utc)',
     'for i, p in enumerate(presets):',
     '    records.append({',

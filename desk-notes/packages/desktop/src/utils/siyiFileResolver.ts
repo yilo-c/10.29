@@ -65,8 +65,8 @@ export function isImageFile(name: string): boolean {
 export function isRelativeAssetPath(uri: string): boolean {
   if (!uri || isSiyiFileUri(uri)) return false
   if (/^[a-z][a-z0-9+.-]*:/i.test(uri)) return false // http:/data:/siyi-file: 等一切协议
-  if (/^[A-Za-z]:[\/]/.test(uri) || uri.startsWith('/')) return false
-  return /^\.?\.?\/?assets\//i.test(uri)
+  if (/^[A-Za-z]:[/\\]/.test(uri) || uri.startsWith('/')) return false
+  return /^\.{0,2}\/?assets\//i.test(uri)
 }
 
 /**

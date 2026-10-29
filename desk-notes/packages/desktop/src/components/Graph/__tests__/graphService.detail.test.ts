@@ -7,8 +7,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 const { mockGetWsClient } = vi.hoisted(() => ({ mockGetWsClient: vi.fn() }))
 vi.mock('../../../utils/ai', () => ({ getWsClient: mockGetWsClient }))
 
-import { canJumpOrigin, fetchEntityDetail, JUMPABLE_TARGET_MODULES } from '../graphService'
-import type { EntityOrigin } from '../graphService'
+import { canJumpOrigin, fetchEntityDetail, JUMPABLE_TARGET_MODULES, type EntityOrigin } from '../graphService'
 
 function origin(over: Partial<EntityOrigin> = {}): EntityOrigin {
   return {

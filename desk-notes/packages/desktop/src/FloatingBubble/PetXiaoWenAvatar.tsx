@@ -213,7 +213,7 @@ const PetXiaoWenAvatar: React.FC<PetAvatarProps> = ({
       // Frame with fallback
       if (clip) {
         // 图层渲染器(方案三)停用：待机改用视频抽帧序列 idle_ns
-        const useLayers = false && layerAssetsRef.current
+        const useLayers = false
         if (useLayers && layerAssetsRef.current) {
           drawLayerIdle(ctx, size, layerAssetsRef.current, layerAnimRef.current, timestamp)
         } else {

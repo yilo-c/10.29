@@ -1,2 +1,12 @@
 packages:
   - packages/*
+
+# pnpm 10 起，overrides 不再从 package.json 的 "pnpm" 字段读取，
+# 统一放在本文件（pnpm-workspace.yaml）。
+# 用途：强制把存在已知漏洞的传递依赖解析到已修复版本。
+#   dompurify  < 3.4.17  含 critical（SAFE_FOR_TEMPLATES 绕过）与 high
+#   js-yaml    < 4.3.2   含 high（maxTotalMergeKeys CPU 消耗）
+# 升级上游依赖后应回头清理这里不再需要的条目。
+overrides:
+  dompurify: '>=3.4.17'
+  js-yaml: '>=4.3.2'

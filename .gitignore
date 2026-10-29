@@ -284,3 +284,6 @@ verify_tmp/
 
 # qoder 外部工具本地产物（agent-work-loop 报告，不入库）
 .qoder/
+
+# 误把 Windows 盘符路径当相对目录创建出的产物（如 D:/h/...），非源码
+D:/

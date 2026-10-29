@@ -259,6 +259,28 @@ function buildAIContext(): string {
     '先向用户复述你打算做什么并等待确认，不要自行执行。'
   )
 
+  /*
+   * 屏幕尺寸：tap/swipe 用的是物理像素坐标，
+   * 不告诉模型分辨率，它只能瞎猜（点不中的概率极高）。
+   * 这里在上下文里给出宽高与常见区域参考。
+   */
+  try {
+    const w = typeof window !== 'undefined' ? window.screen?.width : 0
+    const h = typeof window !== 'undefined' ? window.screen?.height : 0
+    const dpr = typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1
+    if (w && h) {
+      const pw = Math.round(w * dpr)
+      const ph = Math.round(h * dpr)
+      parts.push(
+        `【屏幕坐标参考】\n` +
+        `屏幕物理像素：${pw} × ${ph}（CSS ${w} × ${h}，像素比 ${dpr}）\n` +
+        `坐标原点在左上角。屏幕中心约为 (${Math.round(pw/2)}, ${Math.round(ph/2)})。\n` +
+        `底部导航栏区域约在 y > ${Math.round(ph*0.94)}，状态栏约在 y < ${Math.round(ph*0.04)}，\n` +
+        `点击这两个区域容易触发系统操作，除非用户明确要求，否则避免。`
+      )
+    }
+  } catch { /* 取不到尺寸就不给，不影响其他上下文 */ }
+
   return parts.join('\n')
 }
 

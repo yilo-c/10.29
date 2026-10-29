@@ -102,7 +102,7 @@ export const a11yTools: AiTool[] = [
     parameters: {
       type: 'object',
       properties: {
-        limit: { type: 'number', description: '最多返回多少个，默认 60' },
+        limit: { type: 'number', description: '最多返回多少个，默认 60。应用多时可调到 100。' },
       },
     },
     tags: ['应用列表', '装了什么', '装了什么应用', '有哪些应用', '有什么应用',
@@ -130,8 +130,8 @@ export const a11yTools: AiTool[] = [
     parameters: {
       type: 'object',
       properties: {
-        x: { type: 'number' },
-        y: { type: 'number' },
+        x: { type: 'number', description: '屏幕横坐标（物理像素）。可用 phone.read_screen 先确认元素位置，或按屏幕宽度估算。' },
+        y: { type: 'number', description: '屏幕纵坐标（物理像素）。注意状态栏和导航栏占用的高度也要算进去。' },
       },
       required: ['x', 'y'],
     },
@@ -162,11 +162,11 @@ export const a11yTools: AiTool[] = [
     parameters: {
       type: 'object',
       properties: {
-        x1: { type: 'number' },
-        y1: { type: 'number' },
-        x2: { type: 'number' },
-        y2: { type: 'number' },
-        duration: { type: 'number', description: '滑动时长毫秒，默认 300' },
+        x1: { type: 'number', description: '起点横坐标（物理像素）' },
+        y1: { type: 'number', description: '起点纵坐标（物理像素）' },
+        x2: { type: 'number', description: '终点横坐标（物理像素）' },
+        y2: { type: 'number', description: '终点纵坐标（物理像素）' },
+        duration: { type: 'number', description: '滑动时长毫秒，默认 300。快速滑动用 150，缓慢拖拽用 600+。' },
       },
       required: ['x1', 'y1', 'x2', 'y2'],
     },

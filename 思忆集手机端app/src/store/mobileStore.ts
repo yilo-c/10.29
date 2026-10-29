@@ -6,6 +6,7 @@ import { AuthRepository } from '../lib/authRepository'
 import { DesktopAiClient } from '../lib/desktopAiClient'
 import { CloudAiClient } from '../lib/cloudAiClient'
 import { ToolRegistry } from '../lib/toolRegistry'
+import { a11yTools } from '../lib/a11yTools'
 import { ChatOrchestrator } from '../lib/chatOrchestrator'
 import { OfflineAiFallback } from '../lib/offlineFallback'
 import { useStore, getHuangli } from '@desk-notes/shared'
@@ -149,6 +150,17 @@ function ensureToolsRegistered() {
         swallowError('mobileStore:130', e)
       }
     }),
+    /*
+     * 无障碍自动化工具 / Accessibility automation
+     *
+     * 让 AI 能真的操作手机，而不只是回答问题：
+     * 读屏 → 定位 → 点击/滑动 → 启动应用。
+     *
+     * 依赖用户在系统设置里手动开启「思忆便签」的无障碍服务。
+     * 未开启时各工具返回明确错误（而非静默失败），
+     * AI 会把原因转述给用户。
+     */
+    ...a11yTools,
   ])
   toolsRegistered = true
 }
@@ -190,6 +202,25 @@ function buildAIContext(): string {
       if (ji.length > 0) parts.push(`今日忌: ${ji.join('、')}`)
     }
   } catch (e) { /* almanac unavailable */ swallowError('mobileStore:174', e) }
+
+  /*
+   * 手机操作能力说明。
+   *
+   * 不写这段，AI 不会知道「读屏 → 定位 → 点击」这套流程该怎么串，
+   * 会退化成只会聊天。这里显式给出操作范式与安全边界。
+   */
+  parts.push(
+    '【手机操作能力】\n' +
+    '你可以直接操作这台手机，可用工具：\n' +
+    '- phone.read_screen：读当前屏幕所有文字（先读再动，不要盲点）\n' +
+    '- phone.list_apps / phone.launch_app：查应用、启动应用\n' +
+    '- phone.tap / phone.swipe：按坐标点击、滑动\n' +
+    '- phone.nav_back / nav_home / nav_recents：系统导航键\n' +
+    '\n操作范式：任何要动屏幕的任务，先 read_screen 看当前在哪、有哪些元素，\n' +
+    '再决定点哪里；操作后再次 read_screen 确认结果。不要在没有读屏的情况下猜测坐标。\n' +
+    '\n安全边界：涉及付款、删除、发送消息、修改账号等不可逆操作时，\n' +
+    '先向用户复述你打算做什么并等待确认，不要自行执行。'
+  )
 
   return parts.join('\n')
 }

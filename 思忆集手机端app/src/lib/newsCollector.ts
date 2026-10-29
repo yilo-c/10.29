@@ -81,6 +81,15 @@ export interface CollectOutcome {
 
 /* ── XML 解析 ── */
 
+
+/** 剥掉 CDATA 包裹并去空白。很多国内源的 title/link 都带 CDATA。 */
+function stripCdata(s: string): string {
+  if (!s) return ''
+  return s
+    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
+    .replace(/^\s+|\s+$/g, '')
+}
+
 function decodeEntities(s: string): string {
   return s
     .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
@@ -95,7 +104,10 @@ function decodeEntities(s: string): string {
 }
 
 function stripTags(s: string): string {
-  return decodeEntities(s.replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim()
+  // 先剥 CDATA，否则下一步的 <[^>]+> 会把整个 CDATA 内容当标签删掉
+  // （实测：36氪/Solidot 的 title 全是 CDATA，不先剥就得到空标题）
+  const noCdata = s.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
+  return decodeEntities(noCdata.replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim()
 }
 
 function firstTag(xml: string, tag: string): string {
@@ -126,17 +138,23 @@ function parseFeed(xml: string, src: NewsSource): ArticleItem[] {
     // 标题
     let title = stripTags(firstTag(block, 'title'))
 
-    // 链接：RSS 是 <link>...</link>；Atom 是 <link href="..."/>
+    /* 链接解析 —— 顺序很重要。
+     *
+     * 实测教训（2026-10-29）：36氪 / Solidot / 开源中国 的 <link> 内容是
+     * `<![CDATA[https://...]]>`，若先判断 /^https?:/ 再解码，会全部判为无效，
+     * 导致「抓到了条目但一条也解析不出来」。必须**先剥 CDATA 再判协议**。 */
     let url = ''
-    const rssLink = firstTag(block, 'link')
-    if (rssLink && /^https?:/.test(rssLink.trim())) {
-      url = rssLink.trim()
+    const rawLink = firstTag(block, 'link')
+    const cleanLink = stripCdata(rawLink).trim()
+    if (/^https?:/i.test(cleanLink)) {
+      url = cleanLink
     } else {
-      url = attrOf(block, 'link', 'href')
+      // Atom: <link href="..."/>
+      url = stripCdata(attrOf(block, 'link', 'href')).trim()
     }
     if (!url) {
-      const guid = firstTag(block, 'guid')
-      if (/^https?:/.test(guid.trim())) url = guid.trim()
+      const guid = stripCdata(firstTag(block, 'guid')).trim()
+      if (/^https?:/i.test(guid)) url = guid
     }
 
     if (!title || !url) continue

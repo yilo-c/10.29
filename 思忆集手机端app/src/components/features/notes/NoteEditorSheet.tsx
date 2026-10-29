@@ -216,55 +216,7 @@ export default function NoteEditorSheet({ note, open, quickCapture, onClose, onU
           }}
         />
 
-        <NotesFormatToolbar
-          textareaRef={textareaRef}
-          content={content}
-          onChange={handleContentChange}
-          selection={selRange}
-          onAction={(action: ToolbarAction) => {
-            if (action === 'ai') {
-              // 打开 AI 前同步选区，供面板判断「处理选中」还是「处理整篇」
-              const ta = textareaRef.current
-              if (ta) setSelRange({ start: ta.selectionStart, end: ta.selectionEnd })
-              setAiOpen(true)
-              return
-            }
-            if (action === 'checklist') {
-              // 快捷插入一条待办项
-              const ta = textareaRef.current
-              const pos = ta ? ta.selectionStart : content.length
-              const next = content.slice(0, pos) + '\n- [ ] ' + content.slice(pos)
-              handleContentChange(next)
-              return
-            }
-            if (action === 'image') {
-              // 复用下方附件工具栏的插图能力
-              document.getElementById('siyi-note-attach-trigger')?.click()
-              return
-            }
-            if (action === 'voice') {
-              // 语音输入交给系统输入法（用户键盘上的麦克风），这里给出提示
-              textareaRef.current?.focus()
-              return
-            }
-          }}
-        />
 
-        <NoteAiAssistant
-          open={aiOpen}
-          onClose={() => setAiOpen(false)}
-          selectionText={content.slice(selRange.start, selRange.end)}
-          fullText={content}
-          onApply={(text, mode) => {
-            if (mode === 'replace_selection' && selRange.end > selRange.start) {
-              handleContentChange(content.slice(0, selRange.start) + text + content.slice(selRange.end))
-            } else if (mode === 'replace_all') {
-              handleContentChange(text)
-            } else {
-              handleContentChange(content + '\n\n' + text)
-            }
-          }}
-        />
 
         {/* 附件工具栏 */}
         <NoteAttachmentToolbar
@@ -438,6 +390,72 @@ export default function NoteEditorSheet({ note, open, quickCapture, onClose, onU
         )}
       </div>
       </div>
+
+      {/*
+        底部工具区 —— 对标小米笔记：贴在键盘上方，而不是内容顶部。
+
+        原实现把工具栏放在标题输入框下方、正文上方，是 PC 端习惯：
+        手机上拇指够不到屏幕顶部，且工具栏会随正文一起滚走。
+
+        新结构（根容器 flex column）：
+          ├─ 顶栏（标题 + 完成）        flex-shrink:0
+          ├─ 内容区（标题/正文/附件）   flex:1, overflow:auto
+          └─ 底部工具区                 flex-shrink:0  ← 常驻，键盘弹出时随之上移
+
+        键盘避让由 useKeyboardAvoidance（监听 visualViewport）负责，
+        这里只需保证：不在滚动区内 + flex-shrink:0。
+      */}
+      <div style={{
+        flexShrink: 0,
+        borderTop: '0.5px solid var(--border-subtle)',
+        background: 'var(--bg-primary)',
+        paddingBottom: 'var(--safe-bottom)',
+      }}>
+        <NotesFormatToolbar
+          textareaRef={textareaRef}
+          content={content}
+          onChange={handleContentChange}
+          selection={selRange}
+          onAction={(action: ToolbarAction) => {
+            if (action === 'ai') {
+              const ta = textareaRef.current
+              if (ta) setSelRange({ start: ta.selectionStart, end: ta.selectionEnd })
+              setAiOpen(true)
+              return
+            }
+            if (action === 'checklist') {
+              const ta = textareaRef.current
+              const pos = ta ? ta.selectionStart : content.length
+              handleContentChange(content.slice(0, pos) + '\n- [ ] ' + content.slice(pos))
+              return
+            }
+            if (action === 'image') {
+              document.getElementById('siyi-note-attach-trigger')?.click()
+              return
+            }
+            if (action === 'voice') {
+              textareaRef.current?.focus()
+              return
+            }
+          }}
+        />
+      </div>
+
+      <NoteAiAssistant
+        open={aiOpen}
+        onClose={() => setAiOpen(false)}
+        selectionText={content.slice(selRange.start, selRange.end)}
+        fullText={content}
+        onApply={(text, mode) => {
+          if (mode === 'replace_selection' && selRange.end > selRange.start) {
+            handleContentChange(content.slice(0, selRange.start) + text + content.slice(selRange.end))
+          } else if (mode === 'replace_all') {
+            handleContentChange(text)
+          } else {
+            handleContentChange(content + '\n\n' + text)
+          }
+        }}
+      />
     </div>
   )
 }

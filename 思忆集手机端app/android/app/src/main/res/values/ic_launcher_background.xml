@@ -1,4 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="ic_launcher_background">#FFFFFF</color>
+    <!--
+      图标背景色：极浅灰白，与小米笔记 #F7F8FA 同调，
+      让蓝/橙线条在上面有足够对比度，同时保持「轻盈、纸感」。
+    -->
+    <color name="ic_launcher_background">#F7F8FA</color>
 </resources>

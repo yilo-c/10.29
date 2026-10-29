@@ -7,6 +7,7 @@ import { DesktopAiClient } from '../lib/desktopAiClient'
 import { CloudAiClient } from '../lib/cloudAiClient'
 import { ToolRegistry } from '../lib/toolRegistry'
 import { a11yTools } from '../lib/a11yTools'
+import { runAgent, looksLikeMultiStepTask } from '../lib/agentLoop'
 import { ChatOrchestrator } from '../lib/chatOrchestrator'
 import { OfflineAiFallback } from '../lib/offlineFallback'
 import { useStore, getHuangli } from '@desk-notes/shared'
@@ -456,6 +457,47 @@ export const useMobileStore = create<MobileStore>()(
           const cloudConfigured = tokenManager.cloudAiEnabled
             && !!(tokenManager.cloudApiKey || useStore.getState().activeProfileId)
           const desktopConnected = !!(tokenManager.isPaired && tokenManager.baseUrl)
+
+          /*
+           * 多步任务分流 / Route multi-step tasks to the agent loop
+           *
+           * 单步请求（"记一条笔记"）走原来的 orchestrator：快、省 token。
+           * 多步请求（"看看屏幕上有什么，然后点第二个按钮"）必须走 Agent 循环，
+           * 否则只会执行第一个工具就结束。
+           *
+           * 判定用 looksLikeMultiStepTask（序数/递进词 或 多个动作动词），
+           * 而非一律走循环 —— 全走循环会让简单请求也变慢、变贵。
+           */
+          if (cloudConfigured && looksLikeMultiStepTask(text)) {
+            const agent = await runAgent(text, toolRegistry, {
+              systemContext: buildAIContext(),
+              onStep: (step) => {
+                // 把工具轨迹实时拼进气泡，用户能看到 AI 在做什么
+                set(s => {
+                  const msgs = (s.chat.messages || []).map(m => {
+                    if (m.id !== streamMsgId) return m
+                    const line = step.type === 'tool_call'
+                      ? `⚙️ ${step.text ?? ''}\n`
+                      : step.type === 'tool_result'
+                        ? `✓ ${step.toolId}${step.ms ? ` (${step.ms}ms)` : ''}\n`
+                        : step.type === 'rejected'
+                          ? `⛔ ${step.text ?? '已拒绝'}\n`
+                          : step.type === 'error'
+                            ? `⚠️ ${step.text ?? '出错'}\n`
+                            : ''
+                    return line ? { ...m, content: m.content + line } : m
+                  })
+                  return { chat: { ...s.chat, messages: msgs } }
+                })
+              },
+            })
+
+            const finalText = agent.text || (agent.error ?? '任务未完成')
+            setStreamContent(finalText + (agent.usedTools.length > 0
+              ? `\n\n—— 用到 ${agent.usedTools.length} 个工具 · ${agent.steps} 步`
+              : ''))
+            return
+          }
 
           const orchestrator = new ChatOrchestrator(toolRegistry, new OfflineAiFallback())
 

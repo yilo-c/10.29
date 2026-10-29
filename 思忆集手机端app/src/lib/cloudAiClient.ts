@@ -230,3 +230,115 @@ export async function cloudChat(args: ChatOnceArgs): Promise<string> {
   const json = await res.json() as { choices?: { message?: { content?: string } }[] }
   return json.choices?.[0]?.message?.content ?? ''
 }
+
+/* ── Function Calling 支持（多步 Agent 循环的基础） ── */
+
+export interface ToolCall {
+  id: string
+  type: 'function'
+  function: { name: string; arguments: string }
+}
+
+export interface AgentMessage {
+  role: 'system' | 'user' | 'assistant' | 'tool'
+  content: string | null
+  /** assistant 决定调用工具时携带 */
+  tool_calls?: ToolCall[]
+  /** role=tool 时指向对应的 tool_call id */
+  tool_call_id?: string
+  /** role=tool 时的函数名，便于日志 */
+  name?: string
+}
+
+export interface ToolSchema {
+  type: 'function'
+  function: {
+    name: string
+    description: string
+    parameters: Record<string, unknown> | null
+  }
+}
+
+export interface ChatWithToolsResult {
+  /** AI 的文本回复（可能为空，若它决定先调工具） */
+  content: string
+  /** AI 决定调用的工具列表 */
+  toolCalls: ToolCall[]
+  /** 用于后续轮次继续对话 */
+  raw: AgentMessage
+}
+
+/**
+ * 带工具定义的一轮对话。
+ *
+ * 与 cloudChat 的区别：这里把 tools schema 一起发给模型，
+ * 模型可以选择「直接回答」或「返回 tool_calls 让我去执行」。
+ * 这正是 Agent 多步循环的基础：
+ *
+ *   用户 → AI 决定调 phone.read_screen
+ *        → 我们执行，把结果作为 role=tool 消息追加
+ *        → 再把完整 messages 发回去，AI 基于结果决定下一步
+ *
+ * 兼容性：绝大多数 OpenAI 兼容端点（DeepSeek/Moonshot/OpenAI）都支持该字段。
+ * 若某端点不支持，会忽略 tools 字段并直接返回 content —— 此时退化为单轮，
+ * 不会崩，只是失去多步能力。
+ */
+export async function chatWithTools(args: {
+  messages: AgentMessage[]
+  tools: ToolSchema[]
+  maxTokens?: number
+  temperature?: number
+}): Promise<ChatWithToolsResult> {
+  const apiKey = tokenManager.cloudApiKey
+  if (!apiKey) throw new Error('未配置云 AI API Key')
+
+  const baseUrl = tokenManager.cloudApiBaseUrl
+  const model = inferModel(baseUrl)
+  const url = `${baseUrl.replace(/\/+$/, '')}/v1/chat/completions`
+
+  const body: Record<string, unknown> = {
+    model,
+    messages: args.messages,
+    stream: false,
+    max_tokens: args.maxTokens ?? 1500,
+    temperature: args.temperature ?? 0.3,
+  }
+  if (args.tools.length > 0) {
+    body.tools = args.tools
+    body.tool_choice = 'auto'
+  }
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+    body: JSON.stringify(body),
+  })
+
+  if (!res.ok) {
+    const t = await res.text().catch(() => '')
+    throw new Error(`AI ${res.status}: ${t.slice(0, 150)}`)
+  }
+
+  const json = await res.json() as {
+    choices?: Array<{
+      message?: {
+        content?: string | null
+        tool_calls?: ToolCall[]
+      }
+    }>
+  }
+
+  const msg = json.choices?.[0]?.message
+  const content = msg?.content ?? ''
+  const toolCalls = Array.isArray(msg?.tool_calls) ? msg!.tool_calls! : []
+
+  return {
+    content,
+    toolCalls,
+    raw: {
+      role: 'assistant',
+      content: content || null,
+      ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
+    },
+  }
+}

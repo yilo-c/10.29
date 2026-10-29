@@ -6,8 +6,9 @@
       colors.xml，aapt2 在资源编译阶段直接失败（resource color/colorPrimary
       not found），这是 GitHub Actions「Build APK」失败的根因之一。
 
-      取值与 Web 端 src/styles/tokens.css 的 --accent 保持一致，
+      取值与 Web 端 src/styles/tokens.css 的 accent 变量保持一致，
       保证原生主题（启动页/状态栏/原生控件）与 App 内视觉同色。
+      注意：XML 注释内不能出现连续两个连字符，故此处不写 CSS 变量名原文。
     -->
     <color name="colorPrimary">#007AFF</color>
     <color name="colorPrimaryDark">#0062CC</color>

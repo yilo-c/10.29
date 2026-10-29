@@ -168,7 +168,46 @@ export default function InfoView() {
       let landed: ArticleItem[] = []
       let sourceStat: string | null = null
 
-      const local = await collectNews()
+      /*
+       * 抓取节流：14 个源并发抓一次约 3-8 秒、几 MB 流量。
+       * 每次切到资讯页都全量重抓会很浪费（用户来回切 Tab 时尤其明显）。
+       * 因此 5 分钟内复用上次结果，除非用户手动点「刷新」。
+       */
+      const CACHE_KEY = 'siyi-news-collect-cache'
+      const CACHE_TTL = 5 * 60 * 1000
+      let local: Awaited<ReturnType<typeof collectNews>> | null = null
+
+      if (!background) {
+        // 前台手动刷新 → 强制重抓，跳过缓存
+        local = await collectNews()
+      } else {
+        try {
+          const raw = localStorage.getItem(CACHE_KEY)
+          if (raw) {
+            const c = JSON.parse(raw) as { time: number; items: ArticleItem[]; okCount: number; errors: unknown[] }
+            if (Date.now() - c.time < CACHE_TTL && Array.isArray(c.items) && c.items.length > 0) {
+              local = {
+                items: c.items,
+                okCount: c.okCount ?? 0,
+                errors: (c.errors ?? []) as { source: string; reason: string }[],
+              }
+            }
+          }
+        } catch { /* 缓存损坏则忽略，走重抓 */ }
+
+        if (!local) {
+          local = await collectNews()
+          try {
+            localStorage.setItem(CACHE_KEY, JSON.stringify({
+              time: Date.now(),
+              items: local.items.slice(0, 200),
+              okCount: local.okCount,
+              errors: local.errors,
+            }))
+          } catch { /* 存储满则放弃缓存 */ }
+        }
+      }
+
       if (local.items.length > 0) {
         landed = landed.concat(local.items)
       }

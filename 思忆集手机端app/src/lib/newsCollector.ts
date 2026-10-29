@@ -227,7 +227,9 @@ export async function fetchSource(src: NewsSource): Promise<{ items: ArticleItem
   try {
     const r = await SiyiNative.httpFetch({
       url: src.url,
-      timeout: 15000,
+      // 8 秒。原来 15 秒时，VPN 未开的情况下 7 个境外源全超时，
+      // 14 源 3 批 × 15s = 45s 白等。RSS feed 首字节通常 1-3s 内返回。
+      timeout: 8000,
       headers: { Accept: 'application/rss+xml, application/atom+xml, application/xml, application/json, */*' },
     })
 
@@ -280,7 +282,8 @@ export async function collectNews(opts: CollectOptions = {}): Promise<CollectOut
     list = list.filter(s => set.has(s.region))
   }
 
-  const limit = Math.max(1, opts.concurrency ?? 5)
+  // 并发 6：14 个源分 3 批完成。再高会让部分新闻站触发限流（36氪曾返回反爬页）。
+  const limit = Math.max(1, opts.concurrency ?? 6)
   const items: ArticleItem[] = []
   const errors: CollectFailure[] = []
   let okCount = 0

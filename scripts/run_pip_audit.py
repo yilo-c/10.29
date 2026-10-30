@@ -47,9 +47,12 @@ def _audit_once() -> tuple[bool, dict | None, str | None]:
     if not shutil.which("pip-audit"):
         cmd = [sys.executable, "-m", "pip_audit", *targets, "--no-deps", "--format", "json"]
     try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        # 超时预算实测标定：29 条桌面依赖全量审计约 105s（pip-audit 需逐个查 PyPI 漏洞库）。
+        # 原 120s 在慢网/手机 proot 下必然踩线，且误报文案写成「网络不可达？」，
+        # 把「预算不够」伪装成「网络故障」——实际网络可达、只是慢。
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
     except subprocess.TimeoutExpired:
-        return False, None, "审计超时（网络不可达？）"
+        return False, None, "审计超时（>300s；依赖数或网络延迟超出预算，非代码问题）"
     # pip-audit 有漏洞时退出码为 1，属正常路径（仍可能有有效 JSON 输出）
     if proc.returncode not in (0, 1):
         return False, None, f"执行异常（rc={proc.returncode}）: {proc.stderr[-300:]}"

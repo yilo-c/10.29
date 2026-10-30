@@ -18,6 +18,17 @@ import sys
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
+# 保证自身输出不因中文 Windows 控制台编码崩溃。
+# 实测：GitHub Actions windows runner 的 stdout 是 cp1252（非 cp936），
+# 本脚本的「[核心模块完整性] 通过…」直接抛 UnicodeEncodeError 退出 1，
+# 导致 python-tests.yml 的 quality-gates 在这一步中断、后续 18 个步骤全部 skipped。
+# 与 done_check / gate_all / check_f2_archives 保持同一写法。
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
+except Exception:
+    pass
+
 # 关键入口清单（相对仓库根）。来源：debt-v2 TASK-M2-1 首批。
 # 新增关键模块时在此登记，并在 CI 文案/文档同步提及。
 CRITICAL_FILES = [

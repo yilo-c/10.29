@@ -360,7 +360,28 @@ const onPullEnd = useCallback(() => {
           >
             知识
           </button>
-          <button onClick={() => setShowTrash(true)} aria-label="回收站" style={{ background: 'none', border: 'none', color: 'var(--text-tertiary)', cursor: 'pointer', padding: '6px 10px', borderRadius: 'var(--radius-sm)', WebkitTapHighlightColor: 'transparent', fontSize: 'var(--text-caption-1)', fontWeight: 500 }}>
+          <button onClick={() => {
+            /*
+             * 回收站此前永远为空：删除时确实写进了 localStorage['siyi-note-trash']，
+             * 但**从来没有代码把它读回 trashNotes**（trashNotes 初值 []，
+             * 只在关闭时被清空），于是用户点「回收站」永远看到空列表，
+             * 而删掉的笔记其实一直躺在本地——典型的「数据在但看不到」，
+             * 会让人以为笔记被永久删除了。
+             * 现在打开时读取，并做结构校验，避免脏数据把整个 Sheet 弄崩。
+             */
+            try {
+              const raw = localStorage.getItem('siyi-note-trash')
+              const parsed = raw ? JSON.parse(raw) : []
+              const list = Array.isArray(parsed)
+                ? parsed.filter((n: unknown) => n && typeof n === 'object' && typeof (n as { id?: unknown }).id === 'string')
+                : []
+              setTrashNotes(list)
+            } catch {
+              // 数据损坏时给空列表，而不是让按钮点了没反应
+              setTrashNotes([])
+            }
+            setShowTrash(true)
+          }} aria-label="回收站" style={{ background: 'none', border: 'none', color: 'var(--text-tertiary)', cursor: 'pointer', padding: '6px 10px', borderRadius: 'var(--radius-sm)', WebkitTapHighlightColor: 'transparent', fontSize: 'var(--text-caption-1)', fontWeight: 500 }}>
             回收站
           </button>
           <button onClick={() => setShowFolderManage(true)} style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: 'var(--text-footnote)', fontWeight: 500, display: 'flex', alignItems: 'center', gap: 4, padding: '6px 10px', borderRadius: 'var(--radius-sm)', WebkitTapHighlightColor: 'transparent' }}>

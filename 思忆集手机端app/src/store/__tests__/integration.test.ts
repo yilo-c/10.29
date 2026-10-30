@@ -66,6 +66,37 @@ vi.mock('@capacitor/preferences', () => ({
   },
 }))
 
+/*
+ * 桌面连接状态：mobileStore 现在用 rpcClient.isDesktopConnected() 判断，
+ * 而它要求 WS 真的 connected。单测环境没有 WS，
+ * 故这里显式声明「桌面在线」，让路由走桌面分支（本文件测的是上下文拼装，
+ * 不测传输层）。同时把 callRpcStream 桩掉，避免真去建连接。
+ */
+/**
+ * 捕获发往桌面的 chat.send 参数。
+ *
+ * 为什么不能再断言 fetch：桌面通道已从「不存在的 /agent/ask HTTP 接口」
+ * 改为 WS JSON-RPC 的 chat.send（见 desktopAiClient 顶部说明）。
+ * 这一层要验的是「上下文有没有随消息发出去」，所以捕获 RPC 参数即可，
+ * 与传输方式无关。
+ */
+const desktopCalls: Array<{ method: string; params: Record<string, unknown> }> = []
+
+vi.mock('../../lib/rpcClient', async () => {
+  const actual = await vi.importActual<typeof import('../../lib/rpcClient')>('../../lib/rpcClient')
+  return {
+    ...actual,
+    isDesktopConnected: () => true,
+    configureWs: () => {},
+    configureWsAuthToken: () => {},
+    callRpcStream: async function* (method: string, params: Record<string, unknown>) {
+      desktopCalls.push({ method, params: { ...params } })
+      yield { type: 'delta', content: '好的' }
+    },
+    callRpc: async () => ({ success: true }),
+  }
+})
+
 /**
  * 预置「已配对」状态 + mock fetch。
  * 不预置配对，ChatOrchestrator 会直接走离线兜底，请求不会发出。
@@ -97,6 +128,7 @@ function setupEnv() {
 }
 
 /** 取出所有请求体里 message 字段拼起来，就是「AI 实际看到的上下文」 */
+/** 汇总「AI 实际看到的内容」：云端 fetch body + 桌面 chat.send 参数 */
 function aiVisibleText(): string {
   const parts: string[] = []
   for (const body of capturedBodies) {
@@ -108,12 +140,22 @@ function aiVisibleText(): string {
       parts.push(body)
     }
   }
+  for (const c of desktopCalls) {
+    const m = c.params.message
+    if (typeof m === 'string') parts.push(m)
+  }
   return parts.join('\n')
+}
+
+/** 是否真的发出了 AI 请求（云端或桌面任一路） */
+function requestCount(): number {
+  return capturedBodies.length + desktopCalls.length
 }
 
 describe('功能联动：AI 上下文是否带上用户数据', () => {
   beforeEach(() => {
     capturedBodies = []
+    desktopCalls.length = 0
     fakeNotes = []
     fakeTodos = []
     setupEnv()
@@ -129,7 +171,7 @@ describe('功能联动：AI 上下文是否带上用户数据', () => {
     //   - looksLikeMultiStepTask：含「打开/点/看看/然后」会走 agent 循环
     await useMobileStore.getState().sendMessage('这条记录说的是什么')
 
-    expect(capturedBodies.length, '必须真的发出了请求（否则断言无意义）').toBeGreaterThan(0)
+    expect(requestCount(), '必须真的发出了请求（否则断言无意义）').toBeGreaterThan(0)
     expect(aiVisibleText()).toContain('交电费')
   })
 
@@ -144,7 +186,7 @@ describe('功能联动：AI 上下文是否带上用户数据', () => {
     // 返回「笔记已创建」，压根不会请求 AI —— 那样就测不到上下文拼装了。
     await useMobileStore.getState().sendMessage('我手上还有什么没做完的事')
 
-    expect(capturedBodies.length).toBeGreaterThan(0)
+    expect(requestCount()).toBeGreaterThan(0)
     expect(
       aiVisibleText(),
       '用户问「根据我的笔记」时，笔记内容必须进入上下文。' +
@@ -156,6 +198,7 @@ describe('功能联动：AI 上下文是否带上用户数据', () => {
 describe('功能联动：语音与 AI 链路', () => {
   beforeEach(() => {
     capturedBodies = []
+    desktopCalls.length = 0
     fakeNotes = []
     fakeTodos = []
     setupEnv()
@@ -205,7 +248,7 @@ describe('功能联动：语音与 AI 链路', () => {
     await new Promise(r => setTimeout(r, 30))
 
     // 语音文本必须进了 AI 链路
-    expect(capturedBodies.length, '语音识别后应当发出 AI 请求').toBeGreaterThan(0)
+    expect(requestCount(), '语音识别后应当发出 AI 请求').toBeGreaterThan(0)
     expect(aiVisibleText(), '语音文本应当出现在发给 AI 的内容里').toContain('去银行办卡')
   })
 })
@@ -213,6 +256,7 @@ describe('功能联动：语音与 AI 链路', () => {
 describe('功能联动：任务抽取路径的上下文', () => {
   beforeEach(() => {
     capturedBodies = []
+    desktopCalls.length = 0
     fakeNotes = []
     fakeTodos = []
     setupEnv()
@@ -226,7 +270,7 @@ describe('功能联动：任务抽取路径的上下文', () => {
     // 这句以「提醒我」开头，会命中 tryAutoCreateTask 的规则分支
     await useMobileStore.getState().sendMessage('提醒我明天交电费')
 
-    expect(capturedBodies.length, '抽取任务时也发了请求').toBeGreaterThan(0)
+    expect(requestCount(), '抽取任务时也发了请求').toBeGreaterThan(0)
 
     // 抽取用的是独立 prompt（extractPrompt），当前不经 contextualizeMessage，
     // 所以已有待办「复习傅里叶变换」不会出现在这次请求里。

@@ -17,6 +17,12 @@ export function Sheet({ open, onClose, title, children }: SheetProps) {
   const startY = useRef(0)
   const [dragY, setDragY] = useState(0)
   const [closing, setClosing] = useState(false)
+  /**
+   * 本次触摸是否「从内容顶部开始」。只有它为 true，下拉才当作关闭手势；
+   * 否则交给内容自身滚动。用 ref：它在 touchmove 里被高频读取，
+   * 走 state 会触发额外渲染且读不到最新值。
+   */
+  const pullToCloseRef = useRef(false)
   const history = useRef<{ y: number; t: number }[]>([])
 
   useEffect(() => {
@@ -97,8 +103,25 @@ export function Sheet({ open, onClose, title, children }: SheetProps) {
       <div
         ref={sheetRef}
         data-keyboard-aware=""
-        onTouchStart={e => handlePointerStart(e.touches[0].clientY)}
-        onTouchMove={e => { e.preventDefault(); handlePointerMove(e.touches[0].clientY) }}
+        onTouchStart={e => {
+          /*
+           * 只有在「内容已滚到顶部」时，下拉才被视为「关闭手势」；
+           * 否则手势属于内容滚动。不区分就会导致长内容面板滚不动——
+           * 原实现无条件 preventDefault()，让 overflowY:auto 形同虚设，
+           * 带输入框的长 Sheet（新建待办、笔记编辑）手指滑不动，
+           * 只能靠拖拽关闭，用户会以为是卡死。
+           */
+          const el = sheetRef.current
+          pullToCloseRef.current = !el || el.scrollTop <= 0
+          handlePointerStart(e.touches[0].clientY)
+        }}
+        onTouchMove={e => {
+          // 内容未到顶 → 放行原生滚动；到顶且向下拉 → 阻止默认行为交给下拉关闭
+          if (pullToCloseRef.current && dragY >= 0) {
+            e.preventDefault()
+          }
+          handlePointerMove(e.touches[0].clientY)
+        }}
         onTouchEnd={e => handlePointerEnd(e.changedTouches[0].clientY)}
         onMouseDown={e => handlePointerStart(e.clientY)}
         onMouseMove={e => { if (dragY > 0) handlePointerMove(e.clientY) }}
@@ -110,9 +133,17 @@ export function Sheet({ open, onClose, title, children }: SheetProps) {
           borderTopLeftRadius: 'var(--radius-lg)',
           borderTopRightRadius: 'var(--radius-lg)',
           padding: 20,
-          paddingBottom: 'calc(env(safe-area-inset-bottom, 48px) + 32px)',
+          /*
+           * 用项目自己的 --safe-bottom，而不是 env(safe-area-inset-bottom)。
+           * layout.css 已注明本项目在三键导航下 env() 恒为 0，
+           * 而 --safe-bottom 是由原生 getInsets 测出来写进 CSS 变量的，
+           * 两者混用会让底部按钮被系统导航键压住。
+           */
+          paddingBottom: 'calc(var(--safe-bottom, 0px) + 32px)',
           maxHeight: '85dvh',
           overflowY: 'auto',
+          WebkitOverflowScrolling: 'touch',
+          overscrollBehaviorY: 'contain',
           border: '0.5px solid var(--border-card)',
           borderBottom: 'none',
           boxShadow: 'var(--shadow-sheet)',

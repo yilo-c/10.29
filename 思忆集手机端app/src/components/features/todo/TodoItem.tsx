@@ -102,23 +102,48 @@ export default function TodoItem({ item, onClick }: TodoItemProps) {
           onTouchEnd={e => e.stopPropagation()}
           aria-label={item.done ? '标记未完成' : '标记完成'}
           style={{
+            /*
+             * 视觉仍是 24×24 的圆圈，但**点击热区扩到 44×44**
+             * （Android/iOS 的最小可点尺寸，项目里 --tap-target 已定义为 44px）。
+             *
+             * 原实现热区等于视觉尺寸 24×24 —— 而「勾选完成」是待办页
+             * 最高频的操作，手指点偏一点就没反应，体感像「点了没生效」。
+             * 用 padding + 负 margin 撑开热区，不改变布局占位与视觉大小。
+             */
             width: 24,
             height: 24,
+            boxSizing: 'content-box',
+            padding: 10,
+            margin: -10,
             borderRadius: '50%',
-            border: `2px solid ${item.done ? 'var(--tone-smooth)' : 'var(--border-default)'}`,
-            background: item.done ? 'var(--tone-smooth)' : 'transparent',
+            border: 'none',
+            background: 'none',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             cursor: 'pointer',
             flexShrink: 0,
-            padding: 0,
-            marginTop: 2,
+            position: 'relative',
             transition: 'all 0.15s ease',
             WebkitTapHighlightColor: 'transparent',
           }}
         >
+          <span
+            aria-hidden="true"
+            style={{
+              width: 24,
+              height: 24,
+              borderRadius: '50%',
+              border: `2px solid ${item.done ? 'var(--tone-smooth)' : 'var(--border-default)'}`,
+              background: item.done ? 'var(--tone-smooth)' : 'transparent',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              transition: 'all 0.15s ease',
+            }}
+          >
           {item.done && <IconCheck size={14} />}
+          </span>
         </button>
 
         <div style={{ flex: 1, minWidth: 0 }}>

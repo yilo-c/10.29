@@ -345,6 +345,8 @@ class CodexMissionOrchestrator:
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                     text=True,
+                    encoding="utf-8",
+                    errors="replace",
                     timeout=self.VERIFY_TIMEOUT_SECONDS,
                     check=False,
                 )

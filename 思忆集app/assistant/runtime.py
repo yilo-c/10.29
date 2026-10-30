@@ -228,6 +228,8 @@ class AssistantRuntimeManager:
                 stdin=subprocess.DEVNULL,
                 timeout=6,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 check=False,
             )
             return result.returncode == 0 and bool((result.stdout or "").strip())

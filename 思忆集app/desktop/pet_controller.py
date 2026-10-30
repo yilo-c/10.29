@@ -5,6 +5,7 @@ import subprocess
 import threading
 
 from core.observability import SEVERITY_DEGRADED
+from core.subprocess_text import run_text
 from PyQt6.QtCore import QTimer
 from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import QMessageBox
@@ -267,12 +268,10 @@ class DesktopPetController:
             "Select-Object -First 1 -ExpandProperty ProcessId"
         )
         try:
-            result = subprocess.run(
+            result = run_text(
                 ["powershell", "-NoProfile", "-Command", script],
-                capture_output=True,
-                text=True,
                 timeout=5,
-                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                extra_kwargs={"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)},
             )
         except Exception:
             return self._neuro_pet_running
@@ -313,12 +312,10 @@ class DesktopPetController:
             "Select-Object -First 1 -ExpandProperty ProcessId"
         )
         try:
-            result = subprocess.run(
+            result = run_text(
                 ["powershell", "-NoProfile", "-Command", script],
-                capture_output=True,
-                text=True,
                 timeout=5,
-                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                extra_kwargs={"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)},
             )
         except Exception as exc:
             self._logger.warning("failed to detect nana desktop pet process", exc_info=True)

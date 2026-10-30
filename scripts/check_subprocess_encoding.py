@@ -124,7 +124,9 @@ def main() -> int:
         return 0
 
     baseline = _load_baseline()
-    if not baseline:
+    # 注意：空 dict 是**合法**基线——违规全部清偿后 --update 写出的就是 {}。
+    # 用「文件是否存在」判定基线缺失，不能用 falsy 判定，否则清零即误报「基线缺失」。
+    if not os.path.isfile(BASELINE_PATH):
         print("[子进程编码纪律] 基线缺失——先跑 `python scripts/check_subprocess_encoding.py --update`")
         print(f"  期望路径：{BASELINE_PATH}")
         return 1

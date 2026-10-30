@@ -4,9 +4,12 @@ import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
 import android.content.Intent
 import android.graphics.Path
+import android.graphics.Rect
 import android.os.Build
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import org.json.JSONArray
+import org.json.JSONObject
 
 /**
  * 无障碍服务 — 屏幕内容读取 + 模拟手势。
@@ -31,6 +34,9 @@ class SiyiAccessibilityService : AccessibilityService() {
         const val EXTRA_TAP_X = "tap_x"
         const val EXTRA_TAP_Y = "tap_y"
 
+        /** 结构化节点上限：防止超长列表塞爆 WebView 与 AI 上下文。 */
+        private const val MAX_NODES = 120
+
         @Volatile
         private var instance: SiyiAccessibilityService? = null
 
@@ -40,6 +46,29 @@ class SiyiAccessibilityService : AccessibilityService() {
         fun readCurrentScreen(): String? {
             val svc = instance ?: return null
             return svc.extractScreenText()
+        }
+
+        /**
+         * 返回当前屏幕的结构化节点列表（文字 + 屏幕坐标 + viewId + 可点击性）。
+         *
+         * 为什么需要：纯文本 readCurrentScreen() 只给 AI 文字，AI 看不到按钮在哪，
+         * 要点击只能瞎猜坐标。本方法把每个可操作节点的**中心点绝对坐标**一并返回，
+         * AI 即可「看到按钮 → 直接点它」。
+         *
+         * 坐标说明：返回的 x/y 已是**屏幕绝对坐标**（含状态栏偏移），
+         * 可直接传给 performTap()，无需再做换算。
+         *
+         * 返回 JSON 字符串；未启用无障碍时返回 null。
+         */
+        fun readScreenNodes(): String? {
+            val svc = instance ?: return null
+            return svc.extractScreenNodes()
+        }
+
+        /** 按可见文字/描述查找节点并点击其中心。成功返回 true。 */
+        fun tapByText(text: String, exact: Boolean = false): Boolean {
+            val svc = instance ?: return false
+            return svc.tapNodeByText(text, exact)
         }
 
         /** 在 (x, y) 屏幕坐标模拟一次轻点。需要 Android 7.0+。 */
@@ -128,6 +157,141 @@ class SiyiAccessibilityService : AccessibilityService() {
             }
         }
         return sb.toString()
+    }
+
+    /**
+     * 采集结构化节点，输出 JSON 数组字符串。
+     *
+     * 只收集「有意义」的节点，避免返回一整棵无用的容器树：
+     *   - 有可见文字 / contentDescription，或
+     *   - 自身可点击 / 可编辑 / 可勾选
+     *
+     * 每个节点包含屏幕绝对坐标（boundsInScreen）+ 中心点（cx, cy），
+     * cx/cy 正是 performTap() 需要的入参，AI 拿到即可直接点。
+     *
+     * 无障碍节点必须 recycle()，否则长时间使用会泄漏 —— 这里用栈遍历，
+     * 子节点入栈后由后续迭代负责回收，root 单独在调用方回收。
+     */
+    private fun extractScreenNodes(): String? {
+        val root = rootInActiveWindow ?: return null
+        val arr = JSONArray()
+        val stack = ArrayDeque<AccessibilityNodeInfo>()
+        stack.add(root)
+        var emitted = 0
+        try {
+            while (stack.isNotEmpty() && emitted < MAX_NODES) {
+                val node = stack.removeLast()
+                val text = node.text?.toString()?.trim().orEmpty()
+                val desc = node.contentDescription?.toString()?.trim().orEmpty()
+                val label = text.ifEmpty { desc }
+                val clickable = node.isClickable
+                val editable = node.isEditable
+                val checkable = node.isCheckable
+                val scrollable = node.isScrollable
+                val actionable = clickable || editable || checkable || scrollable
+
+                // 只保留有文字的可操作节点，或带文字的普通节点（供 AI 理解界面）
+                if (label.isNotEmpty() || actionable) {
+                    val rect = Rect()
+                    node.getBoundsInScreen(rect)
+                    // 跳过零尺寸节点（不可见 / 未布局）
+                    if (rect.width() > 0 && rect.height() > 0) {
+                        val item = JSONObject()
+                        item.put("text", label)
+                        item.put("viewId", node.viewIdResourceName ?: "")
+                        item.put("className", node.className?.toString() ?: "")
+                        item.put("clickable", clickable)
+                        if (editable) item.put("editable", true)
+                        if (checkable) {
+                            item.put("checkable", true)
+                            item.put("checked", node.isChecked)
+                        }
+                        if (scrollable) item.put("scrollable", true)
+                        item.put("left", rect.left)
+                        item.put("top", rect.top)
+                        item.put("right", rect.right)
+                        item.put("bottom", rect.bottom)
+                        // 中心点：直接作为 tap 入参
+                        item.put("cx", rect.centerX())
+                        item.put("cy", rect.centerY())
+                        arr.put(item)
+                        emitted++
+                    }
+                }
+
+                for (i in 0 until node.childCount) {
+                    val child = node.getChild(i)
+                    if (child != null) stack.add(child)
+                }
+                if (node !== root) {
+                    try { node.recycle() } catch (_: Exception) {}
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.w("SiyiAccessibility", "extractScreenNodes failed: ${e.message}")
+        } finally {
+            try { root.recycle() } catch (_: Exception) {}
+        }
+        return arr.toString()
+    }
+
+    /**
+     * 按文字/描述查找可点击节点并点击其中心点。
+     *
+     * 精确匹配失败时会退化为「包含匹配」，取第一个命中的可点击祖先或自身。
+     * 找不到返回 false，由上层给出明确错误，不静默成功。
+     */
+    private fun tapNodeByText(target: String, exact: Boolean): Boolean {
+        val root = rootInActiveWindow ?: return false
+        val want = target.trim()
+        if (want.isEmpty()) return false
+        val queue = ArrayDeque<AccessibilityNodeInfo>()
+        queue.add(root)
+        var hit: AccessibilityNodeInfo? = null
+        try {
+            while (queue.isNotEmpty() && hit == null) {
+                val node = queue.removeFirst()
+                val text = node.text?.toString()?.trim().orEmpty()
+                val desc = node.contentDescription?.toString()?.trim().orEmpty()
+                val matched = if (exact) (text == want || desc == want)
+                              else (text.contains(want) || desc.contains(want))
+                if (matched) {
+                    // 自身可点击就用自身，否则向上找可点击的祖先
+                    hit = findClickableSelfOrAncestor(node)
+                }
+                for (i in 0 until node.childCount) {
+                    val child = node.getChild(i)
+                    if (child != null) queue.add(child)
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.w("SiyiAccessibility", "tapNodeByText failed: ${e.message}")
+        } finally {
+            try { root.recycle() } catch (_: Exception) {}
+        }
+        val target0 = hit ?: return false
+        return try {
+            val rect = Rect()
+            target0.getBoundsInScreen(rect)
+            if (rect.width() > 0 && rect.height() > 0) {
+                dispatchTap(rect.centerX().toFloat(), rect.centerY().toFloat())
+            } else false
+        } finally {
+            try { target0.recycle() } catch (_: Exception) {}
+        }
+    }
+
+    /** 从 node 向上找第一个可点击节点（含自身）。 */
+    private fun findClickableSelfOrAncestor(node: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+        var cur: AccessibilityNodeInfo? = node
+        var depth = 0
+        while (cur != null && depth < 6) {
+            if (cur.isClickable) return cur
+            cur = cur.parent
+            depth++
+        }
+        // 没有可点击祖先时，退化为返回原节点（由上层直接点它中心）
+        return node
     }
 
     private fun dispatchTap(x: Float, y: Float): Boolean {

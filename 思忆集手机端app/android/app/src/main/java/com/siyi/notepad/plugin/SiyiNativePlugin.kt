@@ -13,6 +13,7 @@ import com.siyi.notepad.accessibility.SiyiAccessibilityService
 import com.siyi.notepad.miui.RedmiNoteReader
 import com.siyi.notepad.miui.RootShell
 import com.siyi.notepad.phonebutler.PhoneButlerDomain
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.net.HttpURLConnection
@@ -268,6 +269,47 @@ class SiyiNativePlugin : Plugin() {
         })
     }
 
+    /**
+     * 结构化读屏：返回带屏幕坐标的可操作节点列表。
+     *
+     * 与 readScreen 的区别：readScreen 只给纯文本，AI 无法得知按钮位置；
+     * 本方法给每个节点附 clickable / cx / cy / viewId，AI 可直接调 tapNode 或 tap(cx, cy)。
+     */
+    @PluginMethod
+    fun readScreenNodes(call: PluginCall) {
+        val json = SiyiAccessibilityService.readScreenNodes()
+        val nodes = try {
+            if (json.isNullOrBlank()) JSONArray() else JSONArray(json)
+        } catch (_: Exception) {
+            JSONArray()
+        }
+        call.resolve(JSObject().apply {
+            put("available", SiyiAccessibilityService.isRunning())
+            put("nodes", nodes)
+            put("count", nodes.length())
+        })
+    }
+
+    /**
+     * 按文字点击：省去 AI 自己算坐标，也不受 CSS/物理像素换算影响。
+     * 参数：text（必填）, exact（可选，默认 false 表示包含匹配）
+     */
+    @PluginMethod
+    fun tapNode(call: PluginCall) {
+        val text = call.getString("text")
+        if (text.isNullOrBlank()) {
+            call.reject("text required")
+            return
+        }
+        val exact = call.getBoolean("exact") ?: false
+        val ok = SiyiAccessibilityService.tapByText(text, exact)
+        call.resolve(JSObject().apply {
+            put("success", ok)
+            put("available", SiyiAccessibilityService.isRunning())
+            if (!ok) put("error", "未找到文字为「$text」的可点击元素")
+        })
+    }
+
     @PluginMethod
     fun tap(call: PluginCall) {
         val x = call.getFloat("x")
@@ -378,6 +420,67 @@ class SiyiNativePlugin : Plugin() {
     fun isRootAvailable(call: PluginCall) {
         val available = try { RootShell.isRootAvailable() } catch (_: Exception) { false }
         call.resolve(JSObject().apply { put("available", available) })
+    }
+
+    /**
+     * 受控 root 命令执行（为「本地 AI 全权管理」预埋的能力入口）。
+     *
+     * 现状与限制（务必如实告知用户，不要夸大）：
+     *  - 仅在设备已 root 时可用；未 root 直接返回 available=false，不做任何尝试。
+     *  - 参数 shell 为完整命令行，由调用方负责语义；本方法只做**最基础**的危险拦截，
+     *    不做完备沙箱（root 本质是无限权限，无法在应用层真正限制）。
+     *  - 默认**关闭**：需前端显式传 allowDangerous=true 才会执行写操作，
+     *    否则只允许只读命令白名单（id / getprop / ls / cat / df / dumpsys 等）。
+     *  - 有超时保护，防止命令挂死。
+     *
+     * 安全设计意图：能力先铺好，但开关留在用户手里；将来接本地 AI 时，
+     * 由用户在设置里显式开启「全权管理」才放行任意命令。
+     */
+    @PluginMethod
+    fun runRootCommand(call: PluginCall) {
+        val shell = call.getString("command")?.trim()
+        if (shell.isNullOrBlank()) {
+            call.reject("command required")
+            return
+        }
+        val available = try { RootShell.isRootAvailable() } catch (_: Exception) { false }
+        if (!available) {
+            call.resolve(JSObject().apply {
+                put("success", false)
+                put("available", false)
+                put("error", "设备未 root，无法执行 root 命令")
+            })
+            return
+        }
+
+        val allowDangerous = call.getBoolean("allowDangerous") ?: false
+        val timeoutMs = (call.getInt("timeoutMs") ?: 15000).toLong().coerceIn(1000L, 60000L)
+
+        // 只读白名单：未显式开启 allowDangerous 时仅放行这些命令的首个词
+        val readonlyHeads = setOf(
+            "id", "getprop", "ls", "cat", "df", "du", "stat", "ps", "pidof",
+            "dumpsys", "wm", "pm", "settings", "ip", "ifconfig", "netstat",
+            "uname", "uptime", "free", "top", "whoami", "which"
+        )
+        val head = shell.split(Regex("\\s+")).firstOrNull()?.substringAfterLast('/') ?: ""
+        if (!allowDangerous && head !in readonlyHeads) {
+            call.resolve(JSObject().apply {
+                put("success", false)
+                put("available", true)
+                put("blocked", true)
+                put("error", "命令「$head」不在只读白名单内，需在设置里开启「全权管理」后才允许执行")
+            })
+            return
+        }
+
+        val result = RootShell.runWithTimeout(shell, timeoutMs)
+        call.resolve(JSObject().apply {
+            put("success", result.isSuccess)
+            put("available", true)
+            put("exitCode", result.exitCode)
+            put("stdout", result.stdout)
+            put("stderr", result.stderr)
+        })
     }
 
     @PluginMethod

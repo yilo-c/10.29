@@ -47,7 +47,7 @@ function clampText(s: string, max = 3000): string {
 export const a11yTools: AiTool[] = [
   {
     id: 'phone.read_screen',
-    description: '读取当前屏幕上的所有文字（含按钮名称、列表项、输入框内容）。用于了解用户当前在哪个界面、有哪些可操作元素。',
+    description: '读取当前屏幕上的所有文字（含按钮名称、列表项、输入框内容），并列出可点击元素及其屏幕坐标。用于了解用户当前在哪个界面、有哪些可操作元素，再用 phone.tap 或 phone.tap_text 操作。',
     parameters: null,
     tags: ['屏幕', '读取', '当前界面', '看看', '屏幕上有什么', '读屏', '识别界面'],
     riskLevel: 'R0_INFO',
@@ -55,6 +55,46 @@ export const a11yTools: AiTool[] = [
       const err = await requireAccessibility()
       if (err) return ExecutionResult.failure(err)
       try {
+        // 优先用结构化读屏：一次拿到文字 + 可点击元素坐标，
+        // 避免「先纯文本、再猜坐标」的二次往返（猜坐标正是误点的主因）。
+        const structured = await withNativeTimeout(
+          SiyiNative.readScreenNodes(), 6000, 'readScreenNodes'
+        ).catch(() => null)
+
+        if (structured?.available && Array.isArray(structured.nodes) && structured.nodes.length > 0) {
+          const nodes = structured.nodes
+          // 文字部分：去重保序，供 AI 理解界面内容
+          const seen = new Set<string>()
+          const texts: string[] = []
+          for (const n of nodes) {
+            const t = (n.text || '').trim()
+            if (t && !seen.has(t)) {
+              seen.add(t)
+              texts.push(t)
+            }
+          }
+          const lines: string[] = []
+          lines.push('【屏幕文字】')
+          lines.push(texts.length ? clampText(texts.join('\n'), 2000) : '（无可读文字）')
+
+          // 可点击元素：给出文字 + 中心坐标，AI 可直接点
+          const clickables = nodes.filter(n => n.clickable || n.editable || n.checkable)
+          if (clickables.length) {
+            lines.push('')
+            lines.push('【可点击元素（可直接用于 phone.tap 的 x/y）】')
+            clickables.slice(0, 40).forEach((n, i) => {
+              const label = (n.text || '').trim() || n.viewId || n.className || '(无文字)'
+              const kind = n.editable ? '输入框' : n.checkable ? '勾选框' : '按钮'
+              lines.push(`${i + 1}. ${label}  [${kind}]  x=${n.cx} y=${n.cy}`)
+            })
+          } else {
+            lines.push('')
+            lines.push('【可点击元素】（本屏未识别到可点击元素，可能是受保护界面或纯图片界面）')
+          }
+          return ExecutionResult.success(lines.join('\n'))
+        }
+
+        // 退化路径：结构化读屏不可用（旧版原生壳）时仍返回纯文本
         const r = await withNativeTimeout(SiyiNative.readScreen(), 6000, 'readScreen')
         if (!r?.available) return ExecutionResult.failure('无障碍服务不可用')
         const text = clampText(r.text || '')
@@ -62,6 +102,37 @@ export const a11yTools: AiTool[] = [
         return ExecutionResult.success(text)
       } catch (e) {
         return ExecutionResult.failure(e instanceof Error ? e.message : '读屏失败')
+      }
+    },
+  },
+
+  {
+    id: 'phone.tap_text',
+    description: '按屏幕上的文字点击元素（如「发送」「确定」「设置」）。比 phone.tap 按坐标点更安全：原生侧直接定位该文字所在控件并点其中心，不受屏幕尺寸/密度变化影响。找不到该文字会明确报错，不会误点别处。',
+    parameters: {
+      type: 'object',
+      properties: {
+        text: { type: 'string', description: '要点击的元素上显示的文字，如「发送」「确定」「下一步」。' },
+        exact: { type: 'boolean', description: '是否精确匹配全文。默认 false（包含匹配即可），建议先用 false。' },
+      },
+      required: ['text'],
+    },
+    tags: ['按文字点击', '点击文字', '点按钮', '点发送', '点确定', '点这个'],
+    riskLevel: 'R3_MODIFY',
+    execute: async (params) => {
+      const err = await requireAccessibility()
+      if (err) return ExecutionResult.failure(err)
+      const text = String(params.text ?? '').trim()
+      if (!text) return ExecutionResult.failure('需要提供要点击的文字')
+      try {
+        const r = await withNativeTimeout(
+          SiyiNative.tapNode({ text, exact: params.exact === true }), 5000, 'tapNode'
+        )
+        return r?.success
+          ? ExecutionResult.success(`已点击「${text}」`)
+          : ExecutionResult.failure(r?.error || `未找到文字为「${text}」的可点击元素`)
+      } catch (e) {
+        return ExecutionResult.failure(e instanceof Error ? e.message : '点击失败')
       }
     },
   },
@@ -237,6 +308,65 @@ export const a11yTools: AiTool[] = [
         return r?.success ? ExecutionResult.success('已打开最近任务') : ExecutionResult.failure('操作失败')
       } catch (e) {
         return ExecutionResult.failure(e instanceof Error ? e.message : '操作失败')
+      }
+    },
+  },
+
+  /**
+   * root 命令 —— 为「本地 AI 全权管理手机」预埋的能力入口。
+   *
+   * 设计取向：能力先铺好，但默认只放行只读命令；写操作必须显式 allowDangerous。
+   * 未 root 设备上调用会得到明确失败，不会静默。
+   *
+   * 风险等级定为 R3_MODIFY：root 可改动系统任何部分，等价于最高权限。
+   * 因此本工具未开启「全权管理」开关时，AI 只能查询、不能改动。
+   */
+  {
+    id: 'phone.root',
+    description:
+      '以 root 权限执行一条 shell 命令。设备未 root 时不可用。默认只允许只读命令（id/getprop/ls/cat/df/dumpsys/pm/settings 等）；修改系统或数据需用户在设置里开启「全权管理」后，AI 才能传 allowDangerous。',
+    parameters: {
+      type: 'object',
+      properties: {
+        command: { type: 'string', description: '要执行的 shell 命令，如 "pm list packages" 或 "getprop ro.product.model"。' },
+        allowDangerous: {
+          type: 'boolean',
+          description: '是否允许非只读命令。仅在用户已明确开启全权管理时才应传 true。默认 false。',
+        },
+        timeoutMs: { type: 'number', description: '超时毫秒，默认 15000，范围 1000-60000。' },
+      },
+      required: ['command'],
+    },
+    tags: ['root', '最高权限', '系统命令', 'shell', '全权管理'],
+    riskLevel: 'R3_MODIFY',
+    execute: async (params) => {
+      const command = String(params.command ?? '').trim()
+      if (!command) return ExecutionResult.failure('需要提供 command')
+      try {
+        const r = await withNativeTimeout(
+          SiyiNative.runRootCommand({
+            command,
+            allowDangerous: params.allowDangerous === true,
+            timeoutMs: typeof params.timeoutMs === 'number' ? params.timeoutMs : 15000,
+          }),
+          20000,
+          'runRootCommand'
+        )
+        if (!r?.available) {
+          return ExecutionResult.failure(r?.error || '设备未 root，无法执行 root 命令')
+        }
+        if (r.blocked) {
+          return ExecutionResult.failure(r.error || '该命令不在只读白名单内，需要用户开启全权管理')
+        }
+        if (!r.success) {
+          return ExecutionResult.failure(
+            `命令失败（exit ${r.exitCode ?? '?'}）：${(r.stderr || r.error || '无输出').slice(0, 800)}`
+          )
+        }
+        const out = (r.stdout || '').trim()
+        return ExecutionResult.success(out ? out.slice(0, 3000) : '（命令成功，无输出）')
+      } catch (e) {
+        return ExecutionResult.failure(e instanceof Error ? e.message : 'root 命令执行失败')
       }
     },
   },

@@ -31,8 +31,8 @@ object RootShell {
         }
     }
 
-    /** 通过 `su -c` 执行单条 shell 命令。仅本文件内部使用，避免外部传入未净化命令。 */
-    private fun run(command: String): Result {
+    /** 通过 `su -c` 执行单条 shell 命令。 */
+    fun run(command: String): Result {
         return try {
             val process = ProcessBuilder("su", "-c", command)
                 .redirectErrorStream(false)
@@ -41,6 +41,31 @@ object RootShell {
             val stderr = BufferedReader(InputStreamReader(process.errorStream)).readText()
             val exitCode = process.waitFor()
             Result(exitCode, stdout.trim(), stderr.trim())
+        } catch (e: Exception) {
+            Result(-1, "", "RootShell failed: ${e.message}")
+        }
+    }
+
+    /**
+     * 带超时的 root 执行：防止某条命令挂住导致 App 侧永久等待。
+     *
+     * 实现说明：Java 侧没有原生的「杀进程树」能力，这里用 waitFor(timeout)
+     * 加 destroyForcibly 兜底；su 派生的子进程可能残留，属已知限制，
+     * 因此调用方应尽量使用有界命令（如加 timeout 参数）。
+     */
+    fun runWithTimeout(command: String, timeoutMs: Long = 15_000L): Result {
+        return try {
+            val process = ProcessBuilder("su", "-c", command)
+                .redirectErrorStream(false)
+                .start()
+            val done = process.waitFor(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS)
+            if (!done) {
+                process.destroyForcibly()
+                return Result(-1, "", "RootShell timeout after ${timeoutMs}ms")
+            }
+            val stdout = BufferedReader(InputStreamReader(process.inputStream)).readText()
+            val stderr = BufferedReader(InputStreamReader(process.errorStream)).readText()
+            Result(process.exitValue(), stdout.trim(), stderr.trim())
         } catch (e: Exception) {
             Result(-1, "", "RootShell failed: ${e.message}")
         }

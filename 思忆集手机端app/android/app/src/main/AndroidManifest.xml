@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <application
         android:usesCleartextTraffic="false"
@@ -53,6 +54,26 @@
     </application>
 
     <!-- Permissions -->
+
+    <!--
+      包可见性（Android 11+）：不声明则 queryIntentActivities / getInstalledPackages
+      受「包可见性」过滤，只能看到部分应用，导致「查已装应用」漏掉大量条目，
+      且不报错——表现为静默返回不完整列表。
+
+      QUERY_ALL_PACKAGES 可查看全部已安装应用；此权限仅上架 Google Play 需
+      说明用途（本应用为自用侧载，不涉及上架）。
+      下面的 <queries> 声明为无 QUERY_ALL_PACKAGES 时的替代方案，
+      保留两者以免未来因商店政策调整而丢能力。
+    -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
+        tools:ignore="QueryAllPackagesPermission" />
+
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+    </queries>
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />

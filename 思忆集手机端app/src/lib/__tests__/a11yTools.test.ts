@@ -16,19 +16,25 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 // mock 原生层
 const mockIsA11y = vi.fn()
 const mockReadScreen = vi.fn()
+const mockReadScreenNodes = vi.fn()
+const mockTapNode = vi.fn()
 const mockTap = vi.fn()
 const mockSwipe = vi.fn()
 const mockLaunch = vi.fn()
 const mockInstalled = vi.fn()
+const mockRunRoot = vi.fn()
 
 vi.mock('../native/siyiNative', () => ({
   default: {
     isAccessibilityRunning: () => mockIsA11y(),
     readScreen: () => mockReadScreen(),
+    readScreenNodes: () => mockReadScreenNodes(),
+    tapNode: (o: unknown) => mockTapNode(o),
     tap: (o: unknown) => mockTap(o),
     swipe: (o: unknown) => mockSwipe(o),
     launchApp: (o: unknown) => mockLaunch(o),
     getInstalledApps: (o: unknown) => mockInstalled(o),
+    runRootCommand: (o: unknown) => mockRunRoot(o),
     navBack: vi.fn(async () => ({ success: true })),
     navHome: vi.fn(async () => ({ success: true })),
     navRecents: vi.fn(async () => ({ success: true })),
@@ -47,13 +53,15 @@ describe('a11yTools / 工具注册与匹配', () => {
     reg.registerAll(a11yTools)
   })
 
-  it('8 个工具全部注册成功', () => {
-    expect(reg.size).toBe(8)
+  it('10 个工具全部注册成功（含 tap_text 与 root）', () => {
+    expect(reg.size).toBe(10)
     const ids = reg.getAllTools().map(t => t.id)
     expect(ids).toContain('phone.read_screen')
     expect(ids).toContain('phone.launch_app')
     expect(ids).toContain('phone.tap')
     expect(ids).toContain('phone.swipe')
+    expect(ids).toContain('phone.tap_text')
+    expect(ids).toContain('phone.root')
   })
 
   it.each([
@@ -110,6 +118,8 @@ describe('a11yTools / 运行时行为', () => {
 
   it('无障碍开启时，read_screen 返回屏幕文字', async () => {
     mockIsA11y.mockResolvedValue({ running: true })
+    // 显式声明结构化读屏不可用 → 走纯文本退化路径（旧版原生壳场景）
+    mockReadScreenNodes.mockResolvedValue({ available: false, nodes: [], count: 0 })
     mockReadScreen.mockResolvedValue({ available: true, text: '小米笔记\n标题\n正文' })
     const r = await tool('phone.read_screen').execute({})
     expect(r.success).toBe(true)
@@ -118,6 +128,7 @@ describe('a11yTools / 运行时行为', () => {
 
   it('屏幕为空白时给出说明而非空字符串', async () => {
     mockIsA11y.mockResolvedValue({ running: true })
+    mockReadScreenNodes.mockResolvedValue({ available: false, nodes: [], count: 0 })
     mockReadScreen.mockResolvedValue({ available: true, text: '   ' })
     const r = await tool('phone.read_screen').execute({})
     expect(r.success).toBe(true)
@@ -126,11 +137,112 @@ describe('a11yTools / 运行时行为', () => {
 
   it('超长屏幕内容会被截断，避免塞爆上下文', async () => {
     mockIsA11y.mockResolvedValue({ running: true })
+    mockReadScreenNodes.mockResolvedValue({ available: false, nodes: [], count: 0 })
     mockReadScreen.mockResolvedValue({ available: true, text: 'A'.repeat(5000) })
     const r = await tool('phone.read_screen').execute({})
     expect(r.success).toBe(true)
     expect(r.data!.length).toBeLessThan(3200)
     expect(r.data).toContain('已截断')
+  })
+
+  /* ── 结构化读屏：这是「AI 能真的点对地方」的前提 ── */
+
+  it('结构化读屏可用时，read_screen 返回可点击元素及其坐标', async () => {
+    mockIsA11y.mockResolvedValue({ running: true })
+    mockReadScreenNodes.mockResolvedValue({
+      available: true,
+      count: 2,
+      nodes: [
+        { text: '发送', viewId: 'btn_send', className: 'Button', clickable: true,
+          left: 800, top: 2100, right: 1000, bottom: 2200, cx: 900, cy: 2150 },
+        { text: '输入框', viewId: 'et_input', className: 'EditText', clickable: false,
+          editable: true, left: 100, top: 2000, right: 700, bottom: 2100, cx: 400, cy: 2050 },
+      ],
+    })
+    const r = await tool('phone.read_screen').execute({})
+    expect(r.success).toBe(true)
+    // 必须带上真实坐标，否则 AI 只能瞎猜
+    expect(r.data).toContain('x=900 y=2150')
+    expect(r.data).toContain('发送')
+    expect(r.data).toContain('可点击元素')
+    // 输入框也应被识别为可操作元素（editable 而非 clickable）
+    expect(r.data).toContain('x=400 y=2050')
+  })
+
+  it('结构化读屏返回空节点时，不应把空数组当作有效界面', async () => {
+    mockIsA11y.mockResolvedValue({ running: true })
+    mockReadScreenNodes.mockResolvedValue({ available: true, nodes: [], count: 0 })
+    mockReadScreen.mockResolvedValue({ available: true, text: '' })
+    const r = await tool('phone.read_screen').execute({})
+    // 退化为纯文本路径，且明确说明没有可读文字
+    expect(r.success).toBe(true)
+    expect(r.data).toContain('没有可读文字')
+  })
+
+  it('结构化读屏抛错时不崩溃，退化为纯文本', async () => {
+    mockIsA11y.mockResolvedValue({ running: true })
+    mockReadScreenNodes.mockRejectedValue(new Error('native boom'))
+    mockReadScreen.mockResolvedValue({ available: true, text: '降级成功' })
+    const r = await tool('phone.read_screen').execute({})
+    expect(r.success).toBe(true)
+    expect(r.data).toContain('降级成功')
+  })
+
+  /* ── 按文字点击 ── */
+
+  it('tap_text 命中时调用原生 tapNode 并传入文字', async () => {
+    mockIsA11y.mockResolvedValue({ running: true })
+    mockTapNode.mockResolvedValue({ success: true, available: true })
+    const r = await tool('phone.tap_text').execute({ text: '发送' })
+    expect(r.success).toBe(true)
+    expect(mockTapNode).toHaveBeenCalledWith({ text: '发送', exact: false })
+  })
+
+  it('tap_text 找不到元素时返回明确错误，不静默成功', async () => {
+    mockIsA11y.mockResolvedValue({ running: true })
+    mockTapNode.mockResolvedValue({ success: false, available: true, error: '未找到文字为「不存在」的可点击元素' })
+    const r = await tool('phone.tap_text').execute({ text: '不存在' })
+    expect(r.success).toBe(false)
+    expect(r.error).toContain('不存在')
+  })
+
+  it('tap_text 缺少文字参数时拒绝执行', async () => {
+    mockIsA11y.mockResolvedValue({ running: true })
+    const r = await tool('phone.tap_text').execute({})
+    expect(r.success).toBe(false)
+    expect(mockTapNode).not.toHaveBeenCalled()
+  })
+
+  /* ── root 预留能力：开关必须握在用户手里 ── */
+
+  it('root 未授权时返回明确错误', async () => {
+    mockRunRoot.mockResolvedValue({ success: false, available: false, error: '设备未 root，无法执行 root 命令' })
+    const r = await tool('phone.root').execute({ command: 'id' })
+    expect(r.success).toBe(false)
+    expect(r.error).toContain('未 root')
+  })
+
+  it('root 只读白名单外的命令被拦截时，错误信息说明需要开启全权管理', async () => {
+    mockRunRoot.mockResolvedValue({
+      success: false, available: true, blocked: true,
+      error: '命令「rm」不在只读白名单内，需在设置里开启「全权管理」后才允许执行',
+    })
+    const r = await tool('phone.root').execute({ command: 'rm -rf /data/x' })
+    expect(r.success).toBe(false)
+    expect(r.error).toContain('全权管理')
+  })
+
+  it('root 成功时返回命令输出', async () => {
+    mockRunRoot.mockResolvedValue({ success: true, available: true, exitCode: 0, stdout: 'uid=0(root)', stderr: '' })
+    const r = await tool('phone.root').execute({ command: 'id' })
+    expect(r.success).toBe(true)
+    expect(r.data).toContain('uid=0')
+  })
+
+  it('root 命令默认不传 allowDangerous（防止 AI 自行提权）', async () => {
+    mockRunRoot.mockResolvedValue({ success: true, available: true, exitCode: 0, stdout: 'ok' })
+    await tool('phone.root').execute({ command: 'id' })
+    expect(mockRunRoot).toHaveBeenCalledWith(expect.objectContaining({ allowDangerous: false }))
   })
 
   it('tap 缺少坐标时拒绝执行', async () => {

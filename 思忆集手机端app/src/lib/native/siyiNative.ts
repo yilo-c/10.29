@@ -16,6 +16,38 @@ export interface ScreenContentResult {
   text: string
 }
 
+/**
+ * 结构化读屏返回的单个节点。
+ *
+ * 坐标系：所有坐标均为**屏幕绝对像素**（已含状态栏/系统栏偏移），
+ * 与原生 tap(x, y) 的入参一致，可直接传，无需再换算。
+ * cx/cy 是节点中心点，是点击最省事的目标。
+ */
+export interface ScreenNode {
+  text: string
+  viewId: string
+  className: string
+  clickable: boolean
+  editable?: boolean
+  checkable?: boolean
+  checked?: boolean
+  scrollable?: boolean
+  left: number
+  top: number
+  right: number
+  bottom: number
+  /** 中心点 X（屏幕绝对像素） */
+  cx: number
+  /** 中心点 Y（屏幕绝对像素） */
+  cy: number
+}
+
+export interface ScreenNodesResult {
+  available: boolean
+  nodes: ScreenNode[]
+  count: number
+}
+
 export interface BatteryStatus {
   ok: boolean
   error?: string
@@ -78,6 +110,17 @@ export interface RootStatus {
   available: boolean
 }
 
+/** root 命令执行结果。blocked=true 表示被只读白名单拦下，并非命令本身失败。 */
+export interface RootCommandResult {
+  success: boolean
+  available: boolean
+  blocked?: boolean
+  exitCode?: number
+  stdout?: string
+  stderr?: string
+  error?: string
+}
+
 export interface RedmiNote {
   id: number
   title: string
@@ -138,6 +181,10 @@ export interface SiyiNativePlugin {
   isAccessibilityRunning(): Promise<AccessibilityStatus>
   openAccessibilitySettings(): Promise<SiyiNativeBooleanResult>
   readScreen(): Promise<ScreenContentResult>
+  /** 结构化读屏：带屏幕绝对坐标的可操作节点，AI 可直接点 cx/cy */
+  readScreenNodes(): Promise<ScreenNodesResult>
+  /** 按文字点击（原生侧查找节点并点其中心），不受坐标换算影响 */
+  tapNode(options: { text: string; exact?: boolean }): Promise<SiyiNativeBooleanResult>
   tap(options: { x: number; y: number }): Promise<SiyiNativeBooleanResult>
   swipe(options: { x1: number; y1: number; x2: number; y2: number; duration?: number }): Promise<SiyiNativeBooleanResult>
   navBack(): Promise<SiyiNativeBooleanResult>
@@ -152,6 +199,18 @@ export interface SiyiNativePlugin {
   getInstalledApps(options?: { limit?: number }): Promise<InstalledAppsResult>
 
   isRootAvailable(): Promise<RootStatus>
+  /**
+   * 受控 root 命令执行（为「本地 AI 全权管理」预埋）。
+   *
+   * 未 root 时 available=false 并直接失败；未显式传 allowDangerous 时
+   * 仅放行只读命令白名单。root 本质是无限权限，应用层无法真正沙箱，
+   * 开关必须握在用户手里。
+   */
+  runRootCommand(options: {
+    command: string
+    allowDangerous?: boolean
+    timeoutMs?: number
+  }): Promise<RootCommandResult>
   readRedmiNotes(): Promise<RedmiNotesResult>
 
   /** 打开系统自带闹钟应用并预填时间（不保证所有厂商都支持）。 */

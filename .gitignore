@@ -292,3 +292,9 @@ verify_tmp/
 
 # 误把 Windows 盘符路径当相对目录创建出的产物（如 D:/h/...），非源码
 D:/
+
+# 同上，但磁盘写死的是反斜杠 Windows 路径（如 思忆集app/workbench/service.py
+# 的 DEFAULT_PRIVATE_SPACE_ROOT 默认值）：在 Linux 上会被当字面量目录名创建。
+# 实测来源：跑全量 pytest 时 workbench 用例就地写出 D:\BaiduSyncdisk\...\日记/
+D:\\
+D:\\**

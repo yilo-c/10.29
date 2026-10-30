@@ -133,7 +133,7 @@ describe('功能联动：AI 上下文是否带上用户数据', () => {
     expect(aiVisibleText()).toContain('交电费')
   })
 
-  it.fails('② 笔记内容会进入 AI 上下文（已知断点：修好后此用例会转为「意外通过」并报警）', async () => {
+  it('② 笔记内容会进入 AI 上下文', async () => {
     fakeNotes = [
       { id: 'n1', title: '周会记录', content: '下周三前提交嵌入式课程设计报告', type: 'text' },
     ]
@@ -162,28 +162,51 @@ describe('功能联动：语音与 AI 链路', () => {
     vi.resetModules()
   })
 
-  it.fails('③ 语音识别出的文本应进入 AI 链路（已知断点：修好后此用例会转为「意外通过」并报警）', async () => {
-    const { createVoiceTool } = await import('../../lib/ai-tools/voiceTool')
+  it('③ 语音识别出的文本应进入 AI 链路', async () => {
+    /*
+     * 测法（别改成自己 new createVoiceTool）：
+     *   语音→AI 的接线在 mobileStore 注册的 createVoiceTool 回调里。
+     *   测试自行构造 createVoiceTool(测试回调) 只能测到工具空壳，
+     *   永远验不到真实集成 —— 这是之前那条用例假阴性的原因。
+     *   这里通过 getToolRegistry() 取到**真正注册**的那个工具来执行。
+     */
+    const RECOGNIZED = '明天上午十点去银行办卡，顺便买牛奶'
 
-    let launched = false
-    let recognized: string | null = null
+    let startCalled = false
+    class FakeSpeechRecognition {
+      lang = ''
+      continuous = false
+      interimResults = false
+      onresult: ((e: unknown) => void) | null = null
+      start() {
+        startCalled = true
+        setTimeout(() => {
+          this.onresult?.({ results: [[{ transcript: RECOGNIZED }]] })
+        }, 0)
+      }
+    }
+    ;(globalThis as unknown as { window: unknown }).window = {
+      SpeechRecognition: FakeSpeechRecognition,
+      screen: { width: 412, height: 915 },
+      devicePixelRatio: 1,
+    }
 
-    const tool = createVoiceTool(() => {
-      launched = true
-      recognized = '明天上午十点去银行办卡，顺便买牛奶'
-    })
+    const { getToolRegistry } = await import('../mobileStore')
+    const reg = getToolRegistry()
+    const voiceTool = reg.getTool('quick_capture.voice')
+    expect(voiceTool, '语音工具应当已注册').toBeTruthy()
 
-    await tool.execute({})
+    // 执行真实注册的语音工具
+    const result = await voiceTool!.execute({})
+    expect(result.success, '语音工具执行应当成功').toBe(true)
+    expect(startCalled, '应当真的调用了 recognition.start()').toBe(true)
 
-    expect(launched, '语音工具应当启动录制').toBe(true)
-    expect(recognized, '语音应当产出文本').toContain('去银行办卡')
+    // onresult 是 setTimeout(0) 触发的，等一轮宏任务
+    await new Promise(r => setTimeout(r, 30))
 
-    // 关键：语音文本有没有进入 AI（用于整理成笔记 / 抽任务）
-    expect(
-      aiVisibleText(),
-      '语音文本应进入 AI 链路做整理或任务抽取。' +
-      '当前 createVoiceTool 只在回调里 addFloatingNote，完全绕过 AI。'
-    ).toContain('去银行办卡')
+    // 语音文本必须进了 AI 链路
+    expect(capturedBodies.length, '语音识别后应当发出 AI 请求').toBeGreaterThan(0)
+    expect(aiVisibleText(), '语音文本应当出现在发给 AI 的内容里').toContain('去银行办卡')
   })
 })
 
@@ -196,7 +219,7 @@ describe('功能联动：任务抽取路径的上下文', () => {
     vi.resetModules()
   })
 
-  it.fails('④ 自然语言建任务时也应当带上用户上下文（已知断点：修好后此用例会转为「意外通过」并报警）', async () => {
+  it('④ 自然语言建任务时也应当带上用户上下文', async () => {
     fakeTodos = [{ id: 't0', text: '复习傅里叶变换', done: false }]
 
     const { useMobileStore } = await import('../mobileStore')

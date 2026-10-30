@@ -143,6 +143,22 @@ import { swallowError } from '../lib/swallowError'
 
 const toolRegistry = new ToolRegistry()
 let toolsRegistered = false
+
+/**
+ * 供测试访问工具注册表 / Expose tool registry for tests.
+ *
+ * 为什么需要导出：语音→AI 的联动写在 createVoiceTool 的回调里，
+ * 而这个注册表是模块级私有实例。测试若自行 new createVoiceTool(测试回调)，
+ * 测到的只是工具空壳，测不出真实集成（会得到假阴性）。
+ * 导出这个 getter 后，测试能取到**真正注册进去**的那个工具来执行。
+ *
+ * 对运行时无副作用：只是把同一个实例暴露出去，不改变任何行为。
+ */
+export function getToolRegistry(): ToolRegistry {
+  ensureToolsRegistered()
+  return toolRegistry
+}
+
 function ensureToolsRegistered() {
   if (toolsRegistered) return
   toolRegistry.registerAll([
@@ -178,7 +194,35 @@ function ensureToolsRegistered() {
           if (transcript) {
             const store = useStore.getState()
             const id = crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`
+
+            // 第一步：先原样落盘。这一步绝不能省——
+            // 用户说了一句话，第一优先级是「别丢」，AI 处理失败也不能让话消失。
             store.addFloatingNote({ id, title: transcript.slice(0, 50), content: transcript, type: 'text', x: 0, y: 0, zIndex: 1, width: 320, height: 200, createdAt: Date.now(), updatedAt: Date.now(), tags: ['voice_capture'], editMode: 'markdown' })
+
+            /*
+             * 第二步：把语音文本送进 AI 链路。
+             *
+             * 为什么需要：此前语音只做第一步，说完就完，AI 完全不知道用户说了什么。
+             * 结果「语音」是个孤岛——不会整理成结构化笔记，也不会抽取其中的待办。
+             * 这是功能联动断点之一（见 integration.test.ts 用例③）。
+             *
+             * 为什么不在 AI 之前就落盘：AI 可能失败/离线/超时，
+             * 那时若还没存原文，用户说的话就丢了。顺序必须是先存后送。
+             *
+             * 不 await：语音回调里不能阻塞；失败也只记日志，不打扰用户。
+             */
+            void (async () => {
+              try {
+                // 走 sendMessage 才能复用既有的工具路由与任务抽取逻辑：
+                // 「明天去银行办卡」这类句子会被 tryAutoCreateTask 识别成待办，
+                // 纯描述性的句子则会在 AI 页留下整理结果。
+                const text = transcript.trim()
+                if (!text) return
+                await useMobileStore.getState().sendMessage(text)
+              } catch (e) {
+                swallowError('mobileStore:voiceToAi', e)
+              }
+            })()
           }
         }
         recognition.start()
@@ -239,6 +283,47 @@ function buildAIContext(): string {
       if (ji.length > 0) parts.push(`今日忌: ${ji.join('、')}`)
     }
   } catch (e) { /* almanac unavailable */ swallowError('mobileStore:174', e) }
+
+  /*
+   * 笔记摘要 / Recent notes
+   *
+   * 为什么需要：此前上下文只拼了「待办 + 黄历 + 手机能力」，
+   * 用户问「我手上还有什么没做完」「根据我记的东西」时，AI 完全看不到笔记内容，
+   * 只能凭空回答。这是功能联动断点之一（见 src/store/__tests__/integration.test.ts 用例②）。
+   *
+   * 体积控制（重要，别删）：
+   *   笔记全文可能几十 KB，全塞进 prompt 会直接撑爆上下文。
+   *   故：只取最近 8 条未归档笔记，每条正文截 200 字，总量再截 2000 字。
+   *   宁可给摘要，也不能让请求超限失败——失败比少给信息更糟。
+   */
+  try {
+    const notes = (store.floatingNotes || [])
+      .filter(n => n && !n.archived)
+      .slice()
+      .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
+      .slice(0, 8)
+
+    if (notes.length > 0) {
+      const NOTE_BODY_MAX = 200
+      const noteLines = notes.map(n => {
+        const rawTitle = (n.title || '').trim()
+        const rawBody = (n.content || '').replace(/\s+/g, ' ').trim()
+        const title = rawTitle || rawBody.slice(0, 20) || '(无标题)'
+        const body = rawBody.length > NOTE_BODY_MAX
+          ? rawBody.slice(0, NOTE_BODY_MAX) + '…'
+          : rawBody
+        const tags = (n.tags && n.tags.length > 0) ? ` [${n.tags.join(',')}]` : ''
+        return body ? `· ${title}：${body}${tags}` : `· ${title}${tags}`
+      })
+
+      let noteBlock = `最近笔记(${(store.floatingNotes || []).length}条中显示${notes.length}条):\n${noteLines.join('\n')}`
+      const NOTE_BLOCK_MAX = 2000
+      if (noteBlock.length > NOTE_BLOCK_MAX) {
+        noteBlock = noteBlock.slice(0, NOTE_BLOCK_MAX) + '\n…（笔记已截断）'
+      }
+      parts.push(noteBlock)
+    }
+  } catch (e) { /* 笔记读取失败不应拖垮整个上下文 */ swallowError('mobileStore:notes', e) }
 
   /*
    * 手机操作能力说明。
@@ -302,15 +387,29 @@ function looksLikeTaskRequest(text: string): boolean {
 async function tryAutoCreateTask(text: string): Promise<string | null> {
   if (!looksLikeTaskRequest(text)) return null
 
-  const extractPrompt = `从以下文字中提取任务信息，只返回 JSON 格式，不要其他文字：
-{
-  "title": "任务标题（必填，简洁完整）",
-  "dueDate": "ISO 日期时间（如 2026-05-17T15:00，可选）",
-  "priority": "high/medium/low（可选，默认 medium）",
-  "reminderTime": "ISO 日期时间（可选）"
-}
+  /*
+   * 抽取任务时带上用户已有安排。
+   *
+   * 为什么需要：此前这里直接发 extractPrompt，不经 contextualizeMessage，
+   * 导致 AI 抽取任务时看不到用户已有什么安排，容易建出重复或冲突的任务
+   * （例如已有「交电费」，又说「提醒我交电费」→ 变成两条）。
+   * 这是功能联动断点之一（见 integration.test.ts 用例④）。
+   *
+   * 注意：上下文放在 JSON 约束**之前**，且必须重申「只返回 JSON」——
+   * 否则模型容易被前面的安排列表带偏，输出说明文字而不是 JSON，导致解析失败。
+   */
+  const existing = useStore.getState()
+  const existingTodos = (existing.todos || []).filter(t => !t.done).slice(0, 10)
+  const existingLines = existingTodos.map(t => {
+    let line = t.text
+    if (t.dueDate) line += `（${new Date(t.dueDate).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}）`
+    return `- ${line}`
+  })
+  const existingBlock = existingLines.length > 0
+    ? `用户已有未完成待办（若新任务与之重复，请在 title 后加「（重复）」并在 duplicate 字段填 true）：\n${existingLines.join('\n')}\n\n`
+    : ''
 
-文字：${text}`
+  const extractPrompt = `${existingBlock}从以下文字中提取任务信息。只返回 JSON 格式，不要任何解释文字、不要 markdown 代码块：\n{\n  \"title\": \"任务标题（必填，简洁完整）\",\n  \"dueDate\": \"ISO 日期时间（如 2026-05-17T15:00，可选）\",\n  \"priority\": \"high/medium/low（可选，默认 medium）\",\n  \"reminderTime\": \"ISO 日期时间（可选）\",\n  \"duplicate\": \"若与上面已有待办重复则为 true，否则省略\"\n}\n\n文字：${text}`
 
   try {
     let jsonText = ''

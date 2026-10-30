@@ -169,8 +169,11 @@
 }
 
 .tabbar__fab {
-  width: 46px;
-  height: 46px;
+  /* 2026-10-30 用户反馈：中央 AI 按钮过大、顶到输入框。
+     46px → 42px，上抬 14px → 8px：保留「抬起主按钮」的视觉重心，
+     但不再侵入上方的输入区域。 */
+  width: 42px;
+  height: 42px;
   border-radius: var(--radius-full);
   display: flex;
   align-items: center;
@@ -178,13 +181,13 @@
   background: var(--accent);
   color: #fff;
   box-shadow: var(--shadow-fab);
-  transform: translateY(-14px);
+  transform: translateY(-8px);
   transition: transform var(--duration-fast) var(--ease-spring),
               box-shadow var(--duration-fast) var(--ease-out);
 }
 
 .tabbar__item--primary:active .tabbar__fab {
-  transform: translateY(-14px) scale(0.92);
+  transform: translateY(-8px) scale(0.92);
 }
 
 .tabbar__item--primary .tabbar__label {
@@ -331,4 +334,15 @@
     animation: none !important;
     transition: none !important;
   }
+}
+
+/* ── 侧边栏抽屉动画（2026-10-30：AI 历史会话改为左侧抽屉） ── */
+@keyframes siyiFadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes siyiSlideInLeft {
+  from { transform: translateX(-100%); opacity: 0.6; }
+  to   { transform: translateX(0);     opacity: 1; }
 }

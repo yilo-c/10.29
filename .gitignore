@@ -206,6 +206,11 @@ baseline_doctor_assets.json
 /pw-check.txt
 /pw-ok.txt
 /test-results.txt
+# Playwright（手机端 E2E）：运行产物不入库，失败现场靠 CI artifact 取
+/思忆集手机端app/test-results/
+/思忆集手机端app/playwright-report/
+/test-results/
+/playwright-report/
 /test_out.txt
 /tmp_run_output.txt
 /tmp_run_verify.ps1

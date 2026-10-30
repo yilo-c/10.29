@@ -4,8 +4,9 @@ import type { PluginListenerHandle } from '@capacitor/core'
 export class FloatingBallWeb implements FloatingBallPlugin {
   private listeners = new Map<string, Set<(...args: any[]) => void>>()
 
-  async show(): Promise<void> {
+  async show(): Promise<{ ok: boolean; reason?: string }> {
     console.log('[FloatingBall Web] show (no-op in browser)')
+    return { ok: false, reason: 'unavailable' }
   }
   async hide(): Promise<void> {
     console.log('[FloatingBall Web] hide')

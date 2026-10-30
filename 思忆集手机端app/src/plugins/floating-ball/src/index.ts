@@ -9,8 +9,13 @@ export interface DragEndInfo {
 }
 
 export interface FloatingBallPlugin {
-  /** 显示悬浮球并启动前台服务 */
-  show(): Promise<void>
+  /**
+   * 显示悬浮球并启动前台服务。
+   * 返回 { ok, reason? } —— 原生侧会先校验悬浮窗权限，
+   * 无权限时 ok=false、reason='permission'，前端据此引导授权，
+   * 而不是像旧版那样「调用成功但球不出现」。
+   */
+  show(): Promise<{ ok: boolean; reason?: string }>
   /** 隐藏并销毁悬浮球 */
   hide(): Promise<void>
   /** 设置情绪状态（光晕颜色 + 指示器） */

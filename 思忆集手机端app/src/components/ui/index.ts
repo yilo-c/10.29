@@ -10,6 +10,10 @@ export {
   IconCalendar, IconSort, IconFolder, IconSettings,
   IconCompass, IconNote, IconTodo,
   IconChevronDown, IconChevronUp, IconChevronLeft, IconChevronRight, IconTrash, IconBell, IconSparkles, IconGlobe, IconSend, IconBook, IconToolbox,
+  // 2026-10-30 导航与编辑器重构新增
+  IconMenu, IconEdit, IconList, IconChecklist,
+  IconBold, IconItalic, IconStrikethrough, IconHeading, IconQuote, IconDivider,
+  IconUndo, IconRedo, IconChevronDownCircle, IconImage,
 } from './Icons'
 export { showToast } from './Toast'
 export { default as Toast } from './Toast'

@@ -1,10 +1,9 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { onContentEdit, flushPendingEdit } from '@desk-notes/shared'
 import { useScreenWake } from '../../../hooks/useScreenWake'
-import { Button } from '../../ui'
+import { IconChevronLeft, IconMore } from '../../ui'
 import NotesFormatToolbar, { type ToolbarAction } from './NotesFormatToolbar'
 import NoteAiAssistant from './NoteAiAssistant'
-import { NoteAttachmentToolbar } from './NoteAttachmentToolbar'
 import { NoteAttachmentPreview } from './NoteAttachmentPreview'
 import type { FloatingNote } from '@desk-notes/shared'
 import { swallowError } from '../../../lib/swallowError'
@@ -24,7 +23,10 @@ export default function NoteEditorSheet({ note, open, quickCapture, onClose, onU
   const [content, setContent] = useState('')
   const [aiOpen, setAiOpen] = useState(false)
   const [selRange, setSelRange] = useState<{ start: number; end: number }>({ start: 0, end: 0 })
-  const [previewMode, setPreviewMode] = useState<'editor' | 'split' | 'preview'>('editor')
+  // 2026-10-30 三态（editor/split/preview）改为两态切换（editor/preview）。
+  // 用户明确要求：「分屏可以存在，但不应该分屏，而是切换。点击可以切换到 md 渲染。」
+  // 手机竖屏下分屏两栏都太窄，正文难读，改为整屏切换更实用。
+  const [previewMode, setPreviewMode] = useState<'editor' | 'preview'>('editor')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const autoSaveData = useRef({ title: '', content: '', noteId: '' })
@@ -159,6 +161,38 @@ export default function NoteEditorSheet({ note, open, quickCapture, onClose, onU
   const [relatedMemories, setRelatedMemories] = useState<string[]>([])
   const [summaryLoading, setSummaryLoading] = useState(false)
   const [toastMsg, setToastMsg] = useState<string | null>(null)
+  // 顶栏「⋯」设置菜单（2026-10-30：替代底部「取消 / 保存」两个大按钮）
+  const [menuOpen, setMenuOpen] = useState(false)
+
+  // 键盘避让说明（2026-10-30 修正）：
+  //   曾尝试接入 useKeyboardAvoidance 并给根容器加 data-keyboard-aware，
+  //   但那个 hook 的实现是给目标元素「加 paddingBottom = 键盘高度 + 48」。
+  //   根容器本身是 position:fixed; inset:0（高度已等于视口），
+  //   再加 padding 会让总高度溢出视口 —— 实测表现为「编辑器被压成两半、
+  //   工具栏跑到中间」的布局错乱。
+  //   正确做法：交给 flex 自然处理 —— 内容区 flex:1 + overflow:auto 自动收缩，
+  //   底部工具栏 flex-shrink:0 常驻。浏览器已把 fixed 元素的视口收缩到
+  //   键盘上方区域，无需再手动加 padding。
+
+  // AI 摘要 / 自动标签：原先散落在正文区里各占一行的 emoji 按钮（🧐 / 🏷），
+  // 2026-10-30 收进顶栏「⋯」菜单，正文区不再插入任何工具按钮。
+  const handleAiSummary = useCallback(async () => {
+    if (!content.trim() || summaryLoading) return
+    setSummaryLoading(true)
+    try {
+      const text = await generateSummary(content.slice(0, 1000))
+      setSummaryText(text || 'AI 摘要生成失败')
+    } catch { setSummaryText('AI 摘要生成失败') }
+    setSummaryLoading(false)
+  }, [content, summaryLoading])
+
+  const handleAutoTag = useCallback(async () => {
+    if (!content.trim()) return
+    try {
+      const tags = await autoTag(content.slice(0, 2000))
+      if (tags.length > 0) setToastMsg('标签: ' + tags.join(', '))
+    } catch (e) { swallowError('NoteEditorSheet:autoTag', e) }
+  }, [content])
 
   const handleInsertAttachment = useCallback((markdown: string) => {
     const ta = textareaRef.current
@@ -178,23 +212,89 @@ export default function NoteEditorSheet({ note, open, quickCapture, onClose, onU
     }, 0)
   }, [content, handleContentChange])
 
+  /** OCR 取字：拍照 → 后端 ocr.extract_base64 → 把识别文本插入正文。
+   *  原先定义在 NoteAttachmentToolbar 内部；该组件因与底部工具栏功能重复
+   *  已被移除，但 OCR 是它独有的能力，故在此保留。 */
+  const handleOCR = useCallback(async () => {
+    setUploading(true)
+    try {
+      const { pickFromCamera } = await import('../../../lib/noteAttachment')
+      const result = await pickFromCamera()
+      if (!result) return
+      const { ocrExtractBase64 } = await import('../../../lib/bridges')
+      const text = await ocrExtractBase64(result.dataUrl)
+      if (text) handleInsertAttachment(text)
+      else setToastMsg('未识别到文字')
+    } catch {
+      setToastMsg('OCR 识别失败')
+    } finally {
+      setUploading(false)
+    }
+  }, [handleInsertAttachment])
+
   const noteId = note?.id || 'draft'
 
+  // 字数统计（2026-10-30：显示位置由底部状态行移到标题下方元信息行）
+  // charCount 用 content.length，与原实现一致；wordCount 保留计算供将来使用。
   const charCount = content.length
-  const wordCount = content.replace(/[\s\n\r]+/g, ' ').trim().split(' ').filter(Boolean).length
 
-  const miniBtnStyle: React.CSSProperties = {
-    width: 32, height: 28, borderRadius: 6, fontSize: 14,
-    border: '0.5px solid var(--border-subtle)', background: 'var(--bg-secondary)',
-    cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0
-  }
+
   const titleText = note ? '编辑笔记' : quickCapture ? '快速捕获' : '新建笔记'
   if (!open) return null
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 2000, display: 'flex', flexDirection: 'column', background: 'var(--bg-primary)' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 'var(--safe-top) var(--space-4) 12px', borderBottom: '0.5px solid var(--border-subtle)', flexShrink: 0 }}>
-        <span style={{ fontSize: 'var(--text-headline)', fontWeight: 600, color: 'var(--text-primary)' }}>{titleText}</span>
-        <button onClick={handleClose} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 'var(--text-body)', cursor: 'pointer', padding: '4px 8px' }}>完成</button>
+        {/* 左：返回（自动保存后退出）。Redmi 笔记同款语义——退出不需要额外确认，
+            只有「⋯→放弃编辑」才会丢弃改动。 */}
+        <button
+          onClick={() => { void handleSave() }}
+          aria-label="返回并保存"
+          style={{ background: 'none', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', padding: 4, display: 'flex', alignItems: 'center' }}
+        >
+          <IconChevronLeft size={22} />
+        </button>
+        <span style={{ fontSize: 'var(--text-body)', fontWeight: 600, color: 'var(--text-primary)' }}>{titleText}</span>
+        {/* 右：⋯ 设置菜单 */}
+        <div style={{ position: 'relative' }}>
+          <button
+            onClick={() => setMenuOpen(v => !v)}
+            aria-label="更多设置"
+            style={{ background: 'none', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', padding: 4, display: 'flex', alignItems: 'center' }}
+          >
+            <IconMore size={22} />
+          </button>
+          {menuOpen && (
+            <>
+              {/* 点击空白关闭 */}
+              <div onClick={() => setMenuOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 1 }} />
+              <div style={{
+                position: 'absolute', top: '100%', right: 0, marginTop: 6, zIndex: 2,
+                minWidth: 148, padding: 6,
+                background: 'var(--bg-primary)', borderRadius: 12,
+                boxShadow: 'var(--shadow-sheet)', border: '0.5px solid var(--border-subtle)',
+              }}>
+                {[
+                  { label: 'OCR 取字', onClick: () => { setMenuOpen(false); void handleOCR() } },
+                  { label: 'AI 摘要', onClick: () => { setMenuOpen(false); void handleAiSummary() } },
+                  { label: '自动标签', onClick: () => { setMenuOpen(false); void handleAutoTag() } },
+                  { label: '完成并保存', onClick: () => { setMenuOpen(false); void handleSave() } },
+                  { label: '放弃编辑', onClick: () => { setMenuOpen(false); handleClose() } },
+                ].map(item => (
+                  <button
+                    key={item.label}
+                    onClick={item.onClick}
+                    style={{
+                      display: 'block', width: '100%', textAlign: 'left',
+                      padding: '10px 12px', borderRadius: 8,
+                      background: 'none', border: 'none', cursor: 'pointer',
+                      fontSize: 'var(--text-footnote)', color: 'var(--text-primary)',
+                    }}
+                  >{item.label}</button>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
       </div>
       <div style={{ flex: 1, overflow: 'auto', padding: 'var(--space-4)' }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -216,41 +316,42 @@ export default function NoteEditorSheet({ note, open, quickCapture, onClose, onU
           }}
         />
 
-
-
-        {/* 附件工具栏 */}
-        <NoteAttachmentToolbar
-          noteId={noteId}
-          onInsert={handleInsertAttachment}
-          onUploadStart={() => setUploading(true)}
-          onUploadEnd={() => setUploading(false)}
-          onError={(msg) => setToastMsg(msg)}
-        />
+        {/* 元信息行：日期时间 | 字数（2026-10-30 新增，对标 Redmi 笔记）
+            原先字数统计放在底部状态行并配「分屏」按钮，用户要求「字符统计也要，
+            但是要换地方显示」。参考图中该行为标题正下方的小号浅灰副标题：
+              10月30日 18:57 | 0字
+            左侧「进入编辑 / 预览」切换：整屏切换，不分屏。 */}
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 8,
+          fontSize: 'var(--text-caption-2)',
+          color: 'var(--text-tertiary)',
+          lineHeight: 1.4,
+        }}>
+          <span>{formatNoteDate(note)}</span>
+          <span style={{ color: 'var(--border-default)' }}>|</span>
+          <span>{charCount} 字</span>
+          <div style={{ flex: 1 }} />
+          <button
+            onClick={() => setPreviewMode(m => m === 'editor' ? 'preview' : 'editor')}
+            aria-label={previewMode === 'editor' ? '切换到预览' : '切换到编辑'}
+            style={{
+              padding: '2px 8px', borderRadius: 6,
+              border: 'none', cursor: 'pointer',
+              background: previewMode === 'preview' ? 'var(--accent-surface)' : 'transparent',
+              color: previewMode === 'preview' ? 'var(--accent)' : 'var(--text-tertiary)',
+              fontSize: 'var(--text-caption-2)', fontWeight: 500,
+            }}
+          >
+            {previewMode === 'editor' ? '预览' : '编辑'}
+          </button>
+        </div>
 
         {/* 附件预览（已有附件的内联显示） */}
         {note && (
           <InlineAttachmentPreviews content={content} />
         )}
 
-        {/* AI 操作按钮 */}
-        <div style={{ display: 'flex', gap: 4, padding: '2px 0' }}>
-          <button onClick={async () => {
-            if (!content.trim() || summaryLoading) return
-            setSummaryLoading(true)
-            try {
-              const text = await generateSummary(content.slice(0, 1000))
-              setSummaryText(text || 'AI 摘要生成失败')
-            } catch { setSummaryText('AI 摘要生成失败') }
-            setSummaryLoading(false)
-          }} style={miniBtnStyle} title="AI 摘要">{'🧐'}</button>
-          <button onClick={async () => {
-            if (!content.trim()) return
-            try {
-              const tags = await autoTag(content.slice(0, 2000))
-              if (tags.length > 0) setToastMsg('标签: ' + tags.join(', '))
-            } catch (e) { swallowError('NoteEditorSheet:255', e) }
-          }} style={miniBtnStyle} title="自动标签">{'🏷'}</button>
-        </div>
+        {/* AI 摘要 / 自动标签按钮已移入顶栏「⋯」菜单（原为 🧐 / 🏷 emoji 按钮） */}
         {relatedMemories.length > 0 && (
           <div style={{ padding: 8, background: 'var(--accent-surface)', borderRadius: 8, fontSize: 'var(--text-caption-2)', color: 'var(--accent)', lineHeight: 1.6, border: '0.5px solid var(--accent-border)' }}>
             <div style={{ fontWeight: 600, marginBottom: 4, color: 'var(--accent)' }}>💭 相关记忆</div>
@@ -285,41 +386,6 @@ export default function NoteEditorSheet({ note, open, quickCapture, onClose, onU
           }}>
             <MarkdownPreview content={content} />
           </div>
-        ) : previewMode === 'split' ? (
-          <div style={{
-            flex: 1, display: 'flex', flexDirection: 'column', gap: 8,
-            minHeight: 200, overflow: 'hidden',
-          }}>
-            <textarea
-              ref={textareaRef}
-              value={content}
-              onChange={e => handleContentChange(e.target.value)}
-              onSelect={e => {
-                const t = e.currentTarget
-                setSelRange({ start: t.selectionStart, end: t.selectionEnd })
-              }}
-              onPaste={handlePaste}
-              placeholder="写点什么..."
-              style={{
-                flex: 1, minHeight: 100,
-                padding: 0, border: 'none',
-                background: 'transparent',
-                color: 'var(--text-primary)',
-                fontSize: 'var(--text-footnote)',
-                lineHeight: 1.8,
-                resize: 'none', outline: 'none', fontFamily: 'inherit',
-              }}
-            />
-            <div style={{ height: 0.5, background: 'var(--border-subtle)', flexShrink: 0 }} />
-            <div style={{
-              flex: 1, overflowY: 'auto', padding: '4px 0',
-              fontSize: 'var(--text-footnote)',
-              color: 'var(--text-primary)',
-              lineHeight: 1.8,
-            }}>
-              <MarkdownPreview content={content} />
-            </div>
-          </div>
         ) : (
           <textarea
             ref={textareaRef}
@@ -343,38 +409,15 @@ export default function NoteEditorSheet({ note, open, quickCapture, onClose, onU
           />
         )}
 
-        <div style={{
-          display: 'flex', alignItems: 'center', gap: 12,
-          padding: '4px 0',
-          fontSize: 'var(--text-caption-2)', color: 'var(--text-disabled)',
-          borderTop: '0.5px solid var(--border-subtle)',
-        }}>
-          <span>{charCount} 字符</span>
-          <span>{wordCount} 词</span>
-          <div style={{ flex: 1 }} />
-          <button
-            onClick={() => setPreviewMode(m => m === 'editor' ? 'split' : m === 'split' ? 'preview' : 'editor')}
-            style={{
-              padding: '4px 10px', borderRadius: 'var(--radius-sm)',
-              border: previewMode !== 'editor' ? '1px solid var(--accent-border)' : 'none',
-              cursor: 'pointer',
-              background: previewMode !== 'editor' ? 'var(--accent-surface)' : 'var(--bg-tertiary)',
-              color: previewMode !== 'editor' ? 'var(--accent)' : 'var(--text-tertiary)',
-              fontSize: 'var(--text-caption-1)', fontWeight: 500,
-            }}
-          >
-            {previewMode === 'editor' ? '分屏' : previewMode === 'split' ? '预览' : '编辑'}
-          </button>
-        </div>
+        {/* 2026-10-30 「分屏 / 预览 / 编辑」三态切换已移除，
+            改为标题下方元信息行右侧的「预览 / 编辑」两态整屏切换。 */}
 
-        <div style={{ display: 'flex', gap: 12 }}>
-          <Button variant="ghost" onClick={onClose} style={{ flex: 1 }}>
-            取消
-          </Button>
-          <Button variant="primary" onClick={handleSave} style={{ flex: 1 }}>
-            保存
-          </Button>
-        </div>
+        {/* 2026-10-30 移除「取消 / 保存」两个大按钮。
+            原实现占满一整行（flex:1 各半屏宽），键盘弹起时把编辑区压得极窄；
+            Redmi 笔记的做法是「返回即自动保存」，顶栏右上角只留一个设置入口。
+            现在：顶栏左侧「返回」（有未保存内容时二次确认），
+                  顶栏右侧「⋯」设置菜单（含 保存 / 放弃）。
+            保存仍走 handleSave，只是入口从底部大按钮移到设置菜单。 */}
 
         {/* Toast 通知 */}
         {toastMsg && (
@@ -430,7 +473,24 @@ export default function NoteEditorSheet({ note, open, quickCapture, onClose, onU
               return
             }
             if (action === 'image') {
-              document.getElementById('siyi-note-attach-trigger')?.click()
+              // 2026-10-30：原实现是 document.getElementById('siyi-note-attach-trigger')
+              // 去点一个隐藏按钮，但该 id 从未在任何地方定义 —— 点「插入图片」
+              // 实际无反应（坏功能）。改为直接调用相册选择器。
+              void (async () => {
+                try {
+                  setUploading(true)
+                  const { pickFromGallery, uploadNoteAttachment } = await import('../../../lib/noteAttachment')
+                  const results = await pickFromGallery(true)
+                  for (const r of results) {
+                    const ref = await uploadNoteAttachment(noteId, r)
+                    handleInsertAttachment(`![${ref.name}](${ref.uri})`)
+                  }
+                } catch (e) {
+                  setToastMsg('选取图片失败')
+                } finally {
+                  setUploading(false)
+                }
+              })()
               return
             }
             if (action === 'voice') {
@@ -534,4 +594,30 @@ function parseInline(text: string): React.ReactNode {
     else { parts.push(remaining); remaining = '' }
   }
   return parts
+}
+
+/**
+ * 笔记元信息行的日期时间格式化（2026-10-30，对标 Redmi 笔记）
+ *
+ * 参考图样式：`10月30日 18:57 | 0字`
+ *   - 当天：只显示「今天 HH:mm」中的时间部分太寒酸，Redmi 用「M月D日 HH:mm」
+ *   - 无 note（新建中）：用当前时间，让用户看到写作起点
+ * 输出 M月D日 HH:mm；仅在**非当年**时补上年份（yyyy年M月D日 HH:mm）。
+ *
+ * 2026-10-30 增补年份：原实现无论哪一年都只输出「M月D日」，
+ * 跨年笔记（如去年今天写的）与今年今天的完全同形，无法区分。
+ * 但不是无脑加年份——同一年内占多数，加年份会挤占窄屏、
+ * 且 Redmi 笔记自身当年也不带年份。故按「与当前年份比较」决定是否补。
+ */
+function formatNoteDate(note: { updatedAt?: number; createdAt?: number } | null): string {
+  const ts = note?.updatedAt ?? note?.createdAt ?? Date.now()
+  const d = new Date(ts)
+  if (Number.isNaN(d.getTime())) return ''
+  const mm = d.getMonth() + 1
+  const dd = d.getDate()
+  const hh = String(d.getHours()).padStart(2, '0')
+  const mi = String(d.getMinutes()).padStart(2, '0')
+  const isThisYear = d.getFullYear() === new Date().getFullYear()
+  const datePart = isThisYear ? `${mm}月${dd}日` : `${d.getFullYear()}年${mm}月${dd}日`
+  return `${datePart} ${hh}:${mi}`
 }

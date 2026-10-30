@@ -60,6 +60,28 @@ jobs:
       - name: Run tests (vitest)
         run: npm test
 
+      # ── E2E 门禁（本次新增）──────────────────────────────────────
+      # mobile-ci 是「质量门禁」流水线，e2e 放这里最合理：
+      #   最快反馈、最便宜（ubuntu runner），PR 阶段就能拦住改坏。
+      # build-apk.yml 里也有一道同样的 e2e，那是为了
+      #   「不经 PR 直接 push 也能保证不出坏包」，两处刻意冗余。
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: E2E smoke (Playwright)
+        run: npx playwright test --reporter=list
+
+      - name: Upload E2E artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-failure-artifacts
+          path: |
+            test-results/
+            playwright-report/
+          retention-days: 7
+          if-no-files-found: ignore
+
       - name: Audit prod deps (npm, E3 hard gate)
         # 与 desk-notes 的 pnpm audit --prod 对齐：仅审计生产依赖，
         # 存在 high/critical 即非零退出，阻断合并。

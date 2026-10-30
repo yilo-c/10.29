@@ -1,12 +1,27 @@
-import { useCallback } from 'react'
+import { useCallback, useState } from 'react'
 import { haptic } from '../../../lib/haptic'
+import {
+  IconSparkles, IconImage, IconChecklist, IconBold, IconItalic,
+  IconHeading, IconList, IconQuote, IconDivider, IconMore,
+  IconChevronDownCircle,
+} from '../../ui'
 
 /**
  * 笔记格式工具栏 — 对标小米笔记编辑页
  *
- * 小米笔记的底部工具栏是 6 个图标：AI(魔法棒) / 语音 / 图片 / 手写 / 待办清单 / 文字格式。
- * 这里保留同样的信息密度，但把「手写」换成更适合 Markdown 的「结构化」，
- * 并把 AI 做成一级入口（点开弹出改写/续写/摘要/格式化）。
+ * 2026-10-30 改版（用户反馈「编辑页还是偏 PC 端、图标老气」）：
+ *   旧版问题：
+ *     1. 主操作行用 emoji（✨🎙🖼☑）+ 字符（T、⋯）混排，字形风格完全
+ *        不统一，是「乱」最直接的来源；
+ *     2. 二级格式行**常驻显示**，手机竖屏下白白吃掉一整行高度，
+ *        键盘弹起后编辑区被压得很窄 —— 这是典型的 PC 思维；
+ *     3. 格式行用 B / I / H1 / • / 1. / ☑ 等字符当按钮，
+ *        没有图形语义，视觉噪点多。
+ *
+ *   新版：
+ *     1. 全部换成统一的线性图标（1.75px 圆头），无 emoji、无字符占位；
+ *     2. 二级格式行默认收起，点「格式」才展开，把高度还给正文；
+ *     3. 格式行内图标统一 20px，横向可滚动，不再挤压变形。
  */
 
 export type ToolbarAction =
@@ -28,37 +43,44 @@ interface Props {
 
 interface FmtDef {
   id: string
-  label: string
   title: string
   before: string
   after: string
   block: boolean
+  /** 统一图标组件，替代原来的字符 label */
+  Icon: React.FC<{ size?: number }>
 }
 
 const FORMATS: FmtDef[] = [
-  { id: 'b',    label: 'B',   title: '粗体',     before: '**', after: '**', block: false },
-  { id: 'i',    label: 'I',   title: '斜体',     before: '*',  after: '*',  block: false },
-  { id: 'h1',   label: 'H1',  title: '标题',     before: '## ', after: '',  block: true },
-  { id: 'ul',   label: '•',   title: '无序列表', before: '- ', after: '',   block: true },
-  { id: 'ol',   label: '1.',  title: '有序列表', before: '1. ', after: '',  block: true },
-  { id: 'todo', label: '☑',   title: '待办项',   before: '- [ ] ', after: '', block: true },
-  { id: 'quote',label: '❝',   title: '引用',     before: '> ', after: '',   block: true },
-  { id: 'code', label: '</>', title: '代码块',   before: '```\n', after: '\n```', block: false },
-  { id: 'hr',   label: '—',   title: '分割线',   before: '\n---\n', after: '', block: false },
+  { id: 'b',     title: '粗体',     before: '**', after: '**', block: false, Icon: IconBold },
+  { id: 'i',     title: '斜体',     before: '*',  after: '*',  block: false, Icon: IconItalic },
+  { id: 'h1',    title: '标题',     before: '## ', after: '',  block: true,  Icon: IconHeading },
+  { id: 'ul',    title: '无序列表', before: '- ',  after: '',  block: true,  Icon: IconList },
+  // 注意：这里**不再**放「待办项」。一级工具栏的「待办清单」已覆盖该功能，
+  // 两者都插入 "- [ ] "，属于重复入口（用户反馈「两个功能重复」的其中一处）。
+  { id: 'quote', title: '引用',     before: '> ',  after: '',  block: true,  Icon: IconQuote },
+  { id: 'hr',    title: '分割线',   before: '\n---\n', after: '', block: false, Icon: IconDivider },
 ]
 
-const PRIMARY: { id: ToolbarAction; icon: string; title: string }[] = [
-  { id: 'ai',        icon: '✨', title: 'AI 辅助' },
-  { id: 'voice',     icon: '🎙', title: '语音输入' },
-  { id: 'image',     icon: '🖼', title: '插入图片' },
-  { id: 'checklist', icon: '☑',  title: '待办清单' },
-  { id: 'format',    icon: 'T',  title: '文字格式' },
-  { id: 'more',      icon: '⋯',  title: '更多' },
+const PRIMARY: {
+  id: ToolbarAction
+  title: string
+  Icon: React.FC<{ size?: number; accent?: boolean }>
+  primary?: boolean
+}[] = [
+  { id: 'ai',        title: 'AI 辅助',  Icon: IconSparkles, primary: true },
+  { id: 'image',     title: '插入图片', Icon: IconImage },
+  { id: 'checklist', title: '待办清单', Icon: IconChecklist },
+  { id: 'format',    title: '文字格式', Icon: IconChevronDownCircle },
+  { id: 'more',      title: '更多',     Icon: IconMore },
 ]
 
 export default function NotesFormatToolbar({
   textareaRef, content, onChange, selection, onAction,
 }: Props) {
+  // 二级格式行默认收起：手机竖屏空间宝贵，正文优先
+  const [formatOpen, setFormatOpen] = useState(false)
+
   const applyFormat = useCallback((fmt: FmtDef) => {
     const ta = textareaRef.current
     if (!ta) return
@@ -115,59 +137,70 @@ export default function NotesFormatToolbar({
   const hasSelection = !!selection && selection.end > selection.start
 
   return (
-    <div style={{ flexShrink: 0 }}>
-      {/* ── 一级功能条：对标小米笔记的 6 图标 ── */}
+    <div style={{ background: 'var(--bg-secondary)', borderTop: '0.5px solid var(--border-subtle)' }}>
+      {/* ── 一级：常用操作 ──
+          2026-10-30 改为「固定宽度 + 横向滑动」：
+            原先用 flex:1 + space-around 均分，图标数量增加时每个按钮被压窄，
+            图标挤在一起；用户要求「不够放则改为可平移滑动」。
+          现在：每个按钮固定 minWidth，总数放得下时自动居中铺满，
+                放不下时容器横向滚动（scroll-snap 让停靠更整齐）。 */}
       <div style={{
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-around',
-        padding: '6px 4px',
-        background: 'var(--bg-secondary)',
-        borderTop: '0.5px solid var(--border-subtle)',
+        padding: '7px 6px',
+        gap: 2,
+        overflowX: 'auto',
+        overflowY: 'hidden',
+        scrollbarWidth: 'none',
+        WebkitOverflowScrolling: 'touch',
+        scrollSnapType: 'x proximity',
       }}>
         {PRIMARY.map(p => {
-          const isAi = p.id === 'ai'
+          const isAi = p.primary === true
+          const isFormatToggle = p.id === 'format'
+          const active = isFormatToggle && formatOpen
+          const Icon = p.Icon
           return (
             <button
               key={p.id}
               title={p.title}
               aria-label={p.title}
+              aria-pressed={isFormatToggle ? formatOpen : undefined}
               onPointerDown={e => e.preventDefault()}
               onClick={() => {
                 haptic.light()
-                if (isAi) {
-                  // AI 是核心能力，用强调色凸显；无选中文本时也可用（整篇处理）
-                  onAction?.('ai')
-                  return
-                }
-                if (p.id === 'format') {
-                  // 展开/收起下方格式行由父组件控制，这里直接滚动展示
+                if (isFormatToggle) {
+                  setFormatOpen(v => !v)
                   onAction?.('format')
                   return
                 }
                 onAction?.(p.id)
               }}
               style={{
-                flex: 1,
+                // 固定宽度（不再 flex:1 均分）：图标多了会横向滑动，不会被压扁
+                flex: '0 0 auto',
+                minWidth: 56,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                height: 38,
+                height: 40,
                 border: 'none',
-                background: isAi ? 'var(--accent-surface)' : 'transparent',
-                borderRadius: 'var(--radius-sm)',
-                color: isAi ? 'var(--accent)' : 'var(--text-secondary)',
-                fontSize: isAi ? 17 : 16,
-                fontWeight: isAi ? 600 : 400,
+                background: isAi
+                  ? 'var(--accent-surface)'
+                  : active ? 'var(--bg-tertiary)' : 'transparent',
+                borderRadius: 12,
+                color: isAi ? 'var(--accent)' : active ? 'var(--text-primary)' : 'var(--text-secondary)',
                 cursor: 'pointer',
                 WebkitTapHighlightColor: 'transparent',
                 position: 'relative',
+                scrollSnapAlign: 'center',
               }}
             >
-              {p.icon}
+              <Icon size={21} />
               {isAi && hasSelection && (
                 <span style={{
-                  position: 'absolute', top: 6, right: 10,
+                  position: 'absolute', top: 7, right: '50%', marginRight: -14,
                   width: 5, height: 5, borderRadius: '50%',
                   background: 'var(--accent)',
                 }} />
@@ -177,43 +210,45 @@ export default function NotesFormatToolbar({
         })}
       </div>
 
-      {/* ── 二级格式行：Markdown 语法快捷插入 ── */}
-      <div style={{
-        display: 'flex',
-        gap: 2,
-        padding: '4px 6px',
-        background: 'var(--bg-tertiary)',
-        overflowX: 'auto',
-        scrollbarWidth: 'none',
-      }}>
-        {FORMATS.map(fmt => (
-          <button
-            key={fmt.id}
-            title={fmt.title}
-            aria-label={fmt.title}
-            onPointerDown={e => e.preventDefault()}
-            onClick={() => applyFormat(fmt)}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              minWidth: 38,
-              height: 32,
-              padding: '0 8px',
-              border: 'none',
-              borderRadius: 'var(--radius-sm)',
-              background: 'transparent',
-              color: 'var(--text-secondary)',
-              fontSize: fmt.id === 'code' ? 11 : 'var(--text-footnote)',
-              fontWeight: fmt.id === 'b' ? 700 : 400,
-              fontStyle: fmt.id === 'i' ? 'italic' : 'normal',
-              cursor: 'pointer',
-              whiteSpace: 'nowrap',
-              WebkitTapHighlightColor: 'transparent',
-            }}
-          >{fmt.label}</button>
-        ))}
-      </div>
+      {/* ── 二级：Markdown 格式（默认收起，展开时占一行且可横滚） ── */}
+      {formatOpen && (
+        <div style={{
+          display: 'flex',
+          gap: 4,
+          padding: '2px 8px 8px',
+          overflowX: 'auto',
+          scrollbarWidth: 'none',
+        }}>
+          {FORMATS.map(fmt => {
+            const Icon = fmt.Icon
+            return (
+              <button
+                key={fmt.id}
+                title={fmt.title}
+                aria-label={fmt.title}
+                onPointerDown={e => e.preventDefault()}
+                onClick={() => applyFormat(fmt)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flex: '0 0 auto',
+                  width: 42,
+                  height: 36,
+                  border: 'none',
+                  borderRadius: 10,
+                  background: 'var(--bg-primary)',
+                  color: 'var(--text-secondary)',
+                  cursor: 'pointer',
+                  WebkitTapHighlightColor: 'transparent',
+                }}
+              >
+                <Icon size={19} />
+              </button>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }

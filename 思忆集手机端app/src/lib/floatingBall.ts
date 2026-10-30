@@ -147,7 +147,17 @@ class FloatingBallManager {
       if (!this._permissionGranted) return { ok: false, reason: 'permission' }
     }
     try {
-      await FloatingBall.show()
+      // 原生侧再次校验权限并返回明确结果，避免「调用成功但球不出现」
+      const res = await FloatingBall.show()
+      if (res && res.ok === false) {
+        if (res.reason === 'permission') {
+          this._permissionGranted = false
+          this._emit()
+          return { ok: false, reason: 'permission' }
+        }
+        // start_failed 等：原生服务启动失败
+        return { ok: false, reason: 'unavailable' }
+      }
     } catch {
       return { ok: false, reason: 'unavailable' }
     }

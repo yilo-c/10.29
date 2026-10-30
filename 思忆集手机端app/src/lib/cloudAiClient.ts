@@ -231,6 +231,58 @@ export async function cloudChat(args: ChatOnceArgs): Promise<string> {
   return json.choices?.[0]?.message?.content ?? ''
 }
 
+/**
+ * 多轮对话（带完整历史）—— 笔记编辑页「对话」标签用。
+ *
+ * 为什么需要单独一个函数：
+ *   cloudChat 只能发「一条 system + 一条 user」，每轮都是无状态的独立请求，
+ *   模型看不到上一轮说了什么。笔记里追问（"再短一点""换成正式语气"）
+ *   必须带历史，否则用户每问一句都要重新交代上下文。
+ *
+ * 与 cloudChat 的差异仅在 messages 构造：其余 URL/鉴权/模型推断完全一致，
+ * 故这里复用同一套逻辑而不另起一套请求代码。
+ */
+export async function cloudChatMultiTurn(args: {
+  system?: string
+  messages: { role: 'user' | 'assistant'; content: string }[]
+  maxTokens?: number
+  temperature?: number
+}): Promise<string> {
+  const apiKey = tokenManager.cloudApiKey
+  if (!apiKey) throw new Error('未配置云 AI API Key')
+
+  const baseUrl = tokenManager.cloudApiBaseUrl
+  const model = inferModel(baseUrl)
+  const url = `${baseUrl.replace(/\/+$/, '')}/v1/chat/completions`
+
+  const messages: ChatMessage[] = []
+  if (args.system) messages.push({ role: 'system', content: args.system })
+  for (const m of args.messages) messages.push({ role: m.role, content: m.content })
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model,
+      messages,
+      stream: false,
+      max_tokens: args.maxTokens ?? 1500,
+      temperature: args.temperature ?? 0.6,
+    } as ChatCompletionRequest & { max_tokens: number; temperature: number }),
+  })
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => '')
+    throw new Error(`AI ${res.status}: ${text.slice(0, 120)}`)
+  }
+
+  const json = await res.json() as { choices?: { message?: { content?: string } }[] }
+  return json.choices?.[0]?.message?.content ?? ''
+}
+
 /* ── Function Calling 支持（多步 Agent 循环的基础） ── */
 
 export interface ToolCall {

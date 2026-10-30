@@ -114,6 +114,32 @@ jobs:
         working-directory: 思忆集手机端app
         run: npx vite build
 
+      # ── E2E 门禁（本次新增）：改坏了就不出 APK ────────────────────
+      # 为什么放在 cap sync 之前：
+      #   ① e2e 更快（约 30s），早失败省掉后面 Gradle 的数分钟；
+      #   ② 这里是「App 能不能用」的唯一自动化证据——
+      #      201 个单测只证明纯函数算得对，证明不了界面能用。
+      # 为什么必须先装内核：GitHub runner 不自带 Playwright 浏览器。
+      - name: Install Playwright Chromium
+        working-directory: 思忆集手机端app
+        run: npx playwright install --with-deps chromium
+
+      - name: E2E smoke (blocks APK on failure)
+        working-directory: 思忆集手机端app
+        # webServer 会自己起 vite preview（复用刚 build 的 dist），只绑 127.0.0.1
+        run: npx playwright test --reporter=list
+
+      - name: Upload E2E artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-failure-artifacts
+          path: |
+            思忆集手机端app/test-results/
+            思忆集手机端app/playwright-report/
+          retention-days: 7
+          if-no-files-found: ignore
+
       - name: Capacitor sync
         working-directory: 思忆集手机端app
         run: npx cap sync android

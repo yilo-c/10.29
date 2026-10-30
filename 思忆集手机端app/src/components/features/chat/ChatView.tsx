@@ -1,15 +1,13 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { Keyboard, KeyboardInfo } from '@capacitor/keyboard'
 import { useMobileStore } from '../../../store/mobileStore'
-import { IconSparkles, IconPlus } from '../../ui'
+import { IconPlus, IconMenu, IconX } from '../../ui'
 import { haptic } from '../../../lib/haptic'
 import { tokenManager } from '../../../lib/tokenManager'
 import { ChatSocketManager, type ConnectionState } from '../../../lib/chatSocket'
 import PendingApprovals from './PendingApprovals'
 import AgentStepBubble, { type AgentStep } from './AgentStepBubble'
 import AgentConfirmBubble from './AgentConfirmBubble'
-import SiyiNative from '../../../lib/native/siyiNative'
-import { detectSensitiveContent } from '../../../lib/sensitiveContent'
 import { swallowError } from '../../../lib/swallowError'
 import { translateText as bridgeTranslate } from '../../../lib/bridges'
 import { listPendingApprovals, approveApproval, rejectApproval } from '../../../lib/rpcClient'
@@ -97,20 +95,6 @@ export default function ChatView() {
   const [showAttachment, setShowAttachment] = useState(false)
   const [status, setStatus] = useState('')
 
-  const appendAssistantMessage = useCallback((content: string) => {
-    useMobileStore.setState(s => {
-      const chat = s.chat ?? { messages: [], sessionId: undefined, streaming: false }
-      return {
-        chat: {
-          ...chat,
-          messages: [
-            ...(chat.messages || []),
-            { id: crypto.randomUUID?.() ?? `${Date.now()}-native`, role: 'assistant' as const, content, timestamp: Date.now() },
-          ],
-        },
-      }
-    })
-  }, [])
   const [translateResult, setTranslateResult] = useState<string | null>(null)
   // H11: translateTarget 从 useState 取，让翻译按钮可切换中/英方向。
   // 历史 bug: 写死 'zh'，注释自承"setTranslateTarget unused"，按钮形同虚设。
@@ -274,69 +258,6 @@ export default function ChatView() {
     }
   }, [sessionId, messages, isPaired, connState])
 
-  const handleNativeQuickAction = useCallback(async (action: 'screen' | 'battery' | 'storage' | 'apps') => {
-    try {
-      if (action === 'screen') {
-        const result = await SiyiNative.readScreen()
-        if (!result.available) {
-          appendAssistantMessage('无障碍服务未开启。请到设置 → 手机管家能力 → 打开无障碍设置。')
-          return
-        }
-        const screenText = (result.text || '').trim()
-        if (!screenText) {
-          appendAssistantMessage('当前屏幕没有可读文本。')
-          return
-        }
-
-        // P0-10 隐私保护：
-        // 1. 敏感内容（密码 / 验证码 / 银行卡 / 身份证 / 手机号）→ 直接拦截，告警
-        // 2. 否则二次确认，明确提示用户屏幕文本将作为聊天上下文（可能上云）
-        const verdict = detectSensitiveContent(screenText)
-        const cloudWillSee = tokenManager.cloudAiEnabled && !tokenManager.preferDesktopAi
-        if (verdict.isSensitive) {
-          appendAssistantMessage(
-            `屏幕内容检测到敏感信息（${verdict.matched.slice(0, 3).join('、')} 等），\n` +
-            `已拒绝读取，避免误传到云端 AI。\n\n` +
-            `如需处理这类内容，请先关闭云 AI（设置 → 偏好 → 关闭"云端 AI"），改用本地 AI。`,
-          )
-          return
-        }
-        const confirmMsg = cloudWillSee
-          ? `检测到 ${screenText.length} 字屏幕文本。云端 AI 已开启 — 文本会随提问发送到云端，是否继续？`
-          : `检测到 ${screenText.length} 字屏幕文本，是否插入到对话？`
-        // window.confirm 在 Capacitor WebView 内可用；UI 体验稍硬但确保用户必须点一次
-        const confirmed = typeof window !== 'undefined' && window.confirm
-          ? window.confirm(confirmMsg)
-          : true
-        if (!confirmed) {
-          appendAssistantMessage('屏幕读取已取消。')
-          return
-        }
-        appendAssistantMessage(`当前屏幕内容：\n${screenText}`)
-      } else if (action === 'battery') {
-        const result = await SiyiNative.getBatteryStatus()
-        appendAssistantMessage(result.ok && result.result
-          ? `电量 ${result.result.level}% · ${result.result.isCharging ? '正在充电' : '未充电'}`
-          : `读取电池失败：${result.error || '未知错误'}`)
-      } else if (action === 'storage') {
-        const result = await SiyiNative.getStorageInfo()
-        const r = result.result
-        const gb = (v?: number) => v ? (v / 1024 / 1024 / 1024).toFixed(1) + 'GB' : '未知'
-        appendAssistantMessage(result.ok && r
-          ? `存储：总 ${gb(r.totalBytes)} · 已用 ${gb(r.usedBytes)} · 可用 ${gb(r.availableBytes)} · 使用率 ${r.usedPercent}%`
-          : `读取存储失败：${result.error || '未知错误'}`)
-      } else if (action === 'apps') {
-        const result = await SiyiNative.getInstalledApps({ limit: 20 })
-        const apps = result.result?.apps || []
-        appendAssistantMessage(result.ok
-          ? `已安装应用（前 ${apps.length} 个）：\n${apps.map(a => `- ${a.name} (${a.packageName})`).join('\n')}`
-          : `读取应用列表失败：${result.error || '未知错误'}`)
-      }
-    } catch (e) {
-      appendAssistantMessage(`原生能力调用失败：${e instanceof Error ? e.message : '未知错误'}`)
-    }
-  }, [appendAssistantMessage])
-
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
@@ -360,27 +281,30 @@ export default function ChatView() {
       display: 'flex', flexDirection: 'column', height: '100%',
       transition: 'padding-bottom 0.2s ease',
     }}>
-      {/* Header */}
+      {/* Header —— 2026-10-30 重构：左上角侧边栏入口 + 新建会话 */}
       <div style={{ padding: '16px 20px 0', flexShrink: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 'var(--text-large-title)', fontWeight: 700, letterSpacing: -0.5 }}>
-          <IconSparkles size={24} />
-          AI 助手
-          {/* 历史会话 + 新建会话：会话持久化的入口，否则存了也看不到 */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          {/* 左上角：历史会话抽屉入口（改为侧边栏，可展开） */}
           <button
             onClick={async () => {
               const list = await useMobileStore.getState().listChatSessions()
               setSessions(list)
               setShowHistory(true)
+              haptic.light()
             }}
             aria-label="历史会话"
             style={{
-              marginLeft: 'auto', width: 32, height: 32, border: 'none',
-              background: 'var(--bg-secondary)', borderRadius: 10,
+              width: 36, height: 36, border: 'none',
+              background: 'transparent', borderRadius: 12,
               color: 'var(--text-secondary)', cursor: 'pointer',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: 15,
+              marginLeft: -8,
             }}
-          >🕘</button>
+          >
+            <IconMenu size={22} />
+          </button>
+
+          {/* 新建会话：紧随侧边栏入口，同样置于左上 */}
           <button
             onClick={() => {
               useMobileStore.getState().startNewSession()
@@ -388,19 +312,32 @@ export default function ChatView() {
             }}
             aria-label="新建会话"
             style={{
-              width: 32, height: 32, border: 'none',
-              background: 'var(--bg-secondary)', borderRadius: 10,
+              width: 36, height: 36, border: 'none',
+              background: 'transparent', borderRadius: 12,
               color: 'var(--text-secondary)', cursor: 'pointer',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
             }}
-          ><IconPlus size={16} /></button>
-          {messages.length > 0 && sessionId && connState === 'connected' && (
+          >
+            <IconPlus size={20} />
+          </button>
+
+          {/* 标题居中：绝对定位让左右两侧按钮不影响视觉重心 */}
+          <div style={{
+            flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
+            gap: 6, marginLeft: -22,
+          }}>
+            <span style={{ fontSize: 'var(--text-headline)', fontWeight: 650, letterSpacing: -0.3 }}>
+              AI 助手
+            </span>
+          </div>
+
+          {/* 右侧：整理到知识库（仅在可整理时出现，避免常驻占位） */}
+          {messages.length > 0 && sessionId && connState === 'connected' ? (
             <button
               onClick={handleIngestConversation}
               disabled={streaming}
               style={{
-                marginLeft: 'auto',
-                padding: '4px 10px',
+                padding: '5px 11px',
                 borderRadius: 999,
                 border: '0.5px solid var(--accent-border)',
                 background: 'var(--accent-surface)',
@@ -408,13 +345,14 @@ export default function ChatView() {
                 fontSize: 'var(--text-caption-2)',
                 fontWeight: 600,
                 cursor: streaming ? 'default' : 'pointer',
+                whiteSpace: 'nowrap',
               }}
             >
-              整理到知识库
+              整理
             </button>
-          )}
-          {status && <span style={{ fontSize: 'var(--text-footnote)', fontWeight: 400, marginLeft: 4, color: status.startsWith('发送失败') || status.startsWith('批准失败') || status.startsWith('整理失败') ? 'var(--danger)' : 'var(--text-tertiary)' }}>{status}</span>}
+          ) : <div style={{ width: 36 }} />}
         </div>
+        {status && <div style={{ fontSize: 'var(--text-caption-2)', marginTop: 2, textAlign: 'center', color: status.startsWith('发送失败') || status.startsWith('批准失败') || status.startsWith('整理失败') ? 'var(--danger)' : 'var(--text-tertiary)' }}>{status}</div>}
         {isPaired && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4, fontSize: 'var(--text-caption-2)', color: 'var(--text-tertiary)' }}>
             <div style={{ width: 6, height: 6, borderRadius: '50%', background: connColor[connState], transition: 'background 0.3s ease' }} />
@@ -511,27 +449,10 @@ export default function ChatView() {
         )}
       </div>
 
-      {/* Native quick actions */}
-      <div style={{ display: 'flex', gap: 6, overflowX: 'auto', padding: '6px 16px 0', background: 'var(--bg-primary)' }}>
-        {([
-          ['screen', '读屏'],
-          ['battery', '电量'],
-          ['storage', '存储'],
-          ['apps', '应用'],
-        ] as const).map(([key, label]) => (
-          <button
-            key={key}
-            onClick={() => handleNativeQuickAction(key)}
-            style={{
-              padding: '5px 10px', borderRadius: 999, border: '0.5px solid var(--border-subtle)',
-              background: 'var(--bg-secondary)', color: 'var(--text-secondary)',
-              fontSize: 'var(--text-caption-2)', whiteSpace: 'nowrap', flexShrink: 0,
-            }}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
+      {/* 2026-10-30 按用户要求移除「读屏 / 电量 / 存储 / 应用」快捷胶囊。
+          原因：这排纯文字按钮常驻在输入框上方，占高度且视觉噪音大；
+          AI 侧已有等价能力（a11yTools 的 phone__read_screen 等工具，
+          由模型按需调用），无需用户手动触发。 */}
 
       {/* Input bar */}
       <div style={{ position: 'relative', padding: '8px 16px', paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 8px)', borderTop: '0.5px solid var(--border-subtle)', background: 'var(--bg-primary)', display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -663,58 +584,71 @@ export default function ChatView() {
         </div>
       )}
 
-      {/* 历史会话面板 */}
+      {/* 历史会话侧边栏抽屉（2026-10-30：由底部 Sheet 改为左侧可展开抽屉） */}
       {showHistory && (
         <div
           onClick={() => setShowHistory(false)}
           style={{
             position: 'fixed', inset: 0, zIndex: 80,
-            background: 'rgba(0,0,0,0.45)',
-            display: 'flex', alignItems: 'flex-end',
+            background: 'rgba(0,0,0,0.38)',
+            display: 'flex', alignItems: 'stretch', justifyContent: 'flex-start',
+            animation: 'siyiFadeIn 0.18s ease-out',
           }}
         >
           <div
             onClick={e => e.stopPropagation()}
             style={{
-              width: '100%', maxHeight: '76vh',
+              width: 'min(82vw, 320px)',
               background: 'var(--bg-primary)',
-              borderRadius: 'var(--radius-xl) var(--radius-xl) 0 0',
+              borderTopRightRadius: 20,
+              borderBottomRightRadius: 20,
+              paddingTop: 'var(--safe-top)',
               paddingBottom: 'var(--safe-bottom)',
               display: 'flex', flexDirection: 'column',
+              boxShadow: '4px 0 24px rgba(0,0,0,0.14)',
+              animation: 'siyiSlideInLeft 0.24s cubic-bezier(0.22, 1, 0.36, 1)',
             }}
           >
+            {/* 抽屉顶部：标题 + 新建（新建也放在这里，符合手机端笔记习惯） */}
             <div style={{
-              display: 'flex', alignItems: 'center',
-              padding: 'var(--space-4)',
-              borderBottom: '0.5px solid var(--border-subtle)',
+              display: 'flex', alignItems: 'center', gap: 8,
+              padding: '18px 16px 12px',
             }}>
-              <span style={{ fontSize: 'var(--text-headline)', fontWeight: 600, flex: 1 }}>
+              <span style={{ fontSize: 'var(--text-title-2)', fontWeight: 700, flex: 1, letterSpacing: -0.3 }}>
                 历史会话
               </span>
               <button
-                onClick={() => setShowHistory(false)}
-                aria-label="关闭"
-                style={{
-                  width: 32, height: 32, border: 'none', background: 'var(--bg-secondary)',
-                  borderRadius: '50%', color: 'var(--text-secondary)',
-                  fontSize: 15, cursor: 'pointer',
+                onClick={() => {
+                  useMobileStore.getState().startNewSession()
+                  setShowHistory(false)
+                  haptic.light()
                 }}
-              >✕</button>
+                aria-label="新建会话"
+                style={{
+                  width: 34, height: 34, border: 'none',
+                  background: 'var(--accent-surface)', borderRadius: 11,
+                  color: 'var(--accent)', cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}
+              >
+                <IconPlus size={18} />
+              </button>
             </div>
+            <div style={{ height: '0.5px', background: 'var(--border-subtle)', margin: '0 16px 8px' }} />
 
-            <div style={{ flex: 1, overflowY: 'auto', padding: 'var(--space-3)' }}>
+            <div style={{ flex: 1, overflowY: 'auto', padding: '4px 10px 10px' }}>
               {sessions.length === 0 ? (
                 <div style={{
-                  padding: 'var(--space-6)', textAlign: 'center',
+                  padding: '40px 20px', textAlign: 'center',
                   color: 'var(--text-tertiary)', fontSize: 'var(--text-footnote)',
                 }}>还没有历史会话</div>
               ) : sessions.map(s => (
                 <div key={s.id} style={{
-                  display: 'flex', alignItems: 'center', gap: 8,
-                  padding: 'var(--space-3)',
-                  marginBottom: 6,
-                  background: 'var(--bg-secondary)',
-                  borderRadius: 'var(--radius-md)',
+                  display: 'flex', alignItems: 'center', gap: 4,
+                  padding: '10px 8px 10px 12px',
+                  marginBottom: 2,
+                  borderRadius: 12,
+                  transition: 'background 0.15s ease',
                 }}>
                   <button
                     onClick={async () => {
@@ -728,12 +662,13 @@ export default function ChatView() {
                     }}
                   >
                     <div style={{
-                      fontSize: 'var(--text-footnote)', color: 'var(--text-primary)',
+                      fontSize: 'var(--text-subhead)', color: 'var(--text-primary)',
+                      fontWeight: 500,
                       overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                     }}>{s.title || '未命名会话'}</div>
                     <div style={{
                       fontSize: 'var(--text-caption-2)', color: 'var(--text-tertiary)',
-                      marginTop: 2,
+                      marginTop: 3,
                     }}>
                       {new Date(s.updatedAt).toLocaleString('zh-CN', {
                         month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit',
@@ -747,10 +682,14 @@ export default function ChatView() {
                     }}
                     aria-label="删除会话"
                     style={{
-                      width: 30, height: 30, border: 'none', background: 'none',
+                      width: 28, height: 28, border: 'none', background: 'none',
                       color: 'var(--text-tertiary)', cursor: 'pointer', flexShrink: 0,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      borderRadius: 8, opacity: 0.6,
                     }}
-                  >✕</button>
+                  >
+                    <IconX size={15} />
+                  </button>
                 </div>
               ))}
             </div>

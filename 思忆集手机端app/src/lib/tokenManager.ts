@@ -13,9 +13,15 @@ const KEY_CLOUD_API_KEY = 'siyi_cloud_api_key'
 const KEY_CLOUD_API_BASE_URL = 'siyi_cloud_api_base_url'
 const KEY_BACKEND_PORT = 'siyi_backend_port'
 
-const DEFAULT_BASE_URL = 'http://192.168.1.100:8000'
-const DEFAULT_CLOUD_API_BASE_URL = 'https://api.deepseek.com'
 const DEFAULT_BACKEND_PORT = 18765
+const DEFAULT_CLOUD_API_BASE_URL = 'https://api.deepseek.com'
+
+// 注意：默认 baseUrl 不能写死具体局域网 IP。
+// 此前是 'http://192.168.1.100:8000' —— 端口 8000 与本文件的
+// DEFAULT_BACKEND_PORT=18765 自相矛盾（8000 是早期模板遗留值），
+// 且该 IP 对任何用户都不存在。未配对时返回空串，让调用方走
+// 「未配置 → 提示配对」的正常分支，而不是静默去连一个错误地址。
+const DEFAULT_BASE_URL = ''
 
 /**
  * Read a value, routing sensitive keys through Capacitor Preferences

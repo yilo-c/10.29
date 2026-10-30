@@ -35,8 +35,13 @@ describe('tokenManager', () => {
     expect(tokenManager.apiToken).toBeNull()
   })
 
-  it('returns default baseUrl when not set', () => {
-    expect(tokenManager.baseUrl).toBe('http://192.168.1.100:8000')
+  it('returns empty baseUrl when not set (还没配对)', () => {
+    // 2026-10-30 修正：旧断言写死 'http://192.168.1.100:8000'，
+    // 那是早期模板遗留值，端口 8000 与 DEFAULT_BACKEND_PORT=18765 矛盾，
+    // 且该 IP 对任何真实用户都不存在 —— 等于把 bug 固化成预期。
+    // 正确行为：未配对时返回空串，让调用方走「需要配对」分支，
+    // 而不是静默去连一个不存在的地址。
+    expect(tokenManager.baseUrl).toBe('')
   })
 
   it('stores custom baseUrl', () => {

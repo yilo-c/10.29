@@ -11,6 +11,7 @@ const KEY_PROMPT_BEFORE_CLOUD = 'siyi_prompt_before_cloud'
 const KEY_PREFER_DESKTOP_AI = 'siyi_prefer_desktop_ai'
 const KEY_CLOUD_API_KEY = 'siyi_cloud_api_key'
 const KEY_CLOUD_API_BASE_URL = 'siyi_cloud_api_base_url'
+const KEY_CLOUD_MODEL = 'siyi_cloud_model'
 const KEY_BACKEND_PORT = 'siyi_backend_port'
 
 const DEFAULT_BACKEND_PORT = 18765
@@ -91,6 +92,19 @@ export const tokenManager = {
 
   get cloudApiBaseUrl(): string { return get(KEY_CLOUD_API_BASE_URL) ?? DEFAULT_CLOUD_API_BASE_URL },
   set cloudApiBaseUrl(v: string | null) { set(KEY_CLOUD_API_BASE_URL, v) },
+
+  /**
+   * 云端模型名 / Cloud model id.
+   *
+   * 为什么需要用户显式配置：此前模型完全由 API 地址「猜」出来
+   * （inferModel：含 deepseek 就返回 deepseek-v4-flash），
+   * 用户既看不到也不能改。一旦服务商改名或用户要用别的模型，
+   * 界面无从下手，只能报一个看不懂的 400。
+   * 现在：用户留空时仍回落到地址推断（保持旧行为），
+   * 填了就以填的为准。
+   */
+  get cloudModel(): string { return get(KEY_CLOUD_MODEL) ?? '' },
+  set cloudModel(v: string | null) { set(KEY_CLOUD_MODEL, v) },
 
   get backendPort(): number {
     const v = get(KEY_BACKEND_PORT)

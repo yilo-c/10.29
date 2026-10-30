@@ -240,6 +240,25 @@ export class ChatOrchestrator {
     }
 
     this.fallback.enqueueForRetry(text, req.sessionId ?? null, target)
+    /*
+     * 排队原因要说清「缺哪一项」，否则用户只知道「用不了」，
+     * 无法判断该去开开关、填 Key，还是该连桌面端。
+     * 之前这里只有一句笼统的「桌面端未连接且未配置云 AI」，
+     * 即使云 AI 开了、Key 也填了，只要有一项没到位就仍是这句，
+     * 排查时完全没有指向性。
+     */
+    let reason: string
+    if (ctx.isDesktopConnected) {
+      reason = 'AI 服务暂时不可用，已排队，联网后会自动重试'
+    } else if (!ctx.userPref.cloudAiEnabled) {
+      reason = '⏳ 云端 AI 未启用。请到 设置 → AI 配置 打开「启用云端 AI」，并填入 API Key'
+    } else if (!ctx.cloudConfigured) {
+      reason = '⏳ 云端 AI 缺少 API Key。请到 设置 → AI 配置 填入 API Key'
+    } else if (ctx.userPref.promptBeforeCloud) {
+      reason = '⏳ 已开启「云端调用前确认」，该设置会阻止自动上云。可在 设置 → AI 配置 关闭它'
+    } else {
+      reason = '⏳ 桌面端未连接，云端 AI 也不可用，已排队等待'
+    }
     return {
       channel: 'queued',
       text: '',
@@ -248,9 +267,7 @@ export class ChatOrchestrator {
       target,
       fromCache: false,
       queued: true,
-      error: ctx.isDesktopConnected
-        ? 'AI 服务暂时不可用，已排队，联网后会自动重试'
-        : '桌面端未连接且未配置云 AI，已排队等待',
+      error: reason,
     }
   }
 }

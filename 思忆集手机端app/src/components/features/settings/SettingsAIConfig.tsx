@@ -15,10 +15,23 @@ interface ProviderInfo {
   description?: string
 }
 
+/**
+ * 给「模型名」输入框一个贴合当前 API 地址的占位提示。
+ * 只是提示，不是默认值——留空时由 cloudAiClient 按地址推断。
+ */
+function inferPlaceholder(baseUrl: string): string {
+  const u = (baseUrl || '').toLowerCase()
+  if (u.includes('deepseek')) return 'deepseek-chat（留空则按地址推断）'
+  if (u.includes('openai')) return 'gpt-4o-mini（留空则按地址推断）'
+  if (u.includes('moonshot') || u.includes('kimi')) return 'moonshot-v1-8k（留空则按地址推断）'
+  return '如 deepseek-chat、gpt-4o-mini（留空则按地址推断）'
+}
+
 export default function SettingsAIConfig() {
   const [cloudKey, setCloudKey] = useState(tokenManager.cloudApiKey)
   const [cloudEnabled, setCloudEnabled] = useState(tokenManager.cloudAiEnabled)
   const [cloudBaseUrl, setCloudBaseUrl] = useState(tokenManager.cloudApiBaseUrl)
+  const [cloudModel, setCloudModel] = useState(tokenManager.cloudModel)
   const [preferDesktop, setPreferDesktop] = useState(tokenManager.preferDesktopAi)
   const [promptCloud, setPromptCloud] = useState(tokenManager.promptBeforeCloud)
   const [testStatus, setTestStatus] = useState('')
@@ -92,18 +105,28 @@ export default function SettingsAIConfig() {
             setTestStatus('测试中...')
             try {
               const url = `${(cloudBaseUrl || 'https://api.deepseek.com').replace(/\/+$/, '')}/v1/chat/completions`
+              /*
+               * 模型必须用用户配置的那个（留空才回落到地址推断）。
+               * 此前这里硬编码 'deepseek-v4-flash'：测试用的是写死的模型，
+               * 实际对话用的是另一个，于是出现「测试成功但对话失败」。
+               * 两边必须用同一个来源，否则测试毫无意义。
+               */
+              const configured = (cloudModel || '').trim()
+              const isOpenAi = (cloudBaseUrl || '').toLowerCase().includes('openai')
+              const testModel = configured || (isOpenAi ? 'gpt-4o-mini' : 'deepseek-chat')
               const res = await fetch(url, {
                 headers: { 'Authorization': `Bearer ${cloudKey}`, 'Content-Type': 'application/json' },
                 method: 'POST',
-                body: JSON.stringify({ model: 'deepseek-v4-flash', messages: [{ role: 'user', content: 'hi' }], max_tokens: 5 }),
-                signal: AbortSignal.timeout(10000),
+                body: JSON.stringify({ model: testModel, messages: [{ role: 'user', content: 'hi' }], max_tokens: 5 }),
+                signal: AbortSignal.timeout(15000),
               })
               if (res.ok) {
                 await res.json()
-                setTestStatus('✅ 连接成功')
+                setTestStatus(`✅ 连接成功（模型 ${testModel}）`)
               } else {
                 const text = await res.text().catch(() => '')
-                setTestStatus(`❌ ${res.status}: ${text.slice(0, 100)}`)
+                // 把服务商返回的真实原因显示出来，而不是只给一个状态码
+                setTestStatus(`❌ ${res.status}: ${text.slice(0, 160)}`)
               }
             } catch (err) {
               setTestStatus(`❌ 连接失败: ${err instanceof Error ? err.message : '未知错误'}`)
@@ -138,6 +161,20 @@ export default function SettingsAIConfig() {
                 value={cloudBaseUrl}
                 onChange={e => { setCloudBaseUrl(e.target.value); tokenManager.cloudApiBaseUrl = e.target.value || null }}
                 placeholder="https://api.deepseek.com"
+                style={{ ...inputStyle, fontSize: 'var(--text-caption-1)' }}
+              />
+            </SettingsRow>
+            {/*
+              模型名：此前完全由 API 地址推断（含 deepseek → deepseek-v4-flash），
+              用户既看不到也改不了。地址对了但模型名不被服务商接受时，
+              只会收到一个 400，界面上无从判断。这里让用户能显式填写。
+              留空 = 继续按地址推断，保持旧行为。
+            */}
+            <SettingsRow label="模型名">
+              <input
+                value={cloudModel}
+                onChange={e => { setCloudModel(e.target.value); tokenManager.cloudModel = e.target.value || null }}
+                placeholder={inferPlaceholder(cloudBaseUrl)}
                 style={{ ...inputStyle, fontSize: 'var(--text-caption-1)' }}
               />
             </SettingsRow>

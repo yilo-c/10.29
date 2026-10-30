@@ -17,15 +17,33 @@ interface ChatCompletionRequest {
   stream: boolean
 }
 
+/**
+ * 解析实际使用的模型名。
+ *
+ * 优先级：用户显式配置 > 按 API 地址推断。
+ * 用户配置为空时保持旧行为（按地址猜），避免升级后老用户配置失效。
+ */
+export function resolveModel(baseUrl: string): string {
+  const configured = (tokenManager.cloudModel || '').trim()
+  if (configured) return configured
+  return inferModel(baseUrl)
+}
+
 function inferModel(baseUrl: string): string {
   const url = baseUrl.toLowerCase()
-  // deepseek-chat / deepseek-reasoner 已于 2026-07-24 退役，现用 deepseek-v4-flash
-  if (url.includes('deepseek')) return 'deepseek-v4-flash'
+  /*
+   * 注意：这里以前返回 'deepseek-v4-flash'。
+   * 该模型名无法在公开文档中核实（DeepSeek 官方现行名称是 deepseek-chat /
+   * deepseek-reasoner 系列），一旦服务商不接受就会返回 400，而界面上
+   * 只会显示一句「AI 服务不可用」，用户无从判断是模型名的问题。
+   * 故回落值改为 deepseek-chat，并开放「模型名」配置让用户自行指定。
+   */
+  if (url.includes('deepseek')) return 'deepseek-chat'
   if (url.includes('openai') || url.includes('gpt')) return 'gpt-4o-mini'
   if (url.includes('moonshot') || url.includes('kimi')) return 'moonshot-v1-8k'
   if (url.includes('together')) return 'deepseek-ai/DeepSeek-V3'
   if (url.includes('groq')) return 'llama-3.3-70b-versatile'
-  return 'deepseek-v4-flash'
+  return 'deepseek-chat'
 }
 
 /* ── Shared SSE stream parser ── */
@@ -86,7 +104,7 @@ export class CloudAiClient {
   ): Promise<CloudAiResponse> {
     const apiKey = overrides?.apiKey ?? tokenManager.cloudApiKey
     const baseUrl = overrides?.baseUrl ?? tokenManager.cloudApiBaseUrl
-    const model = overrides?.model ?? inferModel(baseUrl)
+    const model = overrides?.model ?? resolveModel(baseUrl)
 
     if (!apiKey) {
       throw new Error('Cloud AI API key not configured')
@@ -130,7 +148,7 @@ export class CloudAiClient {
   ): Promise<CloudAiResponse> {
     const apiKey = overrides?.apiKey ?? tokenManager.cloudApiKey
     const baseUrl = overrides?.baseUrl ?? tokenManager.cloudApiBaseUrl
-    const model = overrides?.model ?? inferModel(baseUrl)
+    const model = overrides?.model ?? resolveModel(baseUrl)
 
     if (!apiKey) {
       throw new Error('Cloud AI API key not configured')
@@ -200,7 +218,7 @@ export async function cloudChat(args: ChatOnceArgs): Promise<string> {
   if (!apiKey) throw new Error('未配置云 AI API Key')
 
   const baseUrl = tokenManager.cloudApiBaseUrl
-  const model = inferModel(baseUrl)
+  const model = resolveModel(baseUrl)
   const url = `${baseUrl.replace(/\/+$/, '')}/v1/chat/completions`
 
   const messages: ChatMessage[] = []
@@ -252,7 +270,7 @@ export async function cloudChatMultiTurn(args: {
   if (!apiKey) throw new Error('未配置云 AI API Key')
 
   const baseUrl = tokenManager.cloudApiBaseUrl
-  const model = inferModel(baseUrl)
+  const model = resolveModel(baseUrl)
   const url = `${baseUrl.replace(/\/+$/, '')}/v1/chat/completions`
 
   const messages: ChatMessage[] = []
@@ -357,7 +375,7 @@ export async function chatWithTools(args: {
   if (!apiKey) throw new Error('未配置云 AI API Key')
 
   const baseUrl = tokenManager.cloudApiBaseUrl
-  const model = inferModel(baseUrl)
+  const model = resolveModel(baseUrl)
   const url = `${baseUrl.replace(/\/+$/, '')}/v1/chat/completions`
 
   const body: Record<string, unknown> = {

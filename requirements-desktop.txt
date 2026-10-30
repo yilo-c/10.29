@@ -23,7 +23,7 @@ APScheduler>=3.10,<4.0
 # ⚠️ PYSEC-2026-4153~4160/E-4160: pypdf<6.17 存在 8 个解析器漏洞（PDF 构造类）。
 # 2026-10-15 升级 5.9.0 → 6.19.x 修复；调用面仅 PdfReader/extract_text（核心
 # API，6.x 兼容），url_learning_service.py:440 与 job_hunter/resume/parser.py:156。
-pypdf>=6.17,<7.0
+pypdf>=6.21.3,<7.0
 python-docx>=1.0,<2.0
 readability-lxml>=0.8,<1.0
 qrcode>=7.4,<9.0

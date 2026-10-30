@@ -6,59 +6,14 @@ import { haptic } from '../../../lib/haptic'
 import { tokenManager } from '../../../lib/tokenManager'
 import { ChatSocketManager, type ConnectionState } from '../../../lib/chatSocket'
 import PendingApprovals from './PendingApprovals'
-import AgentStepBubble, { type AgentStep } from './AgentStepBubble'
-import AgentConfirmBubble from './AgentConfirmBubble'
+import MessageBubble from './MessageBubble'
 import { swallowError } from '../../../lib/swallowError'
 import { translateText as bridgeTranslate } from '../../../lib/bridges'
-import { listPendingApprovals, approveApproval, rejectApproval } from '../../../lib/rpcClient'
 import { saveChatMessages, ingestConversation } from '../../../lib/bridges/aiBridge'
 import { ChatOrchestrator } from '../../../lib/chatOrchestrator'
 import { ToolRegistry } from '../../../lib/toolRegistry'
 import { OfflineAiFallback } from '../../../lib/offlineFallback'
 
-function parseAgentSteps(content: string): AgentStep[] {
-  const match = content.match(/```agent-steps\n([\s\S]*?)\n```/)
-  if (!match) return []
-  try {
-    const parsed = JSON.parse(match[1]) as unknown
-    if (!Array.isArray(parsed)) return []
-    return parsed
-      .filter((item): item is AgentStep => {
-        if (!item || typeof item !== 'object') return false
-        const v = item as Record<string, unknown>
-        return typeof v.icon === 'string'
-          && typeof v.title === 'string'
-          && ['running', 'completed', 'failed', 'pending'].includes(String(v.status))
-      })
-      .map(item => ({
-        icon: item.icon,
-        title: item.title,
-        detail: item.detail,
-        status: item.status,
-      }))
-  } catch {
-    return []
-  }
-}
-
-function stripAgentBlocks(content: string): string {
-  return content
-    .replace(/```agent-steps\n[\s\S]*?\n```/g, '')
-    .replace(/```agent-confirm\n[\s\S]*?\n```/g, '')
-    .trim()
-}
-
-function parseAgentConfirm(content: string): { title: string; detail?: string } | null {
-  const match = content.match(/```agent-confirm\n([\s\S]*?)\n```/)
-  if (!match) return null
-  try {
-    const parsed = JSON.parse(match[1]) as Record<string, unknown>
-    if (typeof parsed.title !== 'string') return null
-    return { title: parsed.title, detail: typeof parsed.detail === 'string' ? parsed.detail : undefined }
-  } catch {
-    return null
-  }
-}
 
 /** Read a file as base64 data URL */
 function readFileBase64(file: File): Promise<string> {
@@ -76,6 +31,7 @@ export default function ChatView() {
   const [showHistory, setShowHistory] = useState(false)
   const [sessions, setSessions] = useState<Array<{ id: string; title: string; updatedAt: number; messages: unknown[] }>>([])
   const sendMessage = useMobileStore(s => s.sendMessage)
+  const stopGeneration = useMobileStore(s => s.stopGeneration)
   const setConnection = useMobileStore(s => s.setConnection)
   const setStreaming = useMobileStore(s => s.setStreaming)
   const messages = useMobileStore(s => s.chat?.messages ?? [])
@@ -202,12 +158,31 @@ export default function ChatView() {
     if ((!text && !fileDataUrl) || streaming) return
     haptic.light()
     setStatus('')
+    /*
+     * 附件不能把 base64 正文拼进消息。
+     *
+     * 原实现直接把 `![name](data:image/...;base64,<几百 KB>)` 整段放进 content，
+     * 后果有三：
+     *   1. 这段文字会随 contextualizeMessage 发给模型 —— 图片不会以多模态方式
+     *      被理解，只是变成几十万 token 的垃圾文本，必然 400 或超上下文；
+     *   2. 整段写进 chat.messages 并持久化到 IndexedDB，
+     *      几张图就能把存储撑爆（此前「聊天记录消失」的老问题会复发）；
+     *   3. 隐私分级只看用户输入的文字，照片内容（证件/卡面）不受任何约束就上云。
+     *
+     * 现在的处理：
+     *   - 消息里只放「［图片：文件名］」这样的占位符，让模型知道有附件但看不到内容；
+     *   - 缩略图仍保留在本地 state 供气泡渲染（用户自己能看到）；
+     *   - 明确告知用户：本版本不会把图片内容发给 AI。
+     */
     let content = text
-    if (fileDataUrl) {
-      const fileName = pickedFile?.name || 'file'
-      content = fileDataUrl.startsWith('data:image/')
-        ? (text ? `${text}\n\n![${fileName}](${fileDataUrl})` : `![${fileName}](${fileDataUrl})`)
-        : (text ? `${text}\n\n[${fileName}](${fileDataUrl})` : `[${fileName}](${fileDataUrl})`)
+    if (fileDataUrl && pickedFile) {
+      const kind = pickedFile.type.startsWith('image/') ? '图片'
+        : pickedFile.type.startsWith('video/') ? '视频' : '文件'
+      const sizeText = pickedFile.size > 1024 * 1024
+        ? `${(pickedFile.size / 1024 / 1024).toFixed(1)}MB`
+        : `${Math.max(1, Math.round(pickedFile.size / 1024))}KB`
+      const placeholder = `［${kind}：${pickedFile.name}（${sizeText}，内容未发送给 AI）］`
+      content = text ? `${text}\n\n${placeholder}` : placeholder
     }
     try {
       await sendMessage(content)
@@ -376,71 +351,14 @@ export default function ChatView() {
             }
           </div>
         ) : (
-          messages.map((msg: { id: string; role: string; content: string }) => {
-            const imgMatch = msg.content.match(/!\[([^\]]*)\]\((data:image\/[^)]+)\)/)
-            const fileMatch = !imgMatch ? msg.content.match(/\[([^\]]*)\]\((data:[^)]+)\)/) : null
-            const rawText = imgMatch
-              ? msg.content.replace(/!\[([^\]]*)\]\(data:image\/[^)]+\)/, '').trim()
-              : fileMatch
-                ? msg.content.replace(/\[([^\]]*)\]\(data:[^)]+\)/, '').trim()
-                : msg.content
-            const agentSteps = msg.role === 'assistant' ? parseAgentSteps(rawText) : []
-            const agentConfirm = msg.role === 'assistant' ? parseAgentConfirm(rawText) : null
-            const textOnly = msg.role === 'assistant' ? stripAgentBlocks(rawText) : rawText
-            return (
-              <div key={msg.id} style={{
-                alignSelf: msg.role === 'user' ? 'flex-end' : 'flex-start',
-                maxWidth: '80%',
-                padding: imgMatch ? '6px 6px 10px 10px' : '10px 14px',
-                borderRadius: 'var(--radius-lg)',
-                background: msg.role === 'user' ? 'var(--accent)' : 'var(--bg-secondary)',
-                color: msg.role === 'user' ? '#fff' : 'var(--text-primary)',
-                fontSize: 'var(--text-footnote)',
-                lineHeight: 1.5,
-                whiteSpace: 'pre-wrap',
-              }}>
-                {msg.role === 'assistant' && !msg.content && streaming ? (
-                  <><span style={{ opacity: 0.5 }}>思考中</span><span style={{ animation: 'ellipsis 1.2s infinite' }}>...</span></>
-                ) : (
-                  <>
-                    {imgMatch && <img src={imgMatch[2]} alt={imgMatch[1]} style={{ maxWidth: '100%', maxHeight: 200, borderRadius: 8, marginBottom: textOnly ? 6 : 0, objectFit: 'cover' }} />}
-                    {fileMatch && !imgMatch && (
-                      <div style={{ padding: '8px 12px', borderRadius: 8, background: 'rgba(255,255,255,0.08)', textAlign: 'center', marginBottom: textOnly ? 6 : 0, fontSize: 'var(--text-caption-1)' }}>
-                        📎 {fileMatch[1]}
-                      </div>
-                    )}
-                    {agentSteps.length > 0 && <AgentStepBubble steps={agentSteps} />}
-                    {agentConfirm && (
-                      <AgentConfirmBubble
-                        title={agentConfirm.title}
-                        detail={agentConfirm.detail}
-                        onApprove={async () => {
-                          setStatus('正在申请执行…')
-                          try {
-                            const ld = await listPendingApprovals()
-                            if (Array.isArray(ld) && ld.length > 0) {
-                              await approveApproval(ld[0].pending_id)
-                              setStatus('已批准')
-                            } else setStatus('已允许（无待审批项）')
-                          } catch (e) { setStatus('批准失败: ' + (e instanceof Error ? e.message : '')) }
-                        }}
-                        onReject={async () => {
-                          try {
-                            const ld = await listPendingApprovals()
-                            if (Array.isArray(ld) && ld.length > 0) {
-                              await rejectApproval(ld[0].pending_id)
-                            }
-                          } catch (e) { swallowError('ChatView:388', e) }
-                          setStatus('已取消该操作')
-                        }}
-                      />
-                    )}
-                    {textOnly && <>{textOnly}</>}
-                  </>
-                )}
-              </div>
-            )
-          })
+          messages.map((msg: { id: string; role: string; content: string }) => (
+            <MessageBubble
+              key={msg.id}
+              msg={msg}
+              streaming={streaming}
+              onStatus={setStatus}
+            />
+          ))
         )}
         {streaming && messages.length > 0 && messages[messages.length - 1].content !== '' && (
           <div style={{ alignSelf: 'flex-start', fontSize: 'var(--text-caption-2)', color: 'var(--text-tertiary)', paddingLeft: 14 }}>
@@ -518,22 +436,34 @@ export default function ChatView() {
           aria-label="翻译"
         >译</button>
         <button
-          onClick={handleSend}
-          disabled={(!input.trim() && !fileDataUrl) || streaming}
-          onTouchStart={e => { if (!streaming) haptic.light(); (e.currentTarget as HTMLElement).style.transform = 'scale(0.92)' }}
+          onClick={streaming ? stopGeneration : handleSend}
+          disabled={!streaming && (!input.trim() && !fileDataUrl)}
+          onTouchStart={e => { haptic.light(); (e.currentTarget as HTMLElement).style.transform = 'scale(0.92)' }}
           onTouchEnd={e => { (e.currentTarget as HTMLElement).style.transform = 'scale(1)' }}
           style={{
             width: 40, height: 40, borderRadius: '50%', border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-            background: (input.trim() || fileDataUrl) && !streaming ? 'var(--accent)' : 'var(--bg-tertiary)',
-            color: (input.trim() || fileDataUrl) && !streaming ? '#fff' : 'var(--text-disabled)',
-            cursor: (input.trim() || fileDataUrl) && !streaming ? 'pointer' : 'default',
+            /*
+             * 生成中时按钮变成「停止」：此前生成过程中发送键只是置灰禁用，
+             * 用户没有任何中止手段，请求卡住就只能干等（输入框一直锁着）。
+             * 现在同一位置点一下即可取消，位置不变、肌肉记忆不变。
+             */
+            background: streaming ? 'var(--danger, #FF3B30)' : ((input.trim() || fileDataUrl) ? 'var(--accent)' : 'var(--bg-tertiary)'),
+            color: streaming ? '#fff' : ((input.trim() || fileDataUrl) ? '#fff' : 'var(--text-disabled)'),
+            cursor: streaming || input.trim() || fileDataUrl ? 'pointer' : 'default',
             transition: 'all 0.15s ease',
           }}
-          aria-label="发送"
+          aria-label={streaming ? '停止生成' : '发送'}
         >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" />
-          </svg>
+          {streaming ? (
+            /* 方块 = 停止，符合通用媒体播放器语义 */
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+              <rect x="6" y="6" width="12" height="12" rx="2" />
+            </svg>
+          ) : (
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" />
+            </svg>
+          )}
         </button>
       </div>
 

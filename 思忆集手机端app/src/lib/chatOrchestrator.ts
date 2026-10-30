@@ -165,11 +165,26 @@ export class ChatOrchestrator {
     /* 3. 正常路由 */
     const target = resolveTarget(intent, privacy, ctx.isDesktopConnected, ctx.userPref)
 
+    /*
+     * 失败原因必须保留下来。
+     *
+     * 原来这里两个 catch 都是空的 `catch { return null }`：
+     * 云端 401/429、桌面端连不上，真实原因全被丢掉，
+     * 最后统一显示「已排队等待」——
+     * 用户配错了 Key 却被告知「排队」，永远查不到症结。
+     * 实测复现：mock 云端返回 401，界面显示的是「桌面端未连接，
+     * 云端 AI 也不可用，已排队等待」，看不到 "API Key 无效" 这层信息。
+     *
+     * 现在把最后一个真实错误留下来，走到兜底分支时优先把它告诉用户。
+     */
+    let lastError: string | null = null
+
     const tryDesktop = async (): Promise<string | null> => {
       if (!ctx.isDesktopConnected) return null
       try {
         return await ctx.sendDesktop(text, ctx.onChunk ?? (() => {}), req.sessionId)
-      } catch {
+      } catch (e) {
+        lastError = e instanceof Error ? e.message : String(e)
         return null
       }
     }
@@ -178,7 +193,8 @@ export class ChatOrchestrator {
       if (!ctx.cloudConfigured || !ctx.userPref.cloudAiEnabled) return null
       try {
         return await ctx.sendCloud(text, ctx.onChunk ?? (() => {}), req.sessionId)
-      } catch {
+      } catch (e) {
+        lastError = e instanceof Error ? e.message : String(e)
         return null
       }
     }
@@ -248,7 +264,15 @@ export class ChatOrchestrator {
      * 排查时完全没有指向性。
      */
     let reason: string
-    if (ctx.isDesktopConnected) {
+    /*
+     * 优先展示真实错误。
+     * 用户配错 Key（401）、被限流（429）、余额不足（402）都属于
+     * 「通道其实调用了，但服务端拒绝了」，这种情况必须把原因原样告诉用户，
+     * 否则会误导成「网络没通，排队等重试」——完全不同的处理方向。
+     */
+    if (lastError) {
+      reason = `❌ ${lastError}`
+    } else if (ctx.isDesktopConnected) {
       reason = 'AI 服务暂时不可用，已排队，联网后会自动重试'
     } else if (!ctx.userPref.cloudAiEnabled) {
       reason = '⏳ 云端 AI 未启用。请到 设置 → AI 配置 打开「启用云端 AI」，并填入 API Key'

@@ -202,20 +202,31 @@ export default function App() {
 
       {bootPhase === 'booting' && <SkeletonLoader />}
 
-      <LockScreen />
+      {/*
+        浮层必须各自有 ErrorBoundary。此前它们裸挂在 App 根部：
+        LockScreen / Onboarding / GlobalSearch / Toast / QuickNoteSheet / ApprovalDialog
+        任一抛错都会让整棵树卸载 → 白屏，连解锁界面都没了。
+        单 Tab 崩溃只降级自己是已有的设计（见上面各 Tab 的包裹），
+        浮层这块当时漏了，这里补齐。
+      */}
+      <ErrorBoundary context="lock"><LockScreen /></ErrorBoundary>
 
       {showOnboarding && (
-        <Onboarding onComplete={handleOnboardingComplete} />
+        <ErrorBoundary context="onboarding">
+          <Onboarding onComplete={handleOnboardingComplete} />
+        </ErrorBoundary>
       )}
 
-      <GlobalSearch
-        open={searchModalOpen}
-        onClose={() => setSearchModalOpen(false)}
-        onSelectTodo={() => { setActiveTab('todo'); setSearchModalOpen(false) }}
-        onSelectNote={() => { setActiveTab('notes'); setSearchModalOpen(false) }}
-      />
+      <ErrorBoundary context="search">
+        <GlobalSearch
+          open={searchModalOpen}
+          onClose={() => setSearchModalOpen(false)}
+          onSelectTodo={() => { setActiveTab('todo'); setSearchModalOpen(false) }}
+          onSelectNote={() => { setActiveTab('notes'); setSearchModalOpen(false) }}
+        />
+      </ErrorBoundary>
 
-      <Toast />
+      <ErrorBoundary context="toast"><Toast /></ErrorBoundary>
 
       <nav className="tabbar tabbar--glass" role="tablist" aria-label={t('mobileNav.label') || '主导航'}>
         {tabIcons.map(({ key, Icon, primary }) => {
@@ -252,20 +263,24 @@ export default function App() {
         })}
       </nav>
 
-      <QuickNoteSheet
-        open={showQuickNote}
-        onClose={() => setShowQuickNote(false)}
-      />
+      <ErrorBoundary context="quicknote">
+        <QuickNoteSheet
+          open={showQuickNote}
+          onClose={() => setShowQuickNote(false)}
+        />
+      </ErrorBoundary>
 
       {/*
         高风险操作审批弹窗。
         放在最外层，确保任何 Tab 下都能弹出（AI 可能在后台执行多步任务）。
         AI 被拒绝后会收到原因并转述给用户，不会静默重试。
       */}
-      <ApprovalDialog
-        request={pendingApproval}
-        onDecide={(approved, reason) => resolveApproval(approved, reason)}
-      />
+      <ErrorBoundary context="approval">
+        <ApprovalDialog
+          request={pendingApproval}
+          onDecide={(approved, reason) => resolveApproval(approved, reason)}
+        />
+      </ErrorBoundary>
     </div>
   )
 }

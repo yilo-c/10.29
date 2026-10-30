@@ -13,7 +13,7 @@ from urllib.request import urlopen
 
 from core.action_guard import ActionGuard
 from core.observability import SEVERITY_DEGRADED
-from core.settings_schema import (
+from core.settings_keys import (
     KEY_ASSISTANT_AUTO_PREPARE_DOCKER,
     KEY_ASSISTANT_DOCKER_STACK_PORT,
     KEY_AUTOMATION_HUB_API_BASE,

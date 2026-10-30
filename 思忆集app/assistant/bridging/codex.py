@@ -376,7 +376,7 @@ class CodexMissionOrchestrator:
             return [commands.strip()]
 
         if self.settings_repository is not None:
-            from core.settings_schema import KEY_ASSISTANT_CODEX_VERIFY_COMMANDS
+            from core.settings_keys import KEY_ASSISTANT_CODEX_VERIFY_COMMANDS
 
             saved = self.settings_repository.get_setting(KEY_ASSISTANT_CODEX_VERIFY_COMMANDS, [])
             if isinstance(saved, list):

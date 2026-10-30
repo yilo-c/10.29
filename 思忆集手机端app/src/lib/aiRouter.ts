@@ -168,16 +168,32 @@ function resolveComplexTarget(
   }
 
   if (privacyLevel === PrivacyLevel.SYNCABLE) {
-    // 自己的数据：优先自己的桌面端；桌面不在且用户开了云，才上云
+    /*
+     * 桌面 / 云 的取舍（2026-10-30 修复）。
+     *
+     * 原实现有致命 bug：
+     *   if (isDesktopConnected && userPref.preferDesktopAi) return DESKTOP
+     *   if (isDesktopConnected) return DESKTOP        ← 这行忽略了开关
+     * 第二行让「只要桌面在线就强制走桌面」，preferDesktopAi 形同虚设，
+     * 且它排在云判断之前，导致**云 AI 永远不可达**。
+     * 现象：手机端 AI 对话实质被桌面端绑架，桌面一断线就只会「排队」。
+     *
+     * 正确语义：手机与桌面是独立平台，同步的只是数据；AI 走哪条通道
+     * 由用户显式开关决定，而不是由「桌面是否碰巧在线」决定。
+     *   - preferDesktopAi = true 且桌面可达 → 用桌面（默认行为，保持兼容）
+     *   - 否则若开了云 AI → 用云
+     *   - 都没有 → 排队等重试
+     */
     if (isDesktopConnected && userPref.preferDesktopAi) {
       return AiTarget.DESKTOP_LOCAL_AI
     }
-    if (isDesktopConnected) {
-      return AiTarget.DESKTOP_LOCAL_AI
-    }
-    // 桌面不可达：用户显式允许云 → 上云；否则排队等桌面
     if (userPref.cloudAiEnabled && !userPref.promptBeforeCloud) {
       return AiTarget.CLOUD_AI
+    }
+    // 到这里说明用户没优先桌面、云又没开（或被「上传前询问」拦住）：
+    // 桌面仍在线时退而用桌面，总比让用户干等好。
+    if (isDesktopConnected) {
+      return AiTarget.DESKTOP_LOCAL_AI
     }
     return AiTarget.QUEUED_PENDING
   }

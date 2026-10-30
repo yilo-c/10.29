@@ -23,6 +23,15 @@ from __future__ import annotations
 import re
 import subprocess
 import sys
+
+# [stdio-utf8-guard] 中文 Windows 控制台(cp1252)下 print 中文会 UnicodeEncodeError 并退出 1，
+# 导致 CI quality-gates 中断、后续步骤全部 skipped。详见 scripts/_stdio.py。
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
+except Exception:
+    pass
+
 from pathlib import Path
 
 PATTERNS = [
@@ -59,6 +68,13 @@ ALLOWLIST = [
     "sk-your-api-key-here",
     "sk-your-fallback-key",
     "ghp_your_token_here",
+    # 2026-10-31：test_preview_redact_p1c.py 的脱敏测试样本。
+    # 该文件测「预览参数脱敏」，密钥值必须形似真密钥才测得到 mask 逻辑；
+    # 均为人工虚构，非真实凭据。
+    # 事故：CI run 41136713073 的 quality-gates 在该文件 6 处命中而红。
+    "sk-9b87c1def1ff4472a38be5e0e219c0c0",
+    "sk-abcdefghijklmnop1111",
+    "sk-abcdefghijklmnop1234",
 ]
 
 # 允许扫描的扩展名

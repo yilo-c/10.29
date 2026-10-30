@@ -73,7 +73,19 @@ export async function listApiKeys(): Promise<ApiKeyInfo[]> {
   } catch { return [] }
 }
 export async function createApiKey(name: string, key: string): Promise<ApiKeyInfo | null> {
-  try { return await callRpc<ApiKeyInfo>('api_keys.create', { name, key }) } catch { return null }
+  try {
+    /*
+     * 后端 `api_keys_create` 校验的是 `kwargs.get("key_value")`，
+     * 传 `key` 会被判为缺失并直接返回 `{success:false, error:"key_value is required"}`。
+     * 原代码把响应当 ApiKeyInfo 直接返回，于是界面显示「创建成功」但列表里没有。
+     */
+    const res = await callRpc<ApiKeyInfo & { success?: boolean; error?: string }>('api_keys.create', {
+      name,
+      key_value: key,
+    })
+    if (!res || res.success === false || res.error) return null
+    return res
+  } catch { return null }
 }
 export async function updateApiKey(keyId: string | number, patch: Partial<ApiKeyInfo>): Promise<boolean> {
   try { await callRpc('api_keys.update', { key_id: keyId, ...patch }); return true } catch { return false }

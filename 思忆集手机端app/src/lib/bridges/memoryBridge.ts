@@ -69,10 +69,25 @@ export async function surfaceForInput(text: string): Promise<MemoryItem[]> {
   }
 }
 
+/**
+ * 保存对话锚点。
+ *
+ * 后端签名 `memory_save_conversation_anchor(session_id, messages, text)`，
+ * 没有 `anchor` 字段。此前传 `{session_id, anchor}` ——
+ * `anchor` 落进 `**kwargs` 被吞、`text` 为空，
+ * 后端拿不到任何内容，**恒返回 false，记忆锚点从未真正保存过**。
+ *
+ * 另外该返回值是裸 bool（不是 {success} 信封），所以要按布尔判断，
+ * 不能只看「有没有抛异常」。
+ */
 export async function saveConversationAnchor(sessionId: string, anchor: string): Promise<boolean> {
   try {
-    await callRpc('memory.save_conversation_anchor', { session_id: sessionId, anchor })
-    return true
+    const res = await callRpc<boolean | { success?: boolean }>('memory.save_conversation_anchor', {
+      session_id: sessionId,
+      text: anchor,
+    })
+    if (typeof res === 'boolean') return res
+    return res?.success === true
   } catch {
     return false
   }

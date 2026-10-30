@@ -83,9 +83,19 @@ export async function get(entryId: string): Promise<AuditEntry | null> {
 
 export async function stats(): Promise<AuditStats | null> {
   try {
-    const res = await callRpc<AuditStats & { error?: string }>('audit.stats', {})
-    if (res && typeof res === 'object' && res.error) return null
-    return res ?? null
+    /*
+     * 后端字段名是 `rollbackable_count`（_audit.py:201），
+     * 而 TS 类型声明的是 `rollbackable`。
+     * 直接用会导致「可回滚数量」恒为 undefined（界面显示空白或 0），
+     * 用户会以为没有可回滚的记录。这里做一次显式映射。
+     */
+    const res = await callRpc<AuditStats & { rollbackable_count?: number; error?: string }>('audit.stats', {})
+    if (!res || typeof res !== 'object') return null
+    if (res.error) return null
+    return {
+      ...res,
+      rollbackable: res.rollbackable ?? res.rollbackable_count,
+    }
   } catch {
     return null
   }

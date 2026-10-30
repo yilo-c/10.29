@@ -28,11 +28,27 @@ export async function getDaily(date?: string | Date): Promise<DailyEntry | null>
     if (typeof res === 'string') return { date: toIsoDate(date), content: res }
     if (res && typeof res === 'object') {
       const obj = res as Record<string, unknown>
+      /*
+       * 后端 `daily_get` 返回 `{note: {...}, date}` 信封，
+       * 正文在 `note.content` 里。原代码直接读 `obj.content`，
+       * 于是日记正文永远是空串 —— 界面看起来像「今天还没写」，
+       * 实际内容一直存在后端。
+       */
+      const note = (obj.note && typeof obj.note === 'object')
+        ? obj.note as Record<string, unknown>
+        : null
+
+      // 兼容少数直接返回扁平结构的分支
+      const content = typeof note?.content === 'string'
+        ? note.content
+        : (typeof obj.content === 'string' ? obj.content : '')
+      const updated = note?.updated_at ?? obj.updated_at
+
       return {
         date: typeof obj.date === 'string' ? obj.date : toIsoDate(date),
-        content: typeof obj.content === 'string' ? obj.content : '',
-        updated_at: typeof obj.updated_at === 'string' || typeof obj.updated_at === 'number'
-          ? obj.updated_at as string | number
+        content,
+        updated_at: typeof updated === 'string' || typeof updated === 'number'
+          ? updated as string | number
           : undefined,
       }
     }

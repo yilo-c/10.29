@@ -98,7 +98,12 @@ export async function runNow(args: {
   contextData?: Record<string, unknown>
   timeout?: number
 }): Promise<{ success: boolean; result?: unknown; error?: string }> {
-  const res = await callRpc<Envelope & { result?: unknown }>('agent.run_now', {
+  /*
+   * 后端 `agent_run_now` 返回的是 `{success, invocation}`，
+   * 没有 `result` 字段。原代码读 `res.result` → 永远是 undefined，
+   * 调用方拿到「执行成功但没有任何结果」，看起来像 Agent 什么都没做。
+   */
+  const res = await callRpc<Envelope & { invocation?: unknown }>('agent.run_now', {
     agent_id: args.agentId,
     task: args.task,
     context_data: args.contextData ?? null,
@@ -107,7 +112,7 @@ export async function runNow(args: {
   if (res?.success !== true) {
     return { success: false, error: res?.error ?? 'Agent 执行失败' }
   }
-  return { success: true, result: res.result }
+  return { success: true, result: res.invocation }
 }
 
 /**

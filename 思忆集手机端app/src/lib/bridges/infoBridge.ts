@@ -87,15 +87,33 @@ function asArray<T>(res: unknown, ...keys: string[]): T[] {
 
 export async function listItems(args: ListItemsArgs = {}): Promise<InfoItem[]> {
   try {
-    const res = await callRpc<unknown>('info.items.list', {
-      section: args.section,
-      source: args.source,
-      unread_only: args.unread_only,
-      saved_only: args.saved_only,
+    /*
+     * 参数名必须与后端 `_info_items.py:55 info_items_list` 严格一致。
+     *
+     * 此前传的是 section / unread_only / saved_only / query 四个字段，
+     * 而后端签名是 source / category / saved / read / search / limit / offset /
+     * sort_by / sort_desc，且末尾带 `**kwargs`——
+     * 参数名写错时不会被报错，而是直接落进 kwargs 被忽略。
+     * 结果：**四个过滤条件全部失效**，界面无论怎么筛都返回同一条数据
+     * （恒为未过滤的第一页），用户会以为「筛选坏了/数据没更新」。
+     *
+     * 映射关系：
+     *   section     → category
+     *   unread_only → read: false
+     *   saved_only  → saved: true
+     *   query       → search
+     */
+    const params: Record<string, unknown> = {
       limit: args.limit,
       offset: args.offset,
-      query: args.query,
-    })
+    }
+    if (args.section != null) params.category = args.section
+    if (args.source != null) params.source = args.source
+    if (args.unread_only) params.read = false
+    if (args.saved_only) params.saved = true
+    if (args.query != null) params.search = args.query
+
+    const res = await callRpc<unknown>('info.items.list', params)
     return asArray<InfoItem>(res, 'items', 'list', 'data')
   } catch {
     return []
@@ -104,8 +122,13 @@ export async function listItems(args: ListItemsArgs = {}): Promise<InfoItem[]> {
 
 export async function getItem(itemId: string | number): Promise<InfoItem | null> {
   try {
-    const res = await callRpc<InfoItem>('info.items.get', { item_id: itemId })
-    return res ?? null
+    /*
+     * 后端 `info_items_get` 返回的是 `{item: {...}}` 信封，不是条目本身。
+     * 原代码直接把整个响应当 InfoItem 用，于是所有字段都是 undefined，
+     * 详情页永远是空白——但不会报错，看起来像「数据没加载出来」。
+     */
+    const res = await callRpc<{ item?: InfoItem | null; error?: string }>('info.items.get', { item_id: itemId })
+    return res?.item ?? null
   } catch {
     return null
   }
@@ -168,7 +191,13 @@ export async function itemSources(): Promise<Array<{ source?: string; count?: nu
 
 export async function stats(): Promise<InfoStats | null> {
   try {
-    return await callRpc<InfoStats>('info.items.stats', {})
+    /*
+     * 后端返回 `{stats: {...}}` 信封，不是扁平的统计对象。
+     * 原代码把整个响应当 InfoStats 用，于是 total/unread 等字段全为 undefined，
+     * 首页统计永远显示 0 或空白。
+     */
+    const res = await callRpc<{ stats?: InfoStats; error?: string }>('info.items.stats', {})
+    return res?.stats ?? null
   } catch {
     return null
   }
@@ -214,11 +243,21 @@ export async function deleteSection(sectionId: string | number): Promise<boolean
   }
 }
 
-/** 让 AI 根据现有内容推荐分区关键词。 */
-export async function aiSuggestKeywords(sectionId?: string | number): Promise<string[]> {
+/**
+ * 让 AI 根据板块名称推荐关键词。
+ *
+ * 后端签名是 `info_sections_ai_suggest_keywords(name, count)` ——
+ * 要的是**板块名称字符串**，不是 section_id。
+ * 原代码传 section_id，name 为空 → 后端直接返回
+ * `{"success":false,"error":"板块名称不能为空"}`，
+ * 于是推荐关键词功能永远是空结果。
+ *
+ * 故参数改为 sectionName；调用方需要传板块名而不是 id。
+ */
+export async function aiSuggestKeywords(sectionName?: string): Promise<string[]> {
   try {
     const res = await callRpc<unknown>('info.sections.ai_suggest_keywords', {
-      ...(sectionId != null ? { section_id: sectionId } : {}),
+      ...(sectionName != null ? { name: sectionName } : {}),
     })
     if (Array.isArray(res)) return res.filter((x): x is string => typeof x === 'string')
     if (res && typeof res === 'object') {
@@ -229,6 +268,20 @@ export async function aiSuggestKeywords(sectionId?: string | number): Promise<st
   } catch {
     return []
   }
+}
+
+/*
+ * 后端约定：失败时返回 `{success:false, error}` 或 `{error}`，**不抛异常**。
+ * 所以「没抛错」不等于成功，必须检查信封字段，
+ * 否则界面会全体假成功（点了没反应但也没报错，最难排查的一类）。
+ */
+function okEnvelope(res: unknown): boolean {
+  if (res && typeof res === 'object') {
+    const o = res as { error?: unknown; success?: unknown }
+    if (o.error) return false
+    if (o.success === false) return false
+  }
+  return true
 }
 
 /* ── 信息源 ── */
@@ -248,7 +301,18 @@ export async function addSource(source: {
   type?: string
 }): Promise<InfoSource | null> {
   try {
-    return await callRpc<InfoSource>('info.sources.add', source)
+    /*
+     * 后端 `info_sources_add(name, url, parser_type, ...)` 用的是 parser_type，
+     * 不是 type。传 type 会被吞，后端回落到默认 rss —— 对 RSS 源恰好能用，
+     * 但添加其它类型（json/html）时会静默变成 rss 解析，结果抓不到内容。
+     */
+    const res = await callRpc<InfoSource & { error?: string }>('info.sources.add', {
+      url: source.url,
+      ...(source.name != null ? { name: source.name } : {}),
+      ...(source.type != null ? { parser_type: source.type } : {}),
+    })
+    if (!res || res.error) return null
+    return res
   } catch {
     return null
   }
@@ -256,8 +320,13 @@ export async function addSource(source: {
 
 export async function removeSource(sourceId: string | number): Promise<boolean> {
   try {
-    await callRpc('info.sources.remove', { source_id: sourceId })
-    return true
+    /*
+     * 后端 `info_sources_remove(name)` 用 name 标识源，没有 source_id。
+     * 传 source_id 会被 kwargs 吞掉 → 后端判「缺少 name 参数」直接失败，
+     * 而原代码不看返回值就 return true，界面显示删除成功但列表没变。
+     */
+    const res = await callRpc<unknown>('info.sources.remove', { name: String(sourceId) })
+    return okEnvelope(res)
   } catch {
     return false
   }
@@ -265,11 +334,12 @@ export async function removeSource(sourceId: string | number): Promise<boolean> 
 
 export async function toggleSource(sourceId: string | number, enabled?: boolean): Promise<boolean> {
   try {
-    await callRpc('info.sources.toggle', {
-      source_id: sourceId,
+    // 同上：后端用 name 标识源
+    const res = await callRpc<unknown>('info.sources.toggle', {
+      name: String(sourceId),
       ...(enabled != null ? { enabled } : {}),
     })
-    return true
+    return okEnvelope(res)
   } catch {
     return false
   }
@@ -277,8 +347,8 @@ export async function toggleSource(sourceId: string | number, enabled?: boolean)
 
 export async function resetSources(): Promise<boolean> {
   try {
-    await callRpc('info.sources.reset', {})
-    return true
+    const res = await callRpc<unknown>('info.sources.reset', {})
+    return okEnvelope(res)
   } catch {
     return false
   }
@@ -289,8 +359,15 @@ export async function resetSources(): Promise<boolean> {
 /** 触发一次抓取（代理到后端，耗时可能较长）。 */
 export async function fetchNow(sourceId?: string | number): Promise<boolean> {
   try {
-    await callRpc('info.fetch_proxy', { ...(sourceId != null ? { source_id: sourceId } : {}) })
-    return true
+    /*
+     * 后端 `info_fetch_proxy(source, url)` 用 `source` 指定源，没有 source_id。
+     * 原代码传 source_id，且它是唯一参数 → 后端收到的 source 为空、
+     * url 也为空 → 走「抓全部源」分支。
+     * 用户以为在刷新某个源，实际触发的是全量抓取（慢、量大、还可能被限流）。
+     */
+    const res = await callRpc<unknown>('info.fetch_proxy',
+      sourceId != null ? { source: String(sourceId) } : {})
+    return okEnvelope(res)
   } catch {
     return false
   }

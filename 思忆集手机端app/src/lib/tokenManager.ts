@@ -81,7 +81,19 @@ export const tokenManager = {
   get cloudAiEnabled(): boolean { return getBool(KEY_CLOUD_AI_ENABLED, false) },
   set cloudAiEnabled(v: boolean) { setBool(KEY_CLOUD_AI_ENABLED, v) },
 
-  get promptBeforeCloud(): boolean { return getBool(KEY_PROMPT_BEFORE_CLOUD, true) },
+  get promptBeforeCloud(): boolean {
+    /*
+     * 默认值由 true 改为 false（2026-10-30）。
+     *
+     * 原因：这个开关全项目只有一个 UI 开关，**从未实现过真正的「确认弹窗」**。
+     * 它只参与路由判断：为 true 时直接判为 QUEUED_PENDING（排队），
+     * 既不询问也不解释。名字叫「调用前确认」，实际效果是「禁用云端」。
+     * 默认开启 = 用户配好 Key 后仍然一句话都用不了，且看不出原因。
+     *
+     * 若将来补上真实确认弹窗，可再讨论改回默认 true。
+     */
+    return getBool(KEY_PROMPT_BEFORE_CLOUD, false)
+  },
   set promptBeforeCloud(v: boolean) { setBool(KEY_PROMPT_BEFORE_CLOUD, v) },
 
   get preferDesktopAi(): boolean { return getBool(KEY_PREFER_DESKTOP_AI, true) },

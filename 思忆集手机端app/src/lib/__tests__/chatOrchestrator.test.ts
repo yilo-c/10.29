@@ -102,6 +102,27 @@ describe('ChatOrchestrator — 隐私闸门（本次核心修复）', () => {
     expect(res.channel).toBe('blocked')
     expect(sendCloud).not.toHaveBeenCalled()
   })
+
+  /*
+   * 回归保护：promptBeforeCloud 默认值改为 false 后，敏感内容防线不得被削弱。
+   *
+   * promptBeforeCloud 只影响 SHAREABLE 这一级的「是否自动上云」；
+   * LOCAL_ONLY（敏感内容）走的是独立的 blocked 分支，与此开关无关。
+   * 这条用例锁定该独立性——将来谁改动路由，若让敏感内容因为这个开关
+   * 变 false 就漏出去，这里必须红。
+   */
+  it('promptBeforeCloud=false 时敏感内容仍然被拦截（防线不因默认值变更而削弱）', async () => {
+    const { ctx, sendCloud, sendDesktop } = makeCtx()
+    const ctxNoPrompt = {
+      ...ctx,
+      userPref: { ...ctx.userPref, promptBeforeCloud: false, cloudAiEnabled: true },
+    }
+    const res = await orchestrator.run({ text: '这是我的密码：abc123' }, ctxNoPrompt)
+
+    expect(res.channel).toBe('blocked')
+    expect(sendCloud).not.toHaveBeenCalled()
+    expect(sendDesktop).not.toHaveBeenCalled()
+  })
 })
 
 describe('ChatOrchestrator — 工具优先', () => {

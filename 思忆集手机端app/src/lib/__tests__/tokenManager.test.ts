@@ -60,8 +60,17 @@ describe('tokenManager', () => {
     expect(tokenManager.isPaired).toBe(false)
   })
 
-  it('defaults promptBeforeCloud to true', () => {
-    expect(tokenManager.promptBeforeCloud).toBe(true)
+  it('defaults promptBeforeCloud to false（语义修正，见 tokenManager 注释）', () => {
+    /*
+     * 原断言是 toBe(true)，现已改为 false。
+     *
+     * 原因：这个开关从未实现过确认弹窗，它只参与路由判断——
+     * 为 true 时请求直接判为 QUEUED_PENDING（排队），既不询问也不解释。
+     * 名字叫「云端调用前确认」，实际效果是「禁用云端」。
+     * 默认开启导致用户配好 Key 后仍然一句话都用不了，且看不出原因
+     * （用户实测截图即为此状态）。故默认值改为 false。
+     */
+    expect(tokenManager.promptBeforeCloud).toBe(false)
   })
 
   it('defaults preferDesktopAi to true', () => {

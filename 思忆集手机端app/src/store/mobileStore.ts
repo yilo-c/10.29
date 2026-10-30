@@ -711,10 +711,20 @@ export const useMobileStore = create<MobileStore>()(
                 const overrides = activeProfile?.protocol === 'openai'
                   ? { apiKey: tokenManager.cloudApiKey || undefined, baseUrl: activeProfile.apiUrl, model: activeProfile.model }
                   : undefined
-                await cloudAi.sendMessageStreaming(
+                /*
+                 * 必须返回 AI 的真实回复，不能返回 msg。
+                 *
+                 * 这里原来写的是 `await cloudAi.sendMessageStreaming(...)` 之后
+                 * `return msg` —— 返回的是**用户自己说的话**。
+                 * ChatOrchestrator 把 sendCloud 的返回值当作 reply 写进气泡，
+                 * 于是触发云端时界面就显示用户原话，表现为「AI 复读」。
+                 * 流式回调 chunk 已经把内容实时写进气泡了，
+                 * 但 orchestration 的最终 reply 会再覆盖一次，所以必须给真内容。
+                 */
+                const res = await cloudAi.sendMessageStreaming(
                   contextualizeMessage(msg), chunk, sessionId, overrides,
                 )
-                return msg
+                return res.reply
               },
               sendDesktop: async (msg, chunk, sessionId) => {
                 const desktopAi = new DesktopAiClient()

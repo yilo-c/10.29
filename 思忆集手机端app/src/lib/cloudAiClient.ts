@@ -18,6 +18,37 @@ interface ChatCompletionRequest {
 }
 
 /**
+ * 把 HTTP 错误翻译成人能看懂的话。
+ *
+ * 为什么需要：此前一律 `throw new Error(\`Cloud AI ${status}: ${text}\`)`，
+ * 用户看到的是 `Cloud AI 429: {"error":{"message":"Rate limit..."}}`
+ * 这种技术噪音，既不知道该等还是该改配置，也不知道是自己的问题还是服务商的。
+ * 常见情形必须给出可执行的动作。
+ */
+export function friendlyHttpError(status: number, rawBody: string): string {
+  const body = (rawBody || '').slice(0, 200)
+  switch (status) {
+    case 401:
+      return 'API Key 无效或已过期。请到 设置 → AI 配置 检查 Key 是否填错、是否已被撤销。'
+    case 402:
+      return '账户余额不足。请到服务商控制台充值后重试。'
+    case 403:
+      return '该 Key 无权访问此模型。请检查「模型名」是否有权限，或换一个有权限的模型。'
+    case 404:
+      return '接口地址或模型不存在。请检查「API 地址」是否为 .../v1 结尾，以及「模型名」是否拼写正确。'
+    case 429:
+      return '请求过于频繁或额度用尽，已被服务商限流。请稍等再试。'
+    case 500:
+    case 502:
+    case 503:
+    case 504:
+      return '服务商暂时不可用（服务端错误）。稍后重试；若持续出现请换服务商。'
+    default:
+      return `请求失败（HTTP ${status}）：${body || '无详细原因'}`
+  }
+}
+
+/**
  * 解析实际使用的模型名。
  *
  * 优先级：用户显式配置 > 按 API 地址推断。
@@ -129,7 +160,7 @@ export class CloudAiClient {
 
     if (!res.ok) {
       const text = await res.text().catch(() => '')
-      throw new Error(`Cloud AI ${res.status}: ${text}`)
+      throw new Error(friendlyHttpError(res.status, text))
     }
 
     const json = await res.json() as {
@@ -145,6 +176,14 @@ export class CloudAiClient {
     onChunk: (chunk: string) => void,
     _sessionId?: string,
     overrides?: { apiKey?: string; baseUrl?: string; model?: string },
+    /*
+     * 取消支持 / Cancellation。
+     *
+     * 为什么必须支持：此前 7 处 fetch 全部没有 signal，用户发出消息后
+     * 只能干等——无法中止、切走页面请求还在跑、组件卸载后回调仍写 state。
+     * 移动端网络差时尤其难受：一次卡住的请求会让输入框一直锁着。
+     */
+    signal?: AbortSignal,
   ): Promise<CloudAiResponse> {
     const apiKey = overrides?.apiKey ?? tokenManager.cloudApiKey
     const baseUrl = overrides?.baseUrl ?? tokenManager.cloudApiBaseUrl
@@ -169,11 +208,12 @@ export class CloudAiClient {
         'Authorization': `Bearer ${apiKey}`,
       },
       body: JSON.stringify(body),
+      signal,
     })
 
     if (!res.ok) {
       const text = await res.text().catch(() => '')
-      throw new Error(`Cloud AI ${res.status}: ${text}`)
+      throw new Error(friendlyHttpError(res.status, text))
     }
 
     let fullReply = ''
@@ -193,9 +233,25 @@ export class CloudAiClient {
 
 /* ── 笔记 AI 助手专用：带 system prompt 的单次对话 ── */
 
-/** 是否已配置云 AI（有 key） */
+/**
+ * 云端 AI 是否可用。
+ *
+ * ⚠️ 历史 bug：此前只判断「有没有填 Key」，
+ * 于是用户明确关掉「启用云端 AI」开关后，单轮对话确实走本地/排队，
+ * 但多步任务（Agent 循环）照样调用 `usingCloudAi()` 通过并上云——
+ * **开关对 Agent 路径完全无效**，这是个隐私预期违背：
+ * 用户以为关了就是不上云。
+ *
+ * 现在要求三件事同时成立：
+ *   1. 有 Key（或已选 profile 提供 Key）
+ *   2. 用户打开了 cloudAiEnabled 开关
+ *   3. 没勾「上云前确认」——该选项语义是「每次上云前先问」，
+ *      而 Agent 循环是后台多步执行，无法逐次询问，故视为不允许。
+ */
 export function usingCloudAi(): boolean {
-  return !!tokenManager.cloudApiKey
+  return !!(tokenManager.cloudApiKey)
+    && tokenManager.cloudAiEnabled
+    && !tokenManager.promptBeforeCloud
 }
 
 export interface ChatOnceArgs {
@@ -242,7 +298,7 @@ export async function cloudChat(args: ChatOnceArgs): Promise<string> {
 
   if (!res.ok) {
     const text = await res.text().catch(() => '')
-    throw new Error(`AI ${res.status}: ${text.slice(0, 120)}`)
+    throw new Error(friendlyHttpError(res.status, text))
   }
 
   const json = await res.json() as { choices?: { message?: { content?: string } }[] }
@@ -294,7 +350,7 @@ export async function cloudChatMultiTurn(args: {
 
   if (!res.ok) {
     const text = await res.text().catch(() => '')
-    throw new Error(`AI ${res.status}: ${text.slice(0, 120)}`)
+    throw new Error(friendlyHttpError(res.status, text))
   }
 
   const json = await res.json() as { choices?: { message?: { content?: string } }[] }
@@ -398,7 +454,7 @@ export async function chatWithTools(args: {
 
   if (!res.ok) {
     const t = await res.text().catch(() => '')
-    throw new Error(`AI ${res.status}: ${t.slice(0, 150)}`)
+    throw new Error(friendlyHttpError(res.status, t))
   }
 
   const json = await res.json() as {

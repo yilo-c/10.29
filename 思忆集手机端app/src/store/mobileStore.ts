@@ -14,7 +14,7 @@ import { ChatOrchestrator } from '../lib/chatOrchestrator'
 import { OfflineAiFallback } from '../lib/offlineFallback'
 import { useStore, getHuangli } from '@desk-notes/shared'
 import type { PendingApproval } from '../lib/rpcClient'
-import { listPendingApprovals, approveApproval, rejectApproval } from '../lib/rpcClient'
+import { listPendingApprovals, approveApproval, rejectApproval, isDesktopConnected } from '../lib/rpcClient'
 
 /* ── Chat types ── */
 
@@ -26,6 +26,14 @@ import { listPendingApprovals, approveApproval, rejectApproval } from '../lib/rp
  * 放进 state 会污染 persist 且浏览器可能拒绝结构化克隆。
  */
 let approvalResolver: ((d: { approved: boolean; reason?: string }) => void) | null = null
+
+/**
+ * 当前进行中的 AI 请求的中止控制器。
+ *
+ * 放在模块级而不是 store state：AbortController 无法序列化，
+ * 放进 state 会被 zustand persist 尝试序列化并污染存储。
+ */
+let currentAbort: AbortController | null = null
 
 export interface ChatMessage {
   id: string
@@ -79,6 +87,13 @@ interface MobileStore {
     streaming: boolean
   }
   sendMessage: (text: string) => Promise<void>
+  /**
+   * 中止正在进行的 AI 生成 / Abort the in-flight AI generation.
+   *
+   * 此前没有任何中止手段：用户发出去就只能等，请求卡住时输入框一直锁着，
+   * 切走页面请求也继续跑。加这个后 UI 可以给「停止」按钮。
+   */
+  stopGeneration: () => void
   clearMessages: () => void
   setSessionId: (id: string) => void
   setStreaming: (v: boolean) => void
@@ -140,6 +155,8 @@ import { createTasksTool } from '../lib/ai-tools/tasksTool'
 import { createClipboardTool } from '../lib/ai-tools/clipboardTool'
 import { createVoiceTool } from '../lib/ai-tools/voiceTool'
 import { swallowError } from '../lib/swallowError'
+import { redactSensitive } from '../lib/sensitiveContent'
+import { classifyPrivacy, PrivacyLevel } from '../lib/aiRouter'
 
 const toolRegistry = new ToolRegistry()
 let toolsRegistered = false
@@ -373,7 +390,23 @@ function buildAIContext(): string {
 function contextualizeMessage(text: string): string {
   const context = buildAIContext()
   if (!context) return text
-  return `[当前上下文]\n${context}\n\n用户消息: ${text}`
+
+  /*
+   * 上下文必须先脱敏再拼进 prompt。
+   *
+   * 为什么：buildAIContext 会把待办、笔记正文整段带上，
+   * 而隐私判定（classifyPrivacy）只看用户这一句输入。
+   * 于是出现这个漏洞：
+   *   用户说「帮我整理一下」→ 不含敏感词 → 判 SYNCABLE → 允许上云，
+   *   但上下文里若有一条笔记写着「银行卡号 6222…」，
+   *   整段会连号码一起发到云端，隐私分级形同虚设。
+   *
+   * 用红色脱敏而非整段拦截：整段拦截会让「总结我的待办」这类
+   * 正常请求直接不可用；脱敏能保住语义，只把真正的敏感串替换掉。
+   * （sensitiveContent.ts 覆盖身份证/银行卡/OTP/手机号 + 关键词）
+   */
+  const safeContext = redactSensitive(context)
+  return `[当前上下文]\n${safeContext}\n\n用户消息: ${text}`
 }
 
 // Quick heuristic: does the text look like it's asking to do something?
@@ -559,7 +592,47 @@ export const useMobileStore = create<MobileStore>()(
         streaming: false,
       },
 
+      stopGeneration: () => {
+        if (currentAbort) {
+          currentAbort.abort()
+          currentAbort = null
+        }
+        /*
+         * 同时结掉挂起的审批。
+         *
+         * 否则会出现：用户点「停止生成」，但审批弹窗还在等，
+         * Agent 的 await 没返回，停止只停了网络请求，流程仍卡在审批上。
+         * 用户点停止的意图是「全部停下」，故一并按拒绝处理。
+         */
+        if (approvalResolver) {
+          const resolver = approvalResolver
+          approvalResolver = null
+          resolver({ approved: false, reason: '用户已停止生成。' })
+        }
+        /*
+         * 无论请求是否真的被网络层取消，UI 都必须立刻回到可输入状态，
+         * 否则用户会觉得「停止」没用。已生成的半截内容保留（不删），
+         * 用户能自己判断要不要重来。
+         */
+        set(s => ({
+          chat: {
+            ...s.chat,
+            streaming: false,
+            messages: (s.chat.messages || []).map(m =>
+              m.id === s.chat.messages?.[s.chat.messages.length - 1]?.id && m.role === 'assistant'
+                ? { ...m, content: (m.content || '') + (m.content ? '\n\n（已停止）' : '（已停止生成）') }
+                : m
+            ),
+          },
+        }))
+      },
+
       sendMessage: async (text: string) => {
+        /* 新一轮请求开始：先清掉上一轮的控制器，避免互相干扰 */
+        if (currentAbort) currentAbort.abort()
+        const abort = new AbortController()
+        currentAbort = abort
+
         const userMsg: ChatMessage = {
           id: crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`,
           role: 'user',
@@ -570,8 +643,23 @@ export const useMobileStore = create<MobileStore>()(
 
         ensureToolsRegistered()
 
+        /*
+         * 隐私闸门（入口处统一判定）。
+         *
+         * 此前 classifyPrivacy 只在 ChatOrchestrator 内部生效，
+         * 但它前面还有两条会「抢跑」的路径完全不过闸门：
+         *   1. tryAutoCreateTask —— 命中任务动词就把原文直发云端/桌面
+         *   2. Agent 多步分支 —— 不判定隐私，直接把 buildAIContext() 全量送出去
+         * 结果：用户说「帮我记下我的密码是 abc123」这种话，
+         * 在 orchestrator 的 LOCAL_ONLY 拦截生效之前就已经发出去了。
+         *
+         * 这里在入口判定一次，两条抢跑路径都据此决定是否允许外发。
+         */
+        const privacyLevel = classifyPrivacy(text)
+        const isLocalOnly = privacyLevel === PrivacyLevel.LOCAL_ONLY
+
         /* 自然语言建任务：确定性规则，先于 AI 尝试，命中就零成本解决 */
-        const nluResult = await tryAutoCreateTask(text)
+        const nluResult = isLocalOnly ? null : await tryAutoCreateTask(text)
         if (nluResult) {
           const reply: ChatMessage = {
             id: crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`,
@@ -631,19 +719,43 @@ export const useMobileStore = create<MobileStore>()(
         try {
           const cloudConfigured = tokenManager.cloudAiEnabled
             && !!(tokenManager.cloudApiKey || useStore.getState().activeProfileId)
-          const desktopConnected = !!(tokenManager.isPaired && tokenManager.baseUrl)
+          /*
+           * 用真实 WS 连接状态，而不是「已配对 && baseUrl 非空」。
+           *
+           * 后者只说明「曾经配对过、配置里有个地址」，电脑关机或掉线时仍为 true，
+           * 于是每次请求都先打一次必失败的桌面调用、白等十几秒才降级，
+           * 排队提示也会说错原因（走「服务暂时不可用」而非「桌面端未连接」）。
+           * rpcClient.isDesktopConnected() 要求 WS 真的 connected，是唯一可信判据。
+           */
+          const desktopConnected = isDesktopConnected()
 
           /*
            * 多步任务分流 / Route multi-step tasks to the agent loop
            *
-           * 单步请求（"记一条笔记"）走原来的 orchestrator：快、省 token。
+           * 单步请求（"记一条笔记"）走 orchestrator：快、省 token。
            * 多步请求（"看看屏幕上有什么，然后点第二个按钮"）必须走 Agent 循环，
            * 否则只会执行第一个工具就结束。
            *
-           * 判定用 looksLikeMultiStepTask（序数/递进词 或 多个动作动词），
-           * 而非一律走循环 —— 全走循环会让简单请求也变慢、变贵。
+           * 重要修复：Agent 循环依赖原生 function calling，目前只有云端 AI 支持
+           * （agentLoop 内部的 usingCloudAi() 是硬门槛，桌面端 /agent/ask 无此能力）。
+           * 所以这里必须用 cloudConfigured 而不是「任一通道可用」——
+           * 否则桌面端用户会被拉进 Agent 分支后立刻被内部检查拒绝，
+           * 连普通对话都得不到（实测表现为：说一句"明天去银行办卡顺便买牛奶"
+           * 直接回「未配置云 AI，无法运行多步任务」）。
+           * 没配云端时正确地退回 orchestrator，让桌面端正常对话与单步工具生效。
            */
-          if (cloudConfigured && looksLikeMultiStepTask(text)) {
+          /*
+           * Agent 多步分支同样要过隐私闸门。
+           * 原条件只看 cloudConfigured，不看内容敏不敏感：
+           * 一句「先看下我屏幕，然后把密码记下来」会被判为多步任务，
+           * 随后把 buildAIContext()（含笔记正文/待办）+ 读屏结果
+           * 一并发往云端 —— ChatOrchestrator 里的 LOCAL_ONLY 拦截
+           * 在这条路径上根本不执行。
+           *
+           * LOCAL_ONLY 时不许进 Agent 分支，让它落到下面的 orchestrator，
+           * 由 orchestrator 给出「内容敏感，已阻止上传」的明确提示。
+           */
+          if (cloudConfigured && !isLocalOnly && looksLikeMultiStepTask(text)) {
             const agent = await runAgent(text, toolRegistry, {
               systemContext: buildAIContext(),
               /*
@@ -722,7 +834,7 @@ export const useMobileStore = create<MobileStore>()(
                  * 但 orchestration 的最终 reply 会再覆盖一次，所以必须给真内容。
                  */
                 const res = await cloudAi.sendMessageStreaming(
-                  contextualizeMessage(msg), chunk, sessionId, overrides,
+                  contextualizeMessage(msg), chunk, sessionId, overrides, abort.signal,
                 )
                 return res.reply
               },
@@ -730,7 +842,7 @@ export const useMobileStore = create<MobileStore>()(
                 const desktopAi = new DesktopAiClient()
                 desktopAi.configure(tokenManager.baseUrl, tokenManager.apiToken)
                 const response = await desktopAi.sendMessageStreaming(
-                  contextualizeMessage(msg), chunk, sessionId,
+                  contextualizeMessage(msg), chunk, sessionId, abort.signal,
                 )
                 if (response.sessionId) {
                   const sid = response.sessionId
@@ -755,8 +867,24 @@ export const useMobileStore = create<MobileStore>()(
             }
           }
         } catch (err) {
+          /*
+           * 用户主动取消不是错误，不能把 AbortError 当成故障显示。
+           * fetch 被 abort 时抛 DOMException(name='AbortError')，
+           * 各浏览器的 message 文案不一致（"The operation was aborted" /
+           * "signal is aborted without reason"），故按 name 判断而非字符串匹配。
+           */
+          const isAbort = err instanceof DOMException
+            ? err.name === 'AbortError'
+            : (err instanceof Error && err.name === 'AbortError')
+          if (isAbort) {
+            set(s => ({ chat: { ...s.chat, streaming: false } }))
+            return
+          }
           const errMsg = err instanceof Error ? err.message : 'AI 服务暂不可用，请稍后重试'
           setStreamContent(errMsg)
+        } finally {
+          /* 请求结束后释放控制器，避免下一轮误 abort 已完成的请求 */
+          if (currentAbort === abort) currentAbort = null
         }
       },
 
@@ -816,10 +944,19 @@ export const useMobileStore = create<MobileStore>()(
       /* ── 高风险操作审批 ── */
       pendingApproval: null,
       resolveApproval: (approved: boolean, reason?: string) => {
+        /*
+         * 由 requestUserApproval 里的 finish() 统一收尾：
+         * 它负责清 timer、清 resolver、关弹窗、resolve。
+         * 这里只调 resolver，不重复 set pendingApproval —— 
+         * 否则会和超时路径抢着改 state。
+         */
         const resolver = approvalResolver
-        approvalResolver = null
-        set({ pendingApproval: null })
-        resolver?.({ approved, reason })
+        if (resolver) {
+          resolver({ approved, reason })
+        } else {
+          // 没有待审批（例如已超时自动拒绝）：只保证弹窗关掉
+          set({ pendingApproval: null })
+        }
       },
       setStreaming: (streaming: boolean) => set(s => ({ chat: { ...s.chat, streaming } })),
 
@@ -895,9 +1032,29 @@ export const useMobileStore = create<MobileStore>()(
   )
 )
 
-/*
+/**
+ * 审批超时（毫秒）。
+ *
+ * 默认 60s 后按「拒绝」处理。选这个值的理由：
+ *   - 太短：用户还在读详情（高危操作要看清"要点击什么"）就被自动拒，体验很差；
+ *   - 太长：Agent 循环的总超时是 120s，审批若挂满 120s 就等于总超时也废了；
+ *   - 60s 足够读完一段详情，又不至于把输入框锁太久。
+ * 超时按拒绝处理（fail-closed），不按允许——自动放行高风险操作是不可接受的。
+ */
+const APPROVAL_TIMEOUT_MS = 60_000
+
+/**
  * 发起审批，返回用户决定。供 Agent 循环的 requestApproval 调用。
  * 弹窗出现 → 用户点允许/拒绝 → resolveApproval 兑现此 Promise。
+ *
+ * ⚠️ 修过的两个真问题：
+ *  1. **没有超时**：用户切后台/锁屏/干脆不理，这个 Promise 永不 resolve，
+ *     而 agentLoop 的总超时检查写在 await 之后（`agentLoop.ts:229`），
+ *     于是总超时形同虚设，`chat.streaming` 永远为 true，输入框永久锁死，
+ *     只能杀进程。现在 60s 自动拒绝。
+ *  2. **并发覆盖**：两次审批同时来（两个 Agent 任务）时，后者的 resolver
+ *     会覆写前者的，先前的 Promise 永远悬挂（泄漏 + 卡死）。
+ *     现在若已有待审批，直接拒绝新的那个并说明原因，不覆盖。
  */
 function requestUserApproval(info: {
   toolId: string
@@ -906,11 +1063,38 @@ function requestUserApproval(info: {
   details: Array<{ label: string; value: string }>
   reason?: string
 }): Promise<{ approved: boolean; reason?: string }> {
+  // 已有待审批：拒绝新请求，避免覆盖 resolver 造成两个 Promise 都卡住
+  if (approvalResolver) {
+    return Promise.resolve({
+      approved: false,
+      reason: '已有另一个操作正在等待你确认，请先处理完它再试。',
+    })
+  }
+
   return new Promise(resolve => {
-    approvalResolver = resolve
+    let settled = false
+    const finish = (d: { approved: boolean; reason?: string }) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      approvalResolver = null
+      // 关掉弹窗（若还开着）
+      try {
+        if (useMobileStore.getState().pendingApproval) {
+          useMobileStore.setState({ pendingApproval: null })
+        }
+      } catch { /* store 可能已在卸载中 */ }
+      resolve(d)
+    }
+
+    const timer = setTimeout(() => {
+      finish({ approved: false, reason: '等待确认超时（60 秒），已自动拒绝。' })
+    }, APPROVAL_TIMEOUT_MS)
+
+    approvalResolver = finish
     useMobileStore.setState({
       pendingApproval: {
-        id: `ap_${Date.now()}`,
+        id: `ap_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
         toolId: info.toolId,
         toolLabel: info.toolLabel,
         summary: info.summary,

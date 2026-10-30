@@ -1,5 +1,7 @@
 /* ── Types ── */
 
+import { detectSensitiveContent } from './sensitiveContent'
+
 export enum IntentType {
   LOCAL_CRUD = 'LOCAL_CRUD',
   NAVIGATION = 'NAVIGATION',
@@ -41,7 +43,27 @@ const SENSITIVE_PATTERNS = [
 export function classifyPrivacy(text: string, defaultPrivacy: PrivacyLevelType = PrivacyLevel.SYNCABLE): PrivacyLevelType {
   const lower = text.toLowerCase()
   const match = SENSITIVE_PATTERNS.some(p => lower.includes(p))
-  return match ? PrivacyLevel.LOCAL_ONLY : defaultPrivacy
+  if (match) return PrivacyLevel.LOCAL_ONLY
+
+  /*
+   * 关键词之外，还必须过敏感内容检测器。
+   *
+   * 为什么：SENSITIVE_PATTERNS 只有 10 个词（日记/密码/token…），
+   * 完全不覆盖身份证号、银行卡号、验证码、手机号这些**真正高危**的内容。
+   * 实测「我的身份证 110101199001011234 然后帮我看看」不命中任何关键词，
+   * 被判为可外发，号码原样发给云端。
+   *
+   * sensitiveContent.ts 里已有完整的正则检测（18 位身份证、银行卡、
+   * OTP、手机号 + 医疗/银行类关键词），但此前只有测试引用它，
+   * 主链路从未调用 —— 两套口径并存，等于有一套白写。
+   * 这里统一到它，让「能上云」的判定只有一个真源。
+   */
+  try {
+    const verdict = detectSensitiveContent(text)
+    if (verdict.isSensitive) return PrivacyLevel.LOCAL_ONLY
+  } catch { /* 检测器异常不应阻断判定，退回关键词结果 */ }
+
+  return defaultPrivacy
 }
 
 export function isPersonalContent(text: string): boolean {

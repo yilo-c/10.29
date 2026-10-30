@@ -128,6 +128,58 @@ describe('resolveTarget', () => {
       .toBe(AiTarget.QUEUED_PENDING)
   })
 
+  /*
+   * 回归保护（2026-10-30）：桌面端不得绑架 AI 通道。
+   *
+   * 背景 bug：resolveComplexTarget 的 SYNCABLE 分支曾有
+   *   if (isDesktopConnected) return DESKTOP_LOCAL_AI   ← 忽略 preferDesktopAi
+   * 排在云判断之前，导致「桌面只要在线，云 AI 永远不可达」，
+   * 表现为手机端 AI 对话实质依赖桌面端，桌面断线就只排队。
+   *
+   * 这组用例专门覆盖「桌面在线 + 用户显式关掉优先桌面」这一组合——
+   * 正是原测试全用 defaultPref(preferDesktopAi:false) 却漏掉桌面在线、
+   * 于是 bug 长期存活的原因。
+   */
+  it('SYNCABLE + 桌面在线 + 不优先桌面 + 允许上云 → 必须走 CLOUD_AI', () => {
+    const pref: UserAiPreference = {
+      cloudAiEnabled: true,
+      promptBeforeCloud: false,   // 不弹「上传前询问」，允许直接上云
+      preferDesktopAi: false,     // 用户明确不要优先桌面
+    }
+    expect(resolveTarget(IntentType.COMPLEX_REASONING, PrivacyLevel.SYNCABLE, true, pref))
+      .toBe(AiTarget.CLOUD_AI)
+  })
+
+  it('SYNCABLE + 桌面在线 + 优先桌面 → 仍走 DESKTOP_LOCAL_AI（默认行为不变）', () => {
+    const pref: UserAiPreference = {
+      cloudAiEnabled: true,
+      promptBeforeCloud: false,
+      preferDesktopAi: true,
+    }
+    expect(resolveTarget(IntentType.COMPLEX_REASONING, PrivacyLevel.SYNCABLE, true, pref))
+      .toBe(AiTarget.DESKTOP_LOCAL_AI)
+  })
+
+  it('SYNCABLE + 桌面在线 + 未开云 → 退回桌面，不让用户干等', () => {
+    const pref: UserAiPreference = {
+      cloudAiEnabled: false,
+      promptBeforeCloud: true,
+      preferDesktopAi: false,
+    }
+    expect(resolveTarget(IntentType.COMPLEX_REASONING, PrivacyLevel.SYNCABLE, true, pref))
+      .toBe(AiTarget.DESKTOP_LOCAL_AI)
+  })
+
+  it('SYNCABLE + 桌面离线 + 允许上云 → 走 CLOUD_AI（手机端独立可用）', () => {
+    const pref: UserAiPreference = {
+      cloudAiEnabled: true,
+      promptBeforeCloud: false,
+      preferDesktopAi: true,      // 即便优先桌面，桌面不在也该退到云
+    }
+    expect(resolveTarget(IntentType.COMPLEX_REASONING, PrivacyLevel.SYNCABLE, false, pref))
+      .toBe(AiTarget.CLOUD_AI)
+  })
+
   it('routes COMPLEX_REASONING to CLOUD_AI for model_egress_allowed', () => {
     expect(resolveTarget(IntentType.COMPLEX_REASONING, PrivacyLevel.MODEL_EGRESS_ALLOWED, false, defaultPref))
       .toBe(AiTarget.CLOUD_AI)

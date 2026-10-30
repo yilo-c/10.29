@@ -1,9 +1,8 @@
 {
   "_comment": "git 完整性棘轮基线：blocking / invalid_reflog_entries 只允许下降；required_refs 为必需存在的分支。由 scripts/check_git_integrity.py --update 生成。",
   "blocking": 0,
-  "invalid_reflog_entries": 4,
+  "invalid_reflog_entries": 0,
   "required_refs": [
-    "refs/heads/main",
-    "refs/heads/fix/p0-2026-06-18"
+    "refs/heads/main"
   ]
 }

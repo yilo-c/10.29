@@ -105,11 +105,11 @@
 ### ✅ 现行真源（唯一，照此维护）
 | 文档 | 说明 |
 |---|---|
-| [project-status-and-execution-plan-2026-08-22.md](../deliverables/gstack/project-status-and-execution-plan-2026-08-22.md) | **当前执行计划唯一真源**（v1.1）：八维审查 23 项发现 + 16 条行动项 B1–B16 + 阶段四任务表（T1–T4），经深度验证修订 |
+| project-status-and-execution-plan-2026-08-22.md（原 `deliverables/gstack/`，已随 2026-10-29 仓库快照清理移除） | **当前执行计划唯一真源**（v1.1）：八维审查 23 项发现 + 16 条行动项 B1–B16 + 阶段四任务表（T1–T4），经深度验证修订 |
 | [project-roadmap.md](project-roadmap.md) | 当前主路线图（废弃口径）。⚠️ 内含过时段落（complete-architecture-design.md 死链、PyQt6 阶段 6a），修订方向以执行计划为准 |
 | [unified-execution-roadmap-2026-06-22.md](unified-execution-roadmap-2026-06-22.md) | 统一执行路线图（三份审查合并：12 P0 + 22 P1 + 26 P2 + 12 P3 + 子系统裁决 + 测试路线图 + 四阶段计划） |
 
-### 🔴 历史路线图（已归档 → [docs/archive/](archive/)）
+### 🔴 历史路线图（原归档于 `docs/archive/`，该目录已随 2026-10-29 快照清理移除）
 > 以下文档于 2026-08-23 按本文档 🔴 标记归档，内容已被当前执行计划 / 现行文档取代：
 > `roadmap-next.md`（Phase A–D 已覆盖）、`todo-unimplemented-features.md`（剩余项并入执行计划）、
 > `deep-development-roadmap.md`（深度功能规划，已转码恢复）、`cloud-sync-roadmap.md`（由 AES-GCM v4 实现取代）、
@@ -123,7 +123,7 @@
 |---|---|
 | [architecture-audit-2026-09-23.md](architecture-audit-2026-09-23.md) | **全栈架构深度审计**（5 线并行只读调查）：3 Critical + 7 High + 9 Medium 全量 finding（文件:行号证据）+ 六波整合执行次序 + 勿误伤负面清单 + 待证清单；修复进度在其 §10 勾选 |
 
-### 🔴 历史报告（已归档 → [docs/archive/](archive/)，仅作历史参考）
+### 🔴 历史报告（原归档于 `docs/archive/`，该目录已随 2026-10-29 快照清理移除，仅作历史参考）
 > 以下报告于 2026-08-23 按本文档 🔴 标记归档：
 > `architecture-audit-2026-06-22.md` / `architecture-audit-2026-06-22-part2.md`（已被 unified-execution-roadmap 合并）、
 > `audit-2026-06-18.md`、`code-review-fix-plan-2026-06-18.md`、`remediation-plan-2026-08-07.md`、
@@ -148,7 +148,7 @@
 
 ## 七、归档
 
-[docs/archive/](archive/) — 所有过期文档（2026-08-23 已归档 19 份：10 份历史路线图 + 9 份审查/评估报告），不再维护，仅保留历史。
+`docs/archive/` — 所有过期文档原归档于此（2026-08-23 已归档 19 份：10 份历史路线图 + 9 份审查/评估报告）。该目录已随 2026-10-29 仓库快照清理移除，仅保留此说明。
 > 新文档过期后 `mv` 到这里，不要删除。
 
 ## 八、维护规则

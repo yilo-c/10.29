@@ -28,7 +28,7 @@ apscheduler==3.10.4
 pyyaml==6.0.1
 
 # 文件监控
-watchdog==3.0.0
+watchdog==6.0.0
 
 # CLI工具增强
 click>=8.1.0

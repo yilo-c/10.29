@@ -49,6 +49,12 @@ CHECKS: list[tuple[str, list[str]]] = [
     ("inventory 防漂移", ["scripts/gen_inventory.py", "--check"]),
     ("无裸 pyc", ["scripts/check_no_sourceless_pyc.py"]),
     ("层边界", ["scripts/check-layer-boundaries.py"]),
+    # 2026-10-31 补：CI 的 quality-gates 在「Layer boundary check」之后还有一步
+    # 「Kernel boundary ratchet gate (I1 / C-7)」跑的是 kernel_boundary_ratchet.py，
+    # 而本地 done_check 只跑了 check-layer-boundaries.py —— 两者不是同一道门，
+    # 导致 gate_all 绿 ≠ CI 绿（实测：本地 gate_all 4/4 绿时，CI 仍因
+    # services/clipboard_context.py 的 I1 违规而红）。补齐。
+    ("内核边界棘轮", ["scripts/kernel_boundary_ratchet.py"]),
     ("核心模块完整性", ["scripts/check_core_integrity.py"]),
     ("pip-audit 基线", ["scripts/run_pip_audit.py"]),
     ("ruff 棘轮(改)", ["scripts/gen_quality_baseline.py", "--check-changed", "--base", "main"]),

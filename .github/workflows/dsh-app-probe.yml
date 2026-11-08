@@ -1,0 +1,23 @@
+name: CI Probe
+on:
+  push:
+    branches: [ dsh-app-probe ]
+    paths:
+      - 'siyi-dsh-app/**'
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Show toolchain
+        run: |
+          echo "=== OS ==="; uname -a
+          echo "=== Java ==="; java -version 2>&1 || echo "no java"
+          echo "=== Node ==="; node -v
+          echo "=== Android SDK ==="; ls "$ANDROID_HOME" 2>/dev/null || echo "no sdk env"
+      - name: Write result marker
+        run: echo "PROBE_OK $(date -u +%FT%TZ)" > probe-result.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: probe-result
+          path: probe-result.txt

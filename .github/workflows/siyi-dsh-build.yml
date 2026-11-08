@@ -82,8 +82,7 @@ jobs:
           npx --yes pnpm@11.28.9 add "@deepseek-ai/dsh-base@${DSH_PKG_VERSION}" "@deepseek-ai/dsh-web-app@${DSH_PKG_VERSION}" --config.node-linker=hoisted --config.package-import-method=copy --config.ignore-scripts=true
           echo "包数: $(ls node_modules/@deepseek-ai | wc -l)"
           echo "client-ui: $(ls node_modules/@deepseek-ai | grep -c client-ui || true)"
-          cd "$APP_DIR/profile-build"
-          tar czf "$GITHUB_WORKSPACE/$APP_DIR/app/src/main/assets/web-profile.tgz" profiles
+          tar czf "$GITHUB_WORKSPACE/$APP_DIR/app/src/main/assets/web-profile.tgz" -C "$GITHUB_WORKSPACE/$APP_DIR/profile-build" profiles
           ls -lh "$APP_DIR/app/src/main/assets/web-profile.tgz"
 
       - name: Build debug APK

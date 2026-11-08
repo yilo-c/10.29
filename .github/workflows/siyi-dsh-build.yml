@@ -1,10 +1,11 @@
 name: Build Siyi DSH App
 
 # 思路：
-#   1. 下载官方 DSH-Android APK（含 libnode.so / libdshnode.so / 引擎树）
-#   2. 从 APK 里提取 4 个必需 .so + 引擎 assets/engine.zip
-#   3. 与本仓库的 Kotlin 壳、页面一起编译成自己的 APK
-# 好处：仓库里不放 90MB 二进制，官方升级时只改版本号。
+#   1. 下载官方 DSH-Android APK（含 libnode.so 等 native lib + engine.zip）
+#   2. 从 APK 提取 4 个必需 .so 和 engine.zip
+#   3. CI 现场 pnpm 构建 web profile（base + web-app → 54 个 client-ui + 前端 dist）
+#   4. 全部打包进自己的 APK
+# 仓库里不放任何二进制，官方升级只改 DSH_VERSION / DSH_PKG_VERSION 两行。
 
 on:
   push:
@@ -13,20 +14,16 @@ on:
       - 'siyi-dsh-app/**'
       - '.github/workflows/siyi-dsh-build.yml'
   workflow_dispatch:
-    inputs:
-      dsh_version:
-        description: 'DSH-Android 版本（留空用最新）'
-        required: false
-        default: ''
 
 env:
   DSH_VERSION: v0.3.11
+  DSH_PKG_VERSION: 0.2.1-rc.5
   APP_DIR: siyi-dsh-app
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 50
     steps:
       - uses: actions/checkout@v4
 
@@ -41,6 +38,11 @@ jobs:
         with:
           packages: 'platforms;android-34 build-tools;34.0.0'
 
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
       - name: Download DSH APK
         run: |
           set -e
@@ -50,23 +52,44 @@ jobs:
           curl -fL --retry 3 -o dsh.apk "$URL"
           ls -lh dsh.apk
 
-      - name: Extract native libs and engine
+      - name: Extract native libs
         run: |
           set -e
           mkdir -p "$APP_DIR/app/src/main/jniLibs/arm64-v8a"
-          # 提取 4 个必需 .so
-          unzip -o -j dsh.apk 'lib/arm64-v8a/libnode.so' 'lib/arm64-v8a/libdshnode.so' \
-            'lib/arm64-v8a/libc++_shared.so' 'lib/arm64-v8a/libdsh_flock.so' \
+          unzip -o -j dsh.apk \
+            'lib/arm64-v8a/libnode.so' \
+            'lib/arm64-v8a/libdshnode.so' \
+            'lib/arm64-v8a/libc++_shared.so' \
+            'lib/arm64-v8a/libdsh_flock.so' \
             -d "$APP_DIR/app/src/main/jniLibs/arm64-v8a"
           chmod 755 "$APP_DIR/app/src/main/jniLibs/arm64-v8a/"*.so
           ls -lh "$APP_DIR/app/src/main/jniLibs/arm64-v8a"
 
-      - name: Extract engine.zip to assets
+      - name: Extract engine.zip
         run: |
           set -e
           mkdir -p "$APP_DIR/app/src/main/assets"
           unzip -o -j dsh.apk 'assets/engine.zip' -d "$APP_DIR/app/src/main/assets"
           ls -lh "$APP_DIR/app/src/main/assets/engine.zip"
+
+      - name: Build web profile
+        run: |
+          set -e
+          PDIR="$APP_DIR/profile-build/profiles/web"
+          mkdir -p "$PDIR"
+          cp "$APP_DIR/app/src/main/assets/profile-template.json" "$PDIR/package.json"
+          cd "$PDIR"
+          npx --yes pnpm@11.28.9 add \
+            "@deepseek-ai/dsh-base@${DSH_PKG_VERSION}" \
+            "@deepseek-ai/dsh-web-app@${DSH_PKG_VERSION}" \
+            --config.node-linker=hoisted \
+            --config.package-import-method=copy \
+            --config.ignore-scripts=true
+          echo "包数: $(ls node_modules/@deepseek-ai | wc -l)"
+          echo "client-ui: $(ls node_modules/@deepseek-ai | grep -c client-ui || true)"
+          cd "$APP_DIR/profile-build"
+          tar czf "$GITHUB_WORKSPACE/$APP_DIR/app/src/main/assets/web-profile.tgz" profiles
+          ls -lh "$APP_DIR/app/src/main/assets/web-profile.tgz"
 
       - name: Build debug APK
         working-directory: ${{ env.APP_DIR }}

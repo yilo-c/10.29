@@ -79,12 +79,7 @@ jobs:
           mkdir -p "$PDIR"
           cp "$APP_DIR/app/src/main/assets/profile-template.json" "$PDIR/package.json"
           cd "$PDIR"
-          npx --yes pnpm@11.28.9 add \
-            "@deepseek-ai/dsh-base@${DSH_PKG_VERSION}" \
-            "@deepseek-ai/dsh-web-app@${DSH_PKG_VERSION}" \
-            --config.node-linker=hoisted \
-            --config.package-import-method=copy \
-            --config.ignore-scripts=true
+          npx --yes pnpm@11.28.9 add "@deepseek-ai/dsh-base@${DSH_PKG_VERSION}" "@deepseek-ai/dsh-web-app@${DSH_PKG_VERSION}" --config.node-linker=hoisted --config.package-import-method=copy --config.ignore-scripts=true
           echo "包数: $(ls node_modules/@deepseek-ai | wc -l)"
           echo "client-ui: $(ls node_modules/@deepseek-ai | grep -c client-ui || true)"
           cd "$APP_DIR/profile-build"

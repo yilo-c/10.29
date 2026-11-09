@@ -86,8 +86,8 @@ class MainActivity : AppCompatActivity() {
     /** 用 JS 检查 React 是否已挂载内容 */
     private fun probeRendered() {
         web.evaluateJavascript(
-            "(function(){var r=document.getElementById(\\"root\\");" +
-            "return r && r.children.length > 0 ? \\"yes\\" : \\"no\\";})()"
+            "(function(){var r=document.getElementById('root');" +
+            "return r && r.children.length > 0 ? 'yes' : 'no';})()"
         ) { value ->
             if (value != null && value.contains("yes")) {
                 waitView.visibility = View.GONE

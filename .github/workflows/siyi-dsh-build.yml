@@ -85,11 +85,13 @@ jobs:
           cp "$APP_DIR/app/src/main/assets/profile-template.json" "$PDIR/package.json"
           cd "$PDIR"
           npx --yes pnpm@11.28.9 add "@deepseek-ai/dsh-base@${DSH_PKG_VERSION}" "@deepseek-ai/dsh-web-app@${DSH_PKG_VERSION}" --config.node-linker=hoisted --config.package-import-method=copy --config.ignore-scripts=true
+          WS="${GITHUB_WORKSPACE:-$PWD}"
+          echo "WS=$WS"
           # Android 适配：三个关键包必须用引擎 APK 内的定制版
           # dsh-app-boot 双实例会让 settings 写入失败；node-addon-system 与
           # session-persistence-jsonl 的 npm 原版在 Android 上分别报 flock / link 错误。
           mkdir -p "$WS/engine-native"
-          unzip -q -o dsh.apk "assets/engine.zip" -d "$WS/engine-native"
+          unzip -q -o "$WS/dsh.apk" "assets/engine.zip" -d "$WS/engine-native"
           unzip -q -o "$WS/engine-native/assets/engine.zip" -d "$WS/engine-native" "node_modules/@deepseek-ai/dsh-app-boot/*" "node_modules/@deepseek-ai/node-addon-system/*" "node_modules/@deepseek-ai/dsh-session-persistence-jsonl/*"
           for pkg in dsh-app-boot node-addon-system dsh-session-persistence-jsonl; do
             rm -rf "node_modules/@deepseek-ai/$pkg"
@@ -98,8 +100,6 @@ jobs:
           done
           echo "包数: $(ls node_modules/@deepseek-ai | wc -l)"
           echo "client-ui: $(ls node_modules/@deepseek-ai | grep -c client-ui || true)"
-          WS="${GITHUB_WORKSPACE:-$PWD}"
-          echo "WS=$WS"
           ls -la "$WS/$APP_DIR/profile-build/profiles" || true
           # Android 侧只有 ZipInputStream，所以打成 zip 而不是 tgz
           cd "$WS/$APP_DIR/profile-build"

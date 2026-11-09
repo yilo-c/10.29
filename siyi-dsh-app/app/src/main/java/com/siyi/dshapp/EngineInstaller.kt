@@ -108,7 +108,32 @@ object EngineInstaller {
                 return "无法建立 $name 符号链接: ${t.javaClass.simpleName}: ${t.message}"
             }
         }
-        return null
+        return linkDevicePlugin(ctx)
+    }
+
+    /**
+     * @dsh-android/plugin-device 不在 npm 上（404），只存在于官方 APK 的 engine.zip 里。
+     * web profile 的 pnpm 安装拿不到它，所以从引擎树链过来；
+     * 缺了它，App 传过去的 DSH_BRIDGE_FD 没人读，device_* 工具不会注册。
+     * 这个包不参与「双实例」问题（profile 原本没有它），链过去只是补一个入口。
+     */
+    private fun linkDevicePlugin(ctx: Context): String? {
+        val target = File(
+            EnginePaths.engineRoot(ctx),
+            "node_modules/@dsh-android/plugin-device"
+        )
+        if (!target.isDirectory) return null // 引擎树没有就跳过，不阻断启动
+        val scope = File(EnginePaths.webProfile(ctx), "node_modules/@dsh-android")
+        if (!scope.isDirectory) scope.mkdirs()
+        val link = File(scope, "plugin-device")
+        if (link.isSymbolicLink()) return null
+        return try {
+            if (link.exists()) deleteRecursively(link)
+            Os.symlink(target.absolutePath, link.absolutePath)
+            null
+        } catch (t: Throwable) {
+            "无法链接 plugin-device: ${t.javaClass.simpleName}: ${t.message}"
+        }
     }
 
     private fun deleteRecursively(f: File) {

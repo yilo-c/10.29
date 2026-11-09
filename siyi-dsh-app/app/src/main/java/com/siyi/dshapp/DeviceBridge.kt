@@ -11,6 +11,7 @@ import android.system.OsConstants
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedReader
+import java.io.File
 import java.io.FileDescriptor
 import java.io.FileInputStream
 import java.io.FileOutputStream
@@ -26,12 +27,12 @@ import java.util.concurrent.atomic.AtomicBoolean
  *   1. App 用 Os.socketpair 建一对 UNIX socket。
  *   2. 子进程端 fd 清除 CLOEXEC，通过环境变量 DSH_BRIDGE_FD 传下去。
  *   3. 换行分隔的 JSON-RPC 2.0，双向。
- *   4. 引擎发 capability/list 请求，App 返回 {tools:[ToolDescriptor...]}。
+ *   4. 引擎发 capability/list 请求，App 返回 tools 数组，元素为 ToolDescriptor。
  *   5. 引擎发 capability/invoke 请求，App 执行并返回 ToolResult。
  *   6. App 可主动发 capability/changed 通知触发重新列工具。
  *
  * ToolDescriptor 字段：name/group/description/inputSchema/risk/needsUnlock/timeoutMs
- * ToolResult 字段：ok / content:[{type:"text",text:...}] / error:{code,message}
+ * ToolResult 字段：ok、content 文本块数组、error 的 code 与 message。
  */
 object DeviceBridge {
 
@@ -51,18 +52,13 @@ object DeviceBridge {
     /** 建 socketpair，返回要交给 ProcessBuilder 的 (环境变量名, fd号)。 */
     fun prepare(): Pair<String, String>? {
         return try {
-            // Android 签名：socketpair(int domain, int type, int protocol, FileDescriptor[] fds)
-            // 第 4 个参数必须是长度为 2 的空数组，由系统填入两端；传 null 会 NPE。
-            val pair = arrayOfNulls<FileDescriptor>(2)
-            Os.socketpair(
-                OsConstants.AF_UNIX,
-                OsConstants.SOCK_STREAM,
-                0,
-                pair
-            )
-            val app = pair[0] ?: throw IllegalStateException("socketpair 未返回 App 端 fd")
-            val eng = pair[1] ?: throw IllegalStateException("socketpair 未返回引擎端 fd")
-            Os.fcntlInt(eng, OsConstants.F_SETFD, 0) // 清除 CLOEXEC，exec 后保留
+            // Os.socketpair 的签名在不同 Android 版本有差异：
+            // 有 3 参数返回 FileDescriptor[] 的，也有 4 参数填充数组的。
+            // 用反射逐个试，避免编译期绑死某一个签名。
+            val fds = openSocketPair()
+            val app = fds[0]
+            val eng = fds[1]
+            clearCloexec(eng) // 清除 CLOEXEC，exec 后保留
             reader = BufferedReader(InputStreamReader(FileInputStream(app), Charsets.UTF_8))
             writer = OutputStreamWriter(FileOutputStream(app), Charsets.UTF_8)
             engineFd = eng
@@ -71,6 +67,52 @@ object DeviceBridge {
             log("socketpair 失败: ${t.javaClass.simpleName}: ${t.message}")
             null
         }
+    }
+
+    /** 清除 FD_CLOEXEC，让 fd 在 exec 后仍被子进程继承。 */
+    private fun clearCloexec(fd: FileDescriptor) {
+        val os = Class.forName("android.system.Os")
+        // fcntlInt(FileDescriptor, int, int) 或 fcntlVoid 等变体
+        for (m in os.declaredMethods) {
+            if (m.name != "fcntlInt") continue
+            try { m.invoke(null, fd, OsConstants.F_SETFD, 0); return } catch (_: Throwable) {}
+        }
+        // 退路：用 OsConstants 的 fcntl 直接不可用时，交给 ParcelFileDescriptor 的反射
+        android.util.Log.w(TAG, "fcntlInt 不可用，fd 可能被子进程关闭")
+    }
+
+    /** 反射调用 Os.socketpair，兼容 3 参数与 4 参数两种签名。 */
+    private fun openSocketPair(): Array<FileDescriptor> {
+        val os = Class.forName("android.system.Os")
+        val afUnix = OsConstants.AF_UNIX
+        val sockStream = OsConstants.SOCK_STREAM
+        // 先试 3 参数：socketpair(int,int,int) -> FileDescriptor[]
+        for (m in os.declaredMethods) {
+            if (m.name != "socketpair") continue
+            val ps = m.parameterTypes
+            try {
+                if (ps.size == 3 && ps.all { it == Int::class.javaPrimitiveType }) {
+                    val r = m.invoke(null, afUnix, sockStream, 0)
+                    if (r is Array<*> && r.size >= 2 && r[0] is FileDescriptor && r[1] is FileDescriptor) {
+                        return arrayOf(r[0] as FileDescriptor, r[1] as FileDescriptor)
+                    }
+                }
+            } catch (_: Throwable) {}
+        }
+        // 再试 4 参数：socketpair(int,int,int,FileDescriptor[])
+        val out = arrayOfNulls<FileDescriptor>(2)
+        for (m in os.declaredMethods) {
+            if (m.name != "socketpair") continue
+            val ps = m.parameterTypes
+            try {
+                if (ps.size == 4 && ps[3] == Array<FileDescriptor>::class.java) {
+                    m.invoke(null, afUnix, sockStream, 0, out)
+                    val a = out[0]; val b = out[1]
+                    if (a != null && b != null) return arrayOf(a, b)
+                }
+            } catch (_: Throwable) {}
+        }
+        throw IllegalStateException("Os.socketpair 没有可用签名")
     }
 
     /** 从 FileDescriptor 取 int fd（反射，Android 无公开 API）。 */

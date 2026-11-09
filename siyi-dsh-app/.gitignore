@@ -1,0 +1,10 @@
+*.so
+*.apk
+*.zip
+build/
+.gradle/
+local.properties
+app/src/main/jniLibs/**/*.so
+app/src/main/assets/engine.zip
+app/src/main/assets/web-profile.tgz
+profile-build/

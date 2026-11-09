@@ -88,8 +88,7 @@ class EngineService : Service() {
                 runCatching {
                     p.inputStream.bufferedReader().use { br: BufferedReader ->
                         br.forEachLine { line ->
-                            runCatching { logFile.appendText(line + "
-") }
+                            runCatching { logFile.appendText(line + "\n") }
                             val m = Regex("token=([A-Za-z0-9_-]+)").find(line)
                             if (m != null) {
                                 WebState.setUrl("http://127.0.0.1:$WEB_PORT/?token=${m.groupValues[1]}")
@@ -105,8 +104,7 @@ class EngineService : Service() {
                 runCatching {
                     p.errorStream.bufferedReader().use { br ->
                         br.forEachLine { line ->
-                            runCatching { errLog.appendText(line + "
-") }
+                            runCatching { errLog.appendText(line + "\n") }
                             if (line.contains("startup failed", true) || line.contains("Error:", true)) {
                                 WebState.setError(line.take(200))
                                 update("启动异常: ${line.take(60)}")

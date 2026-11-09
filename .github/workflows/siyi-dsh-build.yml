@@ -33,6 +33,11 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
+      - name: Setup Gradle 8.7
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
         with:
@@ -91,9 +96,7 @@ jobs:
       - name: Build debug APK
         working-directory: ${{ env.APP_DIR }}
         run: |
-          chmod +x gradlew || true
-          gradle wrapper --gradle-version 8.7 || true
-          ./gradlew assembleDebug --no-daemon --stacktrace
+          gradle assembleDebug --no-daemon --stacktrace
 
       - name: Upload APK
         uses: actions/upload-artifact@v4

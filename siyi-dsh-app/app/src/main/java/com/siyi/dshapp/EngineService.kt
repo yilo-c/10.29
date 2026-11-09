@@ -106,9 +106,9 @@ class EngineService : Service() {
         }
 
         runCatching {
-            stage("starting: " + cmd.join(" "))
+            stage("starting: " + cmd.joinToString(" "))
             val p = pb.start()
-            stage("pid=" + p.pid + " alive=" + p.isAlive)
+            stage("engine started, alive=" + p.isAlive)
             process = p
             if (bridgeEnv != null) DeviceBridge.start(this@EngineService)
             // 读 stdout 抓 token

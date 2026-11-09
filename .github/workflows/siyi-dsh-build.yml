@@ -83,6 +83,7 @@ jobs:
           PDIR="$APP_DIR/profile-build/profiles/web"
           mkdir -p "$PDIR"
           cp "$APP_DIR/app/src/main/assets/profile-template.json" "$PDIR/package.json"
+          cp "$APP_DIR/app/src/main/assets/profile-patch.yml" "$PDIR/cordis.patch.yml"
           cd "$PDIR"
           npx --yes pnpm@11.28.9 add "@deepseek-ai/dsh-base@${DSH_PKG_VERSION}" "@deepseek-ai/dsh-web-app@${DSH_PKG_VERSION}" --config.node-linker=hoisted --config.package-import-method=copy --config.ignore-scripts=true
           WS="${GITHUB_WORKSPACE:-$PWD}"

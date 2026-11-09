@@ -1,0 +1,3 @@
+#!/bin/sh
+# CI 环境由 setup-gradle 提供 gradle；本地不依赖此文件
+exec gradle "$@"

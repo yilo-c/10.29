@@ -1,0 +1,15 @@
+# 独立启动时 base 里这四行被 profileContext 门控禁用，导致 settings 不挂载。
+# 实际运行使用的是官方 profile-boot 流程，profileContext 存在，直接解禁即可。
+- id: plugin-manager
+  disabled: false
+- id: hmr
+  disabled: true
+- id: config-editor
+  disabled: false
+- id: settings
+  disabled: false
+
+# 预置已读标记，避免首次启动被预览版说明弹窗挡住
+- id: ui-settings-general
+  config:
+    welcomeNoticeVersion: "2026-09-28.1"

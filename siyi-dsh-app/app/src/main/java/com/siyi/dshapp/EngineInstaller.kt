@@ -105,5 +105,5 @@ object EngineInstaller {
     }
 
     private fun File.isSymbolicLink(): Boolean =
-        try { Os.lstat(absolutePath).mode and 0xF000 == 0xA000 } catch (_: Throwable) { false }
+        try { return java.nio.file.Files.isSymbolicLink(toPath()) } catch (_: Throwable) { return false }
 }

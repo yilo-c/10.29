@@ -9,7 +9,7 @@ name: Build Siyi DSH App
 
 on:
   push:
-    branches: [ dsh-app, main ]
+    branches: [ dsh-app ]
     paths:
       - 'siyi-dsh-app/**'
       - '.github/workflows/siyi-dsh-build.yml'

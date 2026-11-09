@@ -104,6 +104,7 @@ object EngineInstaller {
         f.delete()
     }
 
-    private fun File.isSymbolicLink(): Boolean =
-        try { return java.nio.file.Files.isSymbolicLink(toPath()) } catch (_: Throwable) { return false }
+    private fun File.isSymbolicLink(): Boolean {
+        return try { java.nio.file.Files.isSymbolicLink(toPath()) } catch (_: Throwable) { false }
+    }
 }

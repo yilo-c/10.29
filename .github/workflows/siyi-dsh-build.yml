@@ -108,8 +108,9 @@ jobs:
           ls -lh "$WS/$APP_DIR/app/src/main/assets/web-profile.zip"
 
       - name: Build debug APK
-        working-directory: ${{ env.APP_DIR }}
         run: |
+          cd "$APP_DIR"
+          pwd; ls -la settings.gradle build.gradle
           gradle assembleDebug --no-daemon --stacktrace
 
       - name: Upload APK

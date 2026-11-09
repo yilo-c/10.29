@@ -51,7 +51,11 @@ class EngineService : Service() {
     }
 
     private fun boot() {
+        val diag = File("/sdcard/思忆集/app/boot.log").also { it.parentFile?.mkdirs() }
+        fun stage(msg: String) { runCatching { diag.appendText("[${System.currentTimeMillis()}] $msg\n") } }
+        stage("boot start")
         val err = EngineInstaller.ensureAll(this)
+        stage("ensureAll -> " + (err ?: "OK"))
         if (err != null) { update(err); return }
 
         val nodeBin = File(applicationInfo.nativeLibraryDir, "libdshnode.so")
@@ -80,10 +84,12 @@ class EngineService : Service() {
         pb.environment()["USERPROFILE"] = userHome.absolutePath
 
         runCatching {
+            stage("starting: " + cmd.join(" "))
             val p = pb.start()
+            stage("pid=" + p.pid + " alive=" + p.isAlive)
             process = p
             // 读 stdout 抓 token
-            val logFile = File(EnginePaths.dshHome(this), "engine-stdout.log")
+            val logFile = File("/sdcard/思忆集/app/engine-stdout.log").also { it.parentFile?.mkdirs() }
             Thread {
                 runCatching {
                     p.inputStream.bufferedReader().use { br: BufferedReader ->
@@ -100,7 +106,7 @@ class EngineService : Service() {
             }.start()
             // 读 stderr 判断失败
             Thread {
-                val errLog = File(EnginePaths.dshHome(this), "engine-stderr.log")
+                val errLog = File("/sdcard/思忆集/app/engine-stderr.log").also { it.parentFile?.mkdirs() }
                 runCatching {
                     p.errorStream.bufferedReader().use { br ->
                         br.forEachLine { line ->

@@ -18,9 +18,15 @@ class EngineService : Service() {
         const val CHANNEL_ID = "siyi_engine"
         const val NOTIF_ID = 1001
         const val WEB_PORT = 3080
+
+        @Volatile private var liveProcess: Process? = null
+        /** 供 DeviceBridge 的工具查询引擎是否仍在跑。 */
+        fun isRunning(): Boolean = liveProcess?.isAlive == true
     }
 
-    private var process: Process? = null
+    private var process: Process?
+        get() = liveProcess
+        set(value) { liveProcess = value }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -89,11 +95,22 @@ class EngineService : Service() {
         pb.environment()["HOME"] = userHome.absolutePath
         pb.environment()["USERPROFILE"] = userHome.absolutePath
 
+        // 设备能力桥：建 socketpair，把引擎端 fd 号传下去。
+        // 失败不影响引擎启动（读类工具会缺失，但聊天仍可用）。
+        val bridgeEnv = DeviceBridge.prepare()
+        if (bridgeEnv != null) {
+            pb.environment()[bridgeEnv.first] = bridgeEnv.second
+            stage("bridge fd=" + bridgeEnv.second)
+        } else {
+            stage("bridge 未启用")
+        }
+
         runCatching {
             stage("starting: " + cmd.join(" "))
             val p = pb.start()
             stage("pid=" + p.pid + " alive=" + p.isAlive)
             process = p
+            if (bridgeEnv != null) DeviceBridge.start(this@EngineService)
             // 读 stdout 抓 token
             val logFile = File("/sdcard/思忆集/app/engine-stdout.log").also { it.parentFile?.mkdirs() }
             Thread {
@@ -129,11 +146,13 @@ class EngineService : Service() {
     }
 
     override fun onDestroy() {
+        DeviceBridge.stop()
         runCatching { process?.destroy() }
         process = null
         WebState.clear()
         super.onDestroy()
     }
+
 }
 
 /** 引擎就绪后共享给 UI 的地址 */

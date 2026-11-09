@@ -54,6 +54,12 @@ class EngineService : Service() {
         val diag = File("/sdcard/思忆集/app/boot.log").also { it.parentFile?.mkdirs() }
         fun stage(msg: String) { runCatching { diag.appendText("[${System.currentTimeMillis()}] $msg\n") } }
         stage("boot start")
+        var lastNotify = 0L
+        EngineInstaller.onProgress = { n, txt ->
+            stage("progress $n $txt")
+            val now = System.currentTimeMillis()
+            if (now - lastNotify > 2000) { lastNotify = now; update("正在解压 $txt（$n 个文件）…") }
+        }
         val err = EngineInstaller.ensureAll(this)
         stage("ensureAll -> " + (err ?: "OK"))
         if (err != null) { update(err); return }

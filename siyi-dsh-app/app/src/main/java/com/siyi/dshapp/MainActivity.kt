@@ -56,6 +56,18 @@ class MainActivity : AppCompatActivity() {
             settings.allowContentAccess = true
             settings.mediaPlaybackRequiresUserGesture = false
             settings.cacheMode = android.webkit.WebSettings.LOAD_DEFAULT
+            // 登录页白屏的三处修复：
+            // 1) UA：默认 WebView UA 会让前端走「内嵌浏览器」分支，而那个分支
+            //    依赖官方 App 的 android-account 插件提供回调，我们没有，页面卡空白。
+            //    去掉 wv 标记让前端走正常浏览器分支。
+            // 2) 第三方 Cookie：OAuth 登录依赖跨域 cookie（codebuddy.cn → DSH 域）。
+            // 3) 混合内容：引擎页面是 http，放行混合加载避免资源被静默丢弃。
+            val defaultUa = android.webkit.WebSettings.getDefaultUserAgent(this@MainActivity)
+            settings.userAgentString = defaultUa.replace(" wv)", ")")
+            settings.javaScriptCanOpenWindowsAutomatically = true
+            settings.setSupportMultipleWindows(false)
+            settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+            CookieManager.getInstance().setAcceptThirdPartyCookies(web, true)
             webViewClient = object : WebViewClient() {
                 override fun onPageFinished(view: WebView?, url: String?) {
                     super.onPageFinished(view, url)

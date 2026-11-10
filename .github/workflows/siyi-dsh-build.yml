@@ -106,6 +106,11 @@ jobs:
           cp -r "$WS/$APP_DIR/plugins/dsh-client-ui-siyi-mobile" "node_modules/dsh-client-ui-siyi-mobile"
           echo "plugin installed: $(ls node_modules/dsh-client-ui-siyi-mobile/lib)"
 
+          # 修正 shell 写死成 bash 的问题：普通 node 启动时 platform 是 linux，
+          # 两个插件会去 spawn bash，而 Android 只有 /system/bin/sh，
+          # 所有 shell 工具都会报 spawn bash EACCES。
+          node "$WS/$APP_DIR/patches/fix-android-bash.mjs" "$PDIR"
+
           echo "包数: $(ls node_modules/@deepseek-ai | wc -l)"
           echo "client-ui: $(ls node_modules/@deepseek-ai | grep -c client-ui || true)"
           ls -la "$WS/$APP_DIR/profile-build/profiles" || true

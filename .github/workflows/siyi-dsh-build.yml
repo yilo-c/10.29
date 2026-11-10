@@ -85,7 +85,7 @@ jobs:
           cp "$APP_DIR/app/src/main/assets/profile-template.json" "$PDIR/package.json"
           cp "$APP_DIR/app/src/main/assets/profile-patch.yml" "$PDIR/cordis.patch.yml"
           cd "$PDIR"
-          npx --yes pnpm@11.28.9 add "@deepseek-ai/dsh-base@${DSH_PKG_VERSION}" "@deepseek-ai/dsh-web-app@${DSH_PKG_VERSION}" --config.node-linker=hoisted --config.package-import-method=copy --config.ignore-scripts=true
+          npx --yes pnpm@11.28.9 add "@deepseek-ai/dsh-base@${DSH_PKG_VERSION}" "@deepseek-ai/dsh-web-app@${DSH_PKG_VERSION}" "@snnh/dsh-llm-service-lite@0.2.1" --config.node-linker=hoisted --config.package-import-method=copy --config.ignore-scripts=true
           WS="${GITHUB_WORKSPACE:-$PWD}"
           echo "WS=$WS"
           # Android 适配：三个关键包必须用引擎 APK 内的定制版
@@ -99,6 +99,13 @@ jobs:
             cp -r "$WS/engine-native/node_modules/@deepseek-ai/$pkg" "node_modules/@deepseek-ai/$pkg"
             echo "unified $pkg"
           done
+          # 思忆集移动端布局插件：修正窄屏设置面板的两栏挤压与中文逐字换行。
+          # 客户端插件清单只扫描 cordis 树里的 entry，所以除了复制进 node_modules，
+          # 还必须在 assets/profile-patch.yml 里 insert（已做）。
+          rm -rf "node_modules/dsh-client-ui-siyi-mobile"
+          cp -r "$WS/$APP_DIR/plugins/dsh-client-ui-siyi-mobile" "node_modules/dsh-client-ui-siyi-mobile"
+          echo "plugin installed: $(ls node_modules/dsh-client-ui-siyi-mobile/lib)"
+
           echo "包数: $(ls node_modules/@deepseek-ai | wc -l)"
           echo "client-ui: $(ls node_modules/@deepseek-ai | grep -c client-ui || true)"
           ls -la "$WS/$APP_DIR/profile-build/profiles" || true

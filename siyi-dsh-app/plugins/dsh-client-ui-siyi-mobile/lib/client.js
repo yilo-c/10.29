@@ -32,16 +32,17 @@ window.__ModuleLoader__.load({
     var CSS = [
       // ── 1. 隐藏左侧折叠轨道（collapsedWidth 变 0 后的副作用修正）──
       // 该属性会让布局给 frame 加 padding-top，这里把变量压成 0
+      // 只压掉 titlebar 高度（那是 Windows 桌面的标题栏），
+      // 绝不能动 --dsh-frame-top-clearance / chrome-top：
+      // 它们是 DSH 自己给顶部工具栏预留的高度，压掉会把右上角按钮挤出可视区。
+      // 安全区由 App 侧给 WebView 加 padding 解决，CSS 层不参与。
       'html[' + ATTR + '] {',
       '  --dsh-windows-titlebar-height: 0px !important;',
-      '  --dsh-frame-top-clearance: env(safe-area-inset-top, 0px) !important;',
-      '  --dsh-frame-chrome-top: env(safe-area-inset-top, 0px) !important;',
-      '  --dsh-frame-overlay-top: calc(env(safe-area-inset-top, 0px) + 20px) !important;',
       '}',
       // 去掉圆角与顶部拖拽条
       'html[' + ATTR + '] [class*="_frame_"] {',
       '  --dsh-windows-content-radius: 0px !important;',
-      '  padding-top: env(safe-area-inset-top, 0px) !important;',
+      '  padding-top: 0 !important;',
       '}',
       'html[' + ATTR + '] [class*="_frame_"]::before { display: none !important }',
       'html[' + ATTR + '] [class*="_centerCol_"] { border-radius: 0 !important }',
@@ -101,9 +102,7 @@ window.__ModuleLoader__.load({
       '}',
       // 通用弹窗放开宽度
       '[role="dialog"] { max-width: calc(100vw - 16px) !important }',
-      'html[' + ATTR + '] body {',
-      '  padding-bottom: env(safe-area-inset-bottom, 0px) !important;',
-      '}',
+
 
       '}',
     ].join('\n')

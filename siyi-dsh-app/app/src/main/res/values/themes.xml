@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      状态栏与导航栏不使用透明色。
+      之前设为 transparent，配合窗口的 LAYOUT_IN_SCREEN 会让 WebView 内容
+      画到状态栏下面，顶部按钮被系统图标遮挡（实测状态栏高 118px）。
+      改成与页面背景一致的实色，系统会自动把内容区下移，无需 insets 参与。
+    -->
+    <style name="Theme.SiyiDSH" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="android:statusBarColor">#151517</item>
+        <item name="android:navigationBarColor">#151517</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
+        <item name="android:windowLayoutInDisplayCutoutMode">never</item>
+    </style>
+</resources>

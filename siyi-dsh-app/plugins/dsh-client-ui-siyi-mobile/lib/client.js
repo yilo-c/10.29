@@ -34,14 +34,14 @@ window.__ModuleLoader__.load({
       // 该属性会让布局给 frame 加 padding-top，这里把变量压成 0
       'html[' + ATTR + '] {',
       '  --dsh-windows-titlebar-height: 0px !important;',
-      '  --dsh-frame-top-clearance: 0px !important;',
-      '  --dsh-frame-chrome-top: 0px !important;',
-      '  --dsh-frame-overlay-top: 20px !important;',
+      '  --dsh-frame-top-clearance: env(safe-area-inset-top, 0px) !important;',
+      '  --dsh-frame-chrome-top: env(safe-area-inset-top, 0px) !important;',
+      '  --dsh-frame-overlay-top: calc(env(safe-area-inset-top, 0px) + 20px) !important;',
       '}',
       // 去掉圆角与顶部拖拽条
       'html[' + ATTR + '] [class*="_frame_"] {',
       '  --dsh-windows-content-radius: 0px !important;',
-      '  padding-top: 0 !important;',
+      '  padding-top: env(safe-area-inset-top, 0px) !important;',
       '}',
       'html[' + ATTR + '] [class*="_frame_"]::before { display: none !important }',
       'html[' + ATTR + '] [class*="_centerCol_"] { border-radius: 0 !important }',
@@ -101,6 +101,9 @@ window.__ModuleLoader__.load({
       '}',
       // 通用弹窗放开宽度
       '[role="dialog"] { max-width: calc(100vw - 16px) !important }',
+      'html[' + ATTR + '] body {',
+      '  padding-bottom: env(safe-area-inset-bottom, 0px) !important;',
+      '}',
 
       '}',
     ].join('\n')

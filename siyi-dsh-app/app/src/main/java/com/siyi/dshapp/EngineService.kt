@@ -105,6 +105,12 @@ class EngineService : Service() {
         pb.environment()["SHELL"] = "/system/bin/sh"
         pb.environment()["PATH"] = EngineInstaller.binDir(this).absolutePath + ":" + applicationInfo.nativeLibraryDir + ":/system/bin:/system/xbin"
         pb.environment()["TMPDIR"] = tmpDir.absolutePath
+        // glob/grep 依赖 ripgrep。引擎的 resolveRgPath 有 Android 分支
+        // （platform === "android" 时直接用 PATH 里的 rg），但思忆集用普通 node 启动，
+        // platform 是 linux，会去走 @vscode/ripgrep，而那个包没有 android-arm64 版本。
+        // 显式给 DSH_RG_PATH 即可绕开，指向 files/bin/rg
+        // （软链到 APK 内 librg.so —— 只有 native lib 目录允许执行）。
+        pb.environment()["DSH_RG_PATH"] = File(EngineInstaller.binDir(this), "rg").absolutePath
 
         // 设备能力桥：建 socketpair，把引擎端 fd 号传下去。
         // 失败不影响引擎启动（读类工具会缺失，但聊天仍可用）。

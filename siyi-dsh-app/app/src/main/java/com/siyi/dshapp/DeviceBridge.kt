@@ -2,9 +2,6 @@ package com.siyi.dshapp
 
 import android.app.ActivityManager
 import android.content.Context
-import android.net.LocalServerSocket
-import android.net.LocalSocket
-import android.net.LocalSocketAddress
 import android.os.BatteryManager
 import android.os.Build
 import android.os.Environment
@@ -103,128 +100,52 @@ object DeviceBridge {
         }
     }
 
-    /** 清除 FD_CLOEXEC，让 fd 在 exec 后仍被子进程继承。 */
+    /**
+     * 清除 FD_CLOEXEC，让 fd 在 exec 后仍被子进程继承。
+     * 优先走 JNI（直接 fcntl），失败再反射兜底。
+     */
     private fun clearCloexec(fd: FileDescriptor) {
-        val os = Class.forName("android.system.Os")
-        // fcntlInt(FileDescriptor, int, int) 或 fcntlVoid 等变体
-        for (m in os.declaredMethods) {
-            if (m.name != "fcntlInt") continue
-            try { m.invoke(null, fd, OsConstants.F_SETFD, 0); return } catch (_: Throwable) {}
+        if (NativeBridge.clearCloexec(fd)) {
+            log("clearCloexec: JNI 成功")
+            return
         }
-        // 退路：用 OsConstants 的 fcntl 直接不可用时，交给 ParcelFileDescriptor 的反射
-        android.util.Log.w(TAG, "fcntlInt 不可用，fd 可能被子进程关闭")
+        runCatching {
+            val os = Class.forName("android.system.Os")
+            for (m in os.declaredMethods) {
+                if (m.name != "fcntlInt") continue
+                val ps = m.parameterTypes
+                if (ps.size == 3 && ps[0] == FileDescriptor::class.java &&
+                    ps[1] == Int::class.javaPrimitiveType && ps[2] == Int::class.javaPrimitiveType
+                ) {
+                    m.invoke(null, fd, OsConstants.F_SETFD, 0)
+                    log("clearCloexec: 反射 fcntlInt 成功")
+                    return
+                }
+            }
+        }
+        log("clearCloexec: 全部路径失败，fd 可能在 exec 时被关闭")
     }
 
+
     /**
-     * 建一对连通的 UNIX socket。两条路径都试，并把结果写日志：
-     *  A. 反射 Os.socketpair —— 官方同款，libuv 能识别；但它是 @hide，签名各 ROM 不一。
-     *  B. LocalServerSocket + LocalSocket —— 公开 API 稳定；但产生的是监听-接受型 socket，
-     *     libuv 的 uv_guess_handle 会判成 UV_UNKNOWN_HANDLE，引擎侧报
-     *     "Unsupported fd type: UNKNOWN"。仅作兜底并记录实测结果。
+     * 建一对已连接的 UNIX socket。
+     *
+     * 走 JNI 调 libc 的 socketpair(2)：这是唯一同时满足两个约束的做法——
+     *   ① 不碰 @hide API（Os.socketpair 签名各 ROM 不一，反射不可靠）
+     *   ② 产生对等匿名 socket，libuv 能识别为 UV_NAMED_PIPE
+     *      （LocalSocket 那种监听-接受型会被判成 UNKNOWN，引擎直接拒收）
      */
     private fun openSocketPair(): Array<FileDescriptor> {
-        // ── A. 先试反射 Os.socketpair（多签名兼容）──
-        try {
-            val pair = openViaOsSocketpair()
-            log("  openSocketPair: 走 Os.socketpair 成功")
+        val pair = NativeBridge.createSocketPair()
+        if (pair != null) {
+            log("  openSocketPair: JNI socketpair 成功")
             return pair
-        } catch (t: Throwable) {
-            log("  openSocketPair: Os.socketpair 失败 -> " + t.javaClass.simpleName + ": " + t.message)
         }
-        // ── B. 兜底 LocalSocket ──
-        log("  openSocketPair: 转 LocalSocket 兜底")
-        val name = "siyi-bridge-" + java.util.UUID.randomUUID().toString()
-        var server: LocalServerSocket? = null
-        var client: LocalSocket? = null
-        try {
-            server = LocalServerSocket(name)
-            log("  openSocketPair: LocalServerSocket 创建成功")
-            client = LocalSocket()
-            client.connect(LocalSocketAddress(name, LocalSocketAddress.Namespace.ABSTRACT))
-            log("  openSocketPair: client connect 成功")
-            val peer = server.accept()
-                ?: throw IllegalStateException("LocalServerSocket.accept 返回 null")
-            log("  openSocketPair: accept 成功")
-            keepAlive = listOf(client, peer, server)
-            log("  openSocketPair: 保活已登记")
-            return arrayOf(client.fileDescriptor, peer.fileDescriptor)
-        } catch (t: Throwable) {
-            log("  openSocketPair: LocalSocket 也失败 -> " + t.javaClass.simpleName + ": " + t.message)
-            runCatching { client?.close() }
-            runCatching { server?.close() }
-            throw t
-        }
+        log("  openSocketPair: JNI 不可用（NativeBridge.available=" + NativeBridge.available + "）")
+        throw IllegalStateException("NativeBridge 建 socketpair 失败")
     }
 
-    /**
-     * 反射 Os.socketpair，逐个尝试已知签名形态：
-     *  5 参数 void(int,int,int,FileDescriptor,FileDescriptor)  ← 这台设备实际形态
-     *  4 参数 void(int,int,int,FileDescriptor[])
-     *  3 参数 FileDescriptor[](int,int,int)
-     */
-    private fun openViaOsSocketpair(): Array<FileDescriptor> {
-        val os = Class.forName("android.system.Os")
-        val domain = OsConstants.AF_UNIX
-        val type = OsConstants.SOCK_STREAM
-        val methods = os.declaredMethods.filter { it.name == "socketpair" }
-        log("  Os.socketpair 候选数: " + methods.size)
-        for (m in methods) {
-            log("    签名: " + m.parameterTypes.joinToString(",") { it.simpleName } + " -> " + m.returnType.simpleName)
-        }
 
-        // 5 参数
-        for (m in methods) {
-            val ps = m.parameterTypes
-            if (ps.size != 5) continue
-            if (ps[0] != Int::class.javaPrimitiveType || ps[1] != Int::class.javaPrimitiveType || ps[2] != Int::class.javaPrimitiveType) continue
-            if (ps[3] != FileDescriptor::class.java || ps[4] != FileDescriptor::class.java) continue
-            runCatching {
-                val a = FileDescriptor()
-                val b = FileDescriptor()
-                m.invoke(null, domain, type, 0, a, b)
-                if (fdNumber(a) >= 0 && fdNumber(b) >= 0) {
-                    log("  Os.socketpair: 5 参数成功 fd=" + fdNumber(a) + "," + fdNumber(b))
-                    return arrayOf(a, b)
-                }
-            }
-        }
-        // 4 参数
-        for (m in methods) {
-            val ps = m.parameterTypes
-            if (ps.size != 4) continue
-            runCatching {
-                val out = arrayOfNulls<FileDescriptor>(2)
-                m.invoke(null, domain, type, 0, out)
-                val a = out[0]; val b = out[1]
-                if (a != null && b != null && fdNumber(a) >= 0) {
-                    log("  Os.socketpair: 4 参数成功")
-                    return arrayOf(a, b)
-                }
-            }
-        }
-        // 3 参数
-        for (m in methods) {
-            val ps = m.parameterTypes
-            if (ps.size != 3) continue
-            runCatching {
-                val r = m.invoke(null, domain, type, 0)
-                if (r is Array<*> && r.size >= 2 && r[0] is FileDescriptor && r[1] is FileDescriptor) {
-                    log("  Os.socketpair: 3 参数成功")
-                    return arrayOf(r[0] as FileDescriptor, r[1] as FileDescriptor)
-                }
-            }
-        }
-        throw IllegalStateException("所有签名均未成功")
-    }
-
-    /** 保活 socket 对象，防止 fd 被 GC 回收。 */
-    private var keepAlive: List<Any>? = null
-
-    /** 保活 socket 对象，防止 fd 被 GC 回收。 */
-    private var keepAlive: List<Any>? = null
-
-    /** 保活 socket 对象，防止 fd 被回收。 */
-    private var keepAlive: List<Any>? = null
 
     /** 从 FileDescriptor 取 int fd（反射，Android 无公开 API）。 */
     private fun fdNumber(fd: FileDescriptor): Int {
@@ -453,15 +374,18 @@ object DeviceBridge {
         log("nativeLibraryDir=" + ctx.applicationInfo.nativeLibraryDir)
         log("filesDir=" + ctx.filesDir.absolutePath)
 
-        // 1) 公开 API 是否可用
+        // 1) JNI 是否加载成功（socketpair 走这条路）
+        log("NativeBridge.available: " + NativeBridge.available)
         runCatching {
-            val cls = Class.forName("android.net.LocalServerSocket")
-            log("LocalServerSocket 类: 可用 (" + cls.name + ")")
-        }.onFailure { log("LocalServerSocket 类: 不可用 " + it.message) }
-        runCatching {
-            val cls = Class.forName("android.net.LocalSocket")
-            log("LocalSocket 类: 可用")
-        }.onFailure { log("LocalSocket 类: 不可用 " + it.message) }
+            val pair = NativeBridge.createSocketPair()
+            if (pair != null) {
+                val a = NativeBridge.fdNumber(pair[0])
+                val b = NativeBridge.fdNumber(pair[1])
+                log("JNI socketpair 自检: 成功 fd=" + a + "," + b)
+            } else {
+                log("JNI socketpair 自检: 返回 null（so 未加载或 socketpair 失败）")
+            }
+        }.onFailure { log("JNI socketpair 自检异常: " + it.message) }
 
         // 2) 隐藏 API 探测（只记录，不依赖）
         runCatching {

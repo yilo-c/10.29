@@ -1,0 +1,32 @@
+{
+  "name": "dsh-client-ui-siyi-mobile",
+  "version": "0.1.0",
+  "description": "思忆集移动端布局补丁：修正 DSH 窄屏下设置面板的两栏挤压与中文逐字换行。",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": {
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "default": "./lib/client.js"
+    },
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json"
+  },
+  "dsh": {
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-settings"
+      ]
+    }
+  },
+  "files": [
+    "lib/index.js",
+    "lib/client.js",
+    "locale/*.json"
+  ],
+  "license": "MIT"
+}

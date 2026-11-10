@@ -112,8 +112,11 @@ class EngineService : Service() {
         // （软链到 APK 内 librg.so —— 只有 native lib 目录允许执行）。
         pb.environment()["DSH_RG_PATH"] = File(EngineInstaller.binDir(this), "rg").absolutePath
 
-        // 设备能力桥：建 socketpair，把引擎端 fd 号传下去。
-        // 失败不影响引擎启动（读类工具会缺失，但聊天仍可用）。
+        // 设备能力桥：先跑环境自检（结果写 bridge.log，装一次包就能定位断点），
+        // 再建 socketpair 把引擎端 fd 号传下去。
+        // 失败不影响引擎启动（设备类工具会缺失，但聊天与 shell 仍可用）。
+        runCatching { DeviceBridge.envSelfCheck(this) }
+            .onFailure { stage("envSelfCheck 异常: " + it.message) }
         val bridgeEnv = DeviceBridge.prepare()
         if (bridgeEnv != null) {
             pb.environment()[bridgeEnv.first] = bridgeEnv.second

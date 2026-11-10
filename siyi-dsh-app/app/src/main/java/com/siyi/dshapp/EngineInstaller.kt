@@ -36,7 +36,52 @@ object EngineInstaller {
     fun ensureAll(ctx: Context): String? {
         ensureEngine(ctx)?.let { return it }
         ensureProfile(ctx)?.let { return it }
-        return unifyAndroidPackages(ctx)
+        unifyAndroidPackages(ctx)?.let { return it }
+        return ensureBinLinks(ctx)
+    }
+
+    /** filesDir/bin 目录：放 node 与 rg 的可执行软链，供 shell 工具与 glob 使用。 */
+    fun binDir(ctx: Context): File = File(ctx.filesDir, "bin")
+
+    /**
+     * 官方 DSH 在 filesDir/bin 下建了 node 与 rg 两个软链，指向 APK 内的 .so，
+     * 并把该目录加进 PATH。思忆集缺这一步，导致：
+     *   - glob / 内容搜索找不到 rg → ripgrep launch failed
+     *   - 子进程类工具找不到可用的 node
+     * 这里按同样方式补齐；链接目标用 nativeLibraryDir 里的真实 .so。
+     */
+    private fun ensureBinLinks(ctx: Context): String? {
+        val bin = binDir(ctx)
+        if (!bin.isDirectory) bin.mkdirs()
+        val lib = ctx.applicationInfo.nativeLibraryDir
+        val pairs = arrayOf(
+            "node" to "libdshnode.so",
+            "rg" to "librg.so",
+        )
+        for ((name, so) in pairs) {
+            val target = File(lib, so)
+            if (!target.exists()) continue // APK 没带就跳过，不阻断启动
+            val link = File(bin, name)
+            if (link.exists() || link.isSymbolicLink()) runCatching { deleteRecursively(link) }
+            try {
+                Os.symlink(target.absolutePath, link.absolutePath)
+                runCatching {
+                    val osCls = Class.forName("android.system.Os")
+                    for (m in osCls.declaredMethods) {
+                        if (m.name == "chmod") {
+                            try { m.invoke(null, link.absolutePath, 493); break } catch (_: Throwable) {}
+                        }
+                    }
+                }
+            } catch (t: Throwable) {
+                // 软链失败时退化为复制（极少数 ROM 不允许私有目录建链）
+                try {
+                    target.copyTo(link, overwrite = true)
+                    link.setExecutable(true, false)
+                } catch (_: Throwable) {}
+            }
+        }
+        return null
     }
 
     private fun unzipAsset(ctx: Context, asset: String, dest: File): String? = try {

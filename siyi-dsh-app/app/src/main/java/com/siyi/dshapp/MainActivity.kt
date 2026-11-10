@@ -67,7 +67,6 @@ class MainActivity : AppCompatActivity() {
             settings.javaScriptCanOpenWindowsAutomatically = true
             settings.setSupportMultipleWindows(false)
             settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
-            CookieManager.getInstance().setAcceptThirdPartyCookies(web, true)
             webViewClient = object : WebViewClient() {
                 override fun onPageFinished(view: WebView?, url: String?) {
                     super.onPageFinished(view, url)
@@ -85,6 +84,8 @@ class MainActivity : AppCompatActivity() {
             }
         }
         CookieManager.getInstance().setAcceptCookie(true)
+        // web 已完成赋值，这里才能引用它：OAuth 登录依赖跨域 cookie
+        CookieManager.getInstance().setAcceptThirdPartyCookies(web, true)
         setContentView(web)
 
         addContentView(waitView, ViewGroup.LayoutParams(

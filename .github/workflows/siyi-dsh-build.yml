@@ -66,6 +66,7 @@ jobs:
             'lib/arm64-v8a/libdshnode.so' \
             'lib/arm64-v8a/libc++_shared.so' \
             'lib/arm64-v8a/libdsh_flock.so' \
+            'lib/arm64-v8a/librg.so' \
             -d "$APP_DIR/app/src/main/jniLibs/arm64-v8a"
           chmod 755 "$APP_DIR/app/src/main/jniLibs/arm64-v8a/"*.so
           ls -lh "$APP_DIR/app/src/main/jniLibs/arm64-v8a"

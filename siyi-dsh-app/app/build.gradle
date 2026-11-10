@@ -31,6 +31,15 @@ android {
     }
     kotlinOptions { jvmTarget = '17' }
 
+    // 设备桥的 JNI 辅助（socketpair）。只编一个极小 so，无第三方依赖。
+    externalNativeBuild {
+        cmake {
+            path 'src/main/cpp/CMakeLists.txt'
+            version '3.22.1'
+        }
+    }
+    ndkVersion '26.1.10909125'
+
     // 关键：不要压缩 .so，且把 jniLibs 打进 APK
     packagingOptions {
         jniLibs { useLegacyPackaging = true }

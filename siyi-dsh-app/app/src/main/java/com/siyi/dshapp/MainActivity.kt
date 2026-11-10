@@ -18,6 +18,8 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 
 class MainActivity : AppCompatActivity() {
 
@@ -86,6 +88,15 @@ class MainActivity : AppCompatActivity() {
         CookieManager.getInstance().setAcceptCookie(true)
         // web 已完成赋值，这里才能引用它：OAuth 登录依赖跨域 cookie
         CookieManager.getInstance().setAcceptThirdPartyCookies(web, true)
+        // WebView 默认 edge-to-edge，内容会画到状态栏与导航条下面，
+        // 顶部按钮因此被遮挡。env(safe-area-inset-*) 在普通 Android WebView 里
+        // 恒为 0（只有 display-cutout 全屏模式才有值），所以必须在原生侧补 padding。
+        ViewCompat.setOnApplyWindowInsetsListener(web) { v, insets ->
+            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
+            v.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+            insets
+        }
+        ViewCompat.requestApplyInsets(web)
         setContentView(web)
 
         addContentView(waitView, ViewGroup.LayoutParams(

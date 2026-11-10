@@ -69,19 +69,35 @@ class MainActivity : AppCompatActivity() {
             settings.javaScriptCanOpenWindowsAutomatically = true
             settings.setSupportMultipleWindows(false)
             settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+            // 诊断用：把 WebView 控制台与失败请求打到 logcat，
+            // 登录白屏时靠这个定位前端卡在哪一步。
+            webChromeClient = object : android.webkit.WebChromeClient() {
+                override fun onConsoleMessage(m: android.webkit.ConsoleMessage?): Boolean {
+                    if (m != null) {
+                        android.util.Log.i("SiyiWeb", m.messageLevel().name + " " + m.message() +
+                            " @" + m.sourceId() + ":" + m.lineNumber())
+                    }
+                    return true
+                }
+            }
             webViewClient = object : WebViewClient() {
                 override fun onPageFinished(view: WebView?, url: String?) {
                     super.onPageFinished(view, url)
-                    // 页面加载完再探测 React 是否真正渲染（#root 有子节点）
+                    android.util.Log.i("SiyiWeb", "onPageFinished " + url)
                     handler.postDelayed({ probeRendered() }, 800)
                     handler.postDelayed({ probeRendered() }, 2500)
                     handler.postDelayed({ probeRendered() }, 5000)
                 }
                 override fun onReceivedError(view: WebView?, req: WebResourceRequest?, err: WebResourceError?) {
                     super.onReceivedError(view, req, err)
+                    android.util.Log.e("SiyiWeb", "onReceivedError " + req?.url + " -> " + err?.description)
                     if (req?.isForMainFrame == true) {
                         showWaiting("页面加载失败：${err?.description ?: "未知错误"}")
                     }
+                }
+                override fun onReceivedHttpError(view: WebView?, req: WebResourceRequest?, res: android.webkit.WebResourceResponse?) {
+                    super.onReceivedHttpError(view, req, res)
+                    android.util.Log.e("SiyiWeb", "HTTP " + res?.statusCode + " " + req?.url)
                 }
             }
         }
@@ -92,16 +108,24 @@ class MainActivity : AppCompatActivity() {
         // 顶部按钮因此被遮挡。env(safe-area-inset-*) 在普通 Android WebView 里
         // 恒为 0（只有 display-cutout 全屏模式才有值），所以必须在原生侧补 padding。
         ViewCompat.setOnApplyWindowInsetsListener(web) { v, insets ->
-            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
+            val bars = insets.getInsets(
+                WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
+            )
+            android.util.Log.i("SiyiInsets", "insets top=" + bars.top + " bottom=" + bars.bottom +
+                " left=" + bars.left + " right=" + bars.right)
             v.setPadding(bars.left, bars.top, bars.right, bars.bottom)
             insets
         }
-        ViewCompat.requestApplyInsets(web)
+        // 必须先把 WebView 挂到窗口上，insets 才会派发；
+        // 之前 requestApplyInsets 在 setContentView 之前调用，监听器从未触发。
         setContentView(web)
 
         addContentView(waitView, ViewGroup.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.MATCH_PARENT))
+
+        // 挂载完成后再请求一次，双保险
+        web.post { ViewCompat.requestApplyInsets(web) }
 
         runCatching { startForegroundService(Intent(this, EngineService::class.java)) }
         poll()

@@ -134,9 +134,16 @@ jobs:
       - name: Fix libc++_shared.so in APK
         run: |
           set -e
-          APK=$(ls "$APP_DIR"/app/build/outputs/apk/debug/*.apk | head -1)
+          # 必须转绝对路径：下面会 cd 到临时目录，相对路径会失效
+          APK=$(ls "$PWD/$APP_DIR"/app/build/outputs/apk/debug/*.apk 2>/dev/null | head -1)
+          if [ -z "$APK" ]; then
+            APK=$(ls "$GITHUB_WORKSPACE/$APP_DIR"/app/build/outputs/apk/debug/*.apk | head -1)
+          fi
+          APK=$(readlink -f "$APK")
           echo "APK: $APK"
-          GOOD="$APP_DIR/app/src/main/jniLibs/arm64-v8a/libc++_shared.so"
+          test -f "$APK" || { echo "找不到 APK"; exit 1; }
+          GOOD=$(readlink -f "$GITHUB_WORKSPACE/$APP_DIR/app/src/main/jniLibs/arm64-v8a/libc++_shared.so")
+          test -f "$GOOD" || { echo "找不到官方版 libc++"; exit 1; }
           echo "官方版大小: $(stat -c%s "$GOOD") 字节"
 
           # 解出 APK，替换 libc++，再重新打包

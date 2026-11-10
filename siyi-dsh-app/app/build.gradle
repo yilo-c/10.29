@@ -40,7 +40,7 @@ android {
             // set_target_properties 里无效（那是 target 属性，不是构建变量）。
             // 不传的话 AGP 会把 NDK 自带的 1.4MB 精简版 libc++_shared.so 打进包，
             // 覆盖官方 APK 那份 8.9MB 完整版，而 libnode.so 依赖完整版 → 引擎崩。
-            arguments '-DANDROID_STL=none'
+            arguments = ['-DANDROID_STL=none']
         }
     }
     ndkVersion '26.1.10909125'

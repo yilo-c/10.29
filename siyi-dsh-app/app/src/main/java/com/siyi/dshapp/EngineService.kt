@@ -95,6 +95,17 @@ class EngineService : Service() {
         pb.environment()["HOME"] = userHome.absolutePath
         pb.environment()["USERPROFILE"] = userHome.absolutePath
 
+        // 对齐官方 DSH 的引擎进程环境。
+        // 关键一：我们用普通 node 启动，process.platform 是 linux 而不是 android，
+        // dsh-bash-local 会去找 bash，但 Android 只有 /system/bin/sh，
+        // 于是所有 shell 工具都报 spawn bash EACCES。显式指定即可绕开。
+        // 关键二：PATH/TMPDIR 缺失会让 ripgrep、glob、mkdtemp 一起失效。
+        val tmpDir = File(cacheDir, "tmp").also { it.mkdirs() }
+        pb.environment()["DSH_BASH_SHELL"] = "/system/bin/sh"
+        pb.environment()["SHELL"] = "/system/bin/sh"
+        pb.environment()["PATH"] = EngineInstaller.binDir(this).absolutePath + ":" + applicationInfo.nativeLibraryDir + ":/system/bin:/system/xbin"
+        pb.environment()["TMPDIR"] = tmpDir.absolutePath
+
         // 设备能力桥：建 socketpair，把引擎端 fd 号传下去。
         // 失败不影响引擎启动（读类工具会缺失，但聊天仍可用）。
         val bridgeEnv = DeviceBridge.prepare()

@@ -156,9 +156,13 @@ jobs:
           AFTER=$(stat -c%s lib/arm64-v8a/libc++_shared.so)
           echo "替换后大小: $AFTER 字节"
 
-          # 重新打包（不压缩 .so，与原始 APK 一致）
+          # 重新打包。
+          # -n 后缀列表必须包含 resources.arsc 与 AndroidManifest.xml：
+          #   Android 11+ 直接 mmap resources.arsc，压缩存储会报「系统不兼容」拒绝安装。
+          #   .so 同理（extractNativeLibs=false 时直接从 APK 加载）。
           rm -f "$APK"
-          zip -q -r -n .so:.zip "$APK" . -x 'META-INF/*.RSA' 'META-INF/*.SF' 'META-INF/*.MF' > /dev/null
+          zip -q -r -n .so:.zip:.arsc:.png:.jpg:.jpeg:.webp "$APK" . \
+            -x 'META-INF/*.RSA' 'META-INF/*.SF' 'META-INF/*.MF' > /dev/null
           cd - > /dev/null
           rm -rf "$W"
 
@@ -169,7 +173,10 @@ jobs:
             keytool -genkeypair -v -keystore "$KS" -storepass android -keypass android               -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000               -dname "CN=Android Debug,O=Android,C=US" > /dev/null 2>&1
           fi
           "$BT/zipalign" -f -p 4 "$APK" "$APK.aligned"
-          "$BT/apksigner" sign --ks "$KS" --ks-pass pass:android --key-pass pass:android             --out "$APK" "$APK.aligned"
+          # 显式指定 v1+v2+v3，缺 v2 会导致 Android 7+ 报「系统不兼容」
+          "$BT/apksigner" sign --ks "$KS" --ks-pass pass:android --key-pass pass:android \
+            --v1-signing-enabled true --v2-signing-enabled true --v3-signing-enabled true \
+            --out "$APK" "$APK.aligned"
           rm -f "$APK.aligned"
 
           echo "--- 最终校验 ---"

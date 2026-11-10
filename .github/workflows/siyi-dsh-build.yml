@@ -41,7 +41,7 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
         with:
-          packages: 'platforms;android-34 build-tools;34.0.0'
+          packages: 'platforms;android-34 build-tools;34.0.0 ndk;26.1.10909125 cmake;3.22.1'
 
       - name: Setup Node 22
         uses: actions/setup-node@v4
@@ -126,6 +126,48 @@ jobs:
           cd "$APP_DIR"
           pwd; ls -la settings.gradle build.gradle
           gradle assembleDebug --no-daemon --stacktrace
+
+      # NDK 编译 jniLibs 时会把它自带的精简版 libc++_shared.so（约 1.3MB）打进 APK，
+      # 覆盖 jniLibs 里从官方 APK 提取的完整版（约 8.9MB）。libnode.so 依赖完整版，
+      # 换成精简版后引擎启动即崩。AGP 8 已移除 cmake.arguments DSL，
+      # ANDROID_STL 也无处可设，所以在打包完成后直接从 APK 里替换回来。
+      - name: Fix libc++_shared.so in APK
+        run: |
+          set -e
+          APK=$(ls "$APP_DIR"/app/build/outputs/apk/debug/*.apk | head -1)
+          echo "APK: $APK"
+          GOOD="$APP_DIR/app/src/main/jniLibs/arm64-v8a/libc++_shared.so"
+          echo "官方版大小: $(stat -c%s "$GOOD") 字节"
+
+          # 解出 APK，替换 libc++，再重新打包
+          W=$(mktemp -d)
+          cd "$W"
+          unzip -q "$APK"
+          BEFORE=$(stat -c%s lib/arm64-v8a/libc++_shared.so)
+          echo "包内原大小: $BEFORE 字节"
+          cp "$GOOD" lib/arm64-v8a/libc++_shared.so
+          AFTER=$(stat -c%s lib/arm64-v8a/libc++_shared.so)
+          echo "替换后大小: $AFTER 字节"
+
+          # 重新打包（不压缩 .so，与原始 APK 一致）
+          rm -f "$APK"
+          zip -q -r -n .so:.zip "$APK" . -x 'META-INF/*.RSA' 'META-INF/*.SF' 'META-INF/*.MF' > /dev/null
+          cd - > /dev/null
+          rm -rf "$W"
+
+          # 重新签名
+          BT=$(ls -d /usr/local/lib/android/sdk/build-tools/* | sort -V | tail -1)
+          KS="$HOME/.android/debug.keystore"
+          if [ ! -f "$KS" ]; then
+            keytool -genkeypair -v -keystore "$KS" -storepass android -keypass android               -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000               -dname "CN=Android Debug,O=Android,C=US" > /dev/null 2>&1
+          fi
+          "$BT/zipalign" -f -p 4 "$APK" "$APK.aligned"
+          "$BT/apksigner" sign --ks "$KS" --ks-pass pass:android --key-pass pass:android             --out "$APK" "$APK.aligned"
+          rm -f "$APK.aligned"
+
+          echo "--- 最终校验 ---"
+          unzip -l "$APK" | grep "libc++_shared" || true
+          "$BT/apksigner" verify "$APK" && echo "签名校验通过"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4

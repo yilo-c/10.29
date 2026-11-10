@@ -52,22 +52,53 @@ object DeviceBridge {
     private val cancelled = ConcurrentHashMap<String, Boolean>()
     private var appCtx: Context? = null
 
-    /** 建 socketpair，返回要交给 ProcessBuilder 的 (环境变量名, fd号)。 */
+    /**
+     * 建 socket 对并把引擎端 fd 号交给引擎。
+     * 全程分步写日志到 bridge.log，装一次包就能定位断点。
+     */
     fun prepare(): Pair<String, String>? {
+        log("=== prepare 开始 ===")
         return try {
-            // Os.socketpair 的签名在不同 Android 版本有差异：
-            // 有 3 参数返回 FileDescriptor[] 的，也有 4 参数填充数组的。
-            // 用反射逐个试，避免编译期绑死某一个签名。
+            log("步骤1: 调 openSocketPair")
             val fds = openSocketPair()
             val app = fds[0]
             val eng = fds[1]
-            clearCloexec(eng) // 清除 CLOEXEC，exec 后保留
+            log("步骤2: 拿到两个 FileDescriptor")
+
+            val appNo = fdNumber(app)
+            val engNo = fdNumber(eng)
+            log("步骤3: app fd=" + appNo + ", engine fd=" + engNo)
+            if (appNo < 0 || engNo < 0) {
+                log("失败: fdNumber 取不到有效 fd（FileDescriptor 私有字段名可能变了）")
+                return null
+            }
+            if (appNo == engNo) {
+                log("失败: 两端 fd 号相同(" + appNo + ")，socket 对没建成")
+                return null
+            }
+
+            log("步骤4: clearCloexec(engine fd)")
+            clearCloexec(eng)
+            log("步骤5: clearCloexec 返回")
+
+            log("步骤6: 建立读写流")
             reader = BufferedReader(InputStreamReader(FileInputStream(app), Charsets.UTF_8))
             writer = OutputStreamWriter(FileOutputStream(app), Charsets.UTF_8)
             engineFd = eng
-            "DSH_BRIDGE_FD" to fdNumber(eng).toString()
+            log("步骤7: 完成，DSH_BRIDGE_FD=" + engNo)
+
+            // 自检：列出本进程所有 fd，确认 engine fd 在内
+            runCatching {
+                val fds2 = File("/proc/self/fd").list()
+                log("自检: /proc/self/fd 共 " + (fds2?.size ?: 0) + " 项，含 " + engNo + "? " + (fds2?.contains(engNo.toString()) == true))
+            }
+
+            "DSH_BRIDGE_FD" to engNo.toString()
         } catch (t: Throwable) {
-            log("socketpair 失败: ${t.javaClass.simpleName}: ${t.message}")
+            log("失败: " + t.javaClass.simpleName + ": " + t.message)
+            runCatching {
+                t.stackTrace.take(4).forEach { e -> log("  at " + e) }
+            }
             null
         }
     }
@@ -85,33 +116,112 @@ object DeviceBridge {
     }
 
     /**
-     * 建一对已连接的 UNIX socket，返回两个 FileDescriptor。
-     *
-     * 不用 Os.socketpair：它是 @hide API，各 ROM 签名不一致
-     * （这台设备是 5 参数 void 形式），反射易失配且受非 SDK 接口限制。
-     *
-     * 改用公开 API：LocalServerSocket + LocalSocket，抽象命名空间无需文件权限，
-     * accept 后两端即一对连通 fd，正是引擎侧 net.Socket({fd}) 期望的形态。
+     * 建一对连通的 UNIX socket。两条路径都试，并把结果写日志：
+     *  A. 反射 Os.socketpair —— 官方同款，libuv 能识别；但它是 @hide，签名各 ROM 不一。
+     *  B. LocalServerSocket + LocalSocket —— 公开 API 稳定；但产生的是监听-接受型 socket，
+     *     libuv 的 uv_guess_handle 会判成 UV_UNKNOWN_HANDLE，引擎侧报
+     *     "Unsupported fd type: UNKNOWN"。仅作兜底并记录实测结果。
      */
     private fun openSocketPair(): Array<FileDescriptor> {
+        // ── A. 先试反射 Os.socketpair（多签名兼容）──
+        try {
+            val pair = openViaOsSocketpair()
+            log("  openSocketPair: 走 Os.socketpair 成功")
+            return pair
+        } catch (t: Throwable) {
+            log("  openSocketPair: Os.socketpair 失败 -> " + t.javaClass.simpleName + ": " + t.message)
+        }
+        // ── B. 兜底 LocalSocket ──
+        log("  openSocketPair: 转 LocalSocket 兜底")
         val name = "siyi-bridge-" + java.util.UUID.randomUUID().toString()
         var server: LocalServerSocket? = null
         var client: LocalSocket? = null
         try {
             server = LocalServerSocket(name)
+            log("  openSocketPair: LocalServerSocket 创建成功")
             client = LocalSocket()
             client.connect(LocalSocketAddress(name, LocalSocketAddress.Namespace.ABSTRACT))
+            log("  openSocketPair: client connect 成功")
             val peer = server.accept()
                 ?: throw IllegalStateException("LocalServerSocket.accept 返回 null")
-            // 两个 socket 与 server 都要保活，否则 GC 会关掉 fd
+            log("  openSocketPair: accept 成功")
             keepAlive = listOf(client, peer, server)
+            log("  openSocketPair: 保活已登记")
             return arrayOf(client.fileDescriptor, peer.fileDescriptor)
         } catch (t: Throwable) {
+            log("  openSocketPair: LocalSocket 也失败 -> " + t.javaClass.simpleName + ": " + t.message)
             runCatching { client?.close() }
             runCatching { server?.close() }
             throw t
         }
     }
+
+    /**
+     * 反射 Os.socketpair，逐个尝试已知签名形态：
+     *  5 参数 void(int,int,int,FileDescriptor,FileDescriptor)  ← 这台设备实际形态
+     *  4 参数 void(int,int,int,FileDescriptor[])
+     *  3 参数 FileDescriptor[](int,int,int)
+     */
+    private fun openViaOsSocketpair(): Array<FileDescriptor> {
+        val os = Class.forName("android.system.Os")
+        val domain = OsConstants.AF_UNIX
+        val type = OsConstants.SOCK_STREAM
+        val methods = os.declaredMethods.filter { it.name == "socketpair" }
+        log("  Os.socketpair 候选数: " + methods.size)
+        for (m in methods) {
+            log("    签名: " + m.parameterTypes.joinToString(",") { it.simpleName } + " -> " + m.returnType.simpleName)
+        }
+
+        // 5 参数
+        for (m in methods) {
+            val ps = m.parameterTypes
+            if (ps.size != 5) continue
+            if (ps[0] != Int::class.javaPrimitiveType || ps[1] != Int::class.javaPrimitiveType || ps[2] != Int::class.javaPrimitiveType) continue
+            if (ps[3] != FileDescriptor::class.java || ps[4] != FileDescriptor::class.java) continue
+            runCatching {
+                val a = FileDescriptor()
+                val b = FileDescriptor()
+                m.invoke(null, domain, type, 0, a, b)
+                if (fdNumber(a) >= 0 && fdNumber(b) >= 0) {
+                    log("  Os.socketpair: 5 参数成功 fd=" + fdNumber(a) + "," + fdNumber(b))
+                    return arrayOf(a, b)
+                }
+            }
+        }
+        // 4 参数
+        for (m in methods) {
+            val ps = m.parameterTypes
+            if (ps.size != 4) continue
+            runCatching {
+                val out = arrayOfNulls<FileDescriptor>(2)
+                m.invoke(null, domain, type, 0, out)
+                val a = out[0]; val b = out[1]
+                if (a != null && b != null && fdNumber(a) >= 0) {
+                    log("  Os.socketpair: 4 参数成功")
+                    return arrayOf(a, b)
+                }
+            }
+        }
+        // 3 参数
+        for (m in methods) {
+            val ps = m.parameterTypes
+            if (ps.size != 3) continue
+            runCatching {
+                val r = m.invoke(null, domain, type, 0)
+                if (r is Array<*> && r.size >= 2 && r[0] is FileDescriptor && r[1] is FileDescriptor) {
+                    log("  Os.socketpair: 3 参数成功")
+                    return arrayOf(r[0] as FileDescriptor, r[1] as FileDescriptor)
+                }
+            }
+        }
+        throw IllegalStateException("所有签名均未成功")
+    }
+
+    /** 保活 socket 对象，防止 fd 被 GC 回收。 */
+    private var keepAlive: List<Any>? = null
+
+    /** 保活 socket 对象，防止 fd 被 GC 回收。 */
+    private var keepAlive: List<Any>? = null
 
     /** 保活 socket 对象，防止 fd 被回收。 */
     private var keepAlive: List<Any>? = null
@@ -330,6 +440,64 @@ object DeviceBridge {
         try { engineFd?.let { Os.close(it) } } catch (_: Throwable) {}
         thread?.interrupt()
         thread = null
+    }
+
+    /**
+     * 启动时的一次性环境自检：把定位问题需要的运行时事实全部写进日志。
+     * 装一次包就能看清是 API 缺失、权限问题还是 fd 继承问题。
+     */
+    fun envSelfCheck(ctx: Context) {
+        log("=== 环境自检 ===")
+        log("android=" + Build.VERSION.RELEASE + " sdk=" + Build.VERSION.SDK_INT)
+        log("abi=" + Build.SUPPORTED_ABIS.joinToString(","))
+        log("nativeLibraryDir=" + ctx.applicationInfo.nativeLibraryDir)
+        log("filesDir=" + ctx.filesDir.absolutePath)
+
+        // 1) 公开 API 是否可用
+        runCatching {
+            val cls = Class.forName("android.net.LocalServerSocket")
+            log("LocalServerSocket 类: 可用 (" + cls.name + ")")
+        }.onFailure { log("LocalServerSocket 类: 不可用 " + it.message) }
+        runCatching {
+            val cls = Class.forName("android.net.LocalSocket")
+            log("LocalSocket 类: 可用")
+        }.onFailure { log("LocalSocket 类: 不可用 " + it.message) }
+
+        // 2) 隐藏 API 探测（只记录，不依赖）
+        runCatching {
+            val os = Class.forName("android.system.Os")
+            val sigs = os.declaredMethods
+                .filter { it.name == "socketpair" }
+                .joinToString(" ; ") { m ->
+                    "socketpair(" + m.parameterTypes.joinToString(",") { it.simpleName } + ")->" + m.returnType.simpleName
+                }
+            log("Os.socketpair 候选: " + (sigs.ifEmpty { "(无)" }))
+            val fcntl = os.declaredMethods.filter { it.name.startsWith("fcntl") }
+                .joinToString(" ; ") { m -> m.name + "(" + m.parameterTypes.size + "参数)" }
+            log("Os.fcntl* 候选: " + (fcntl.ifEmpty { "(无)" }))
+        }.onFailure { log("Os 反射失败: " + it.message) }
+
+        // 3) 当前进程 fd 概况
+        runCatching {
+            val list = File("/proc/self/fd").list()
+            log("/proc/self/fd 数量: " + (list?.size ?: 0))
+        }.onFailure { log("/proc/self/fd 读取失败: " + it.message) }
+
+        // 4) bin 目录里的软链
+        runCatching {
+            val bin = EngineInstaller.binDir(ctx)
+            val files = bin.list() ?: emptyArray()
+            log("files/bin 内容: " + (if (files.isEmpty()) "(空)" else files.joinToString(",")))
+            for (n in listOf("node", "rg")) {
+                val p = File(bin, n)
+                val exists = p.exists()
+                val canExec = p.canExecute()
+                val target = runCatching { java.nio.file.Files.readSymbolicLink(p.toPath()).toString() }.getOrNull()
+                log("  " + n + ": exists=" + exists + " canExec=" + canExec + " target=" + (target ?: "(非软链)"))
+            }
+        }.onFailure { log("bin 目录检查失败: " + it.message) }
+
+        log("=== 环境自检结束 ===")
     }
 
     private fun log(msg: String) {

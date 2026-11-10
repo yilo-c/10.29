@@ -86,7 +86,27 @@ object DeviceBridge {
         val os = Class.forName("android.system.Os")
         val afUnix = OsConstants.AF_UNIX
         val sockStream = OsConstants.SOCK_STREAM
-        // 先试 3 参数：socketpair(int,int,int) -> FileDescriptor[]
+        // 优先试 5 参数：socketpair(int,int,int,FileDescriptor,FileDescriptor) -> void
+        // 这台设备（Android 15 / MTK）实际就是这个签名，前两轮漏掉了它。
+        for (m in os.declaredMethods) {
+            if (m.name != "socketpair") continue
+            val ps = m.parameterTypes
+            if (ps.size != 5) continue
+            val firstThreeInt = ps[0] == Int::class.javaPrimitiveType &&
+                ps[1] == Int::class.javaPrimitiveType &&
+                ps[2] == Int::class.javaPrimitiveType
+            val lastTwoFd = ps[3] == FileDescriptor::class.java && ps[4] == FileDescriptor::class.java
+            if (!firstThreeInt || !lastTwoFd) continue
+            try {
+                // FileDescriptor 需要先构造实例，由 native 填入 fd
+                val a = FileDescriptor()
+                val b = FileDescriptor()
+                m.invoke(null, afUnix, sockStream, 0, a, b)
+                // 校验确实拿到了有效 fd
+                if (fdNumber(a) >= 0 && fdNumber(b) >= 0) return arrayOf(a, b)
+            } catch (_: Throwable) {}
+        }
+        // 再试 3 参数：socketpair(int,int,int) -> FileDescriptor[]
         for (m in os.declaredMethods) {
             if (m.name != "socketpair") continue
             val ps = m.parameterTypes
@@ -99,7 +119,7 @@ object DeviceBridge {
                 }
             } catch (_: Throwable) {}
         }
-        // 再试 4 参数：socketpair(int,int,int,FileDescriptor[])
+        // 最后试 4 参数：socketpair(int,int,int,FileDescriptor[])
         val out = arrayOfNulls<FileDescriptor>(2)
         for (m in os.declaredMethods) {
             if (m.name != "socketpair") continue
@@ -111,6 +131,14 @@ object DeviceBridge {
                     if (a != null && b != null) return arrayOf(a, b)
                 }
             } catch (_: Throwable) {}
+        }
+        // 记录真实签名，便于定位（Android 15 上曾出现两种都匹配不到的情况）
+        runCatching {
+            val all = os.declaredMethods.filter { it.name == "socketpair" }
+            val desc = all.joinToString(" ; ") { m ->
+                m.name + "(" + m.parameterTypes.joinToString(",") { it.simpleName } + ")->" + m.returnType.simpleName
+            }
+            log("socketpair 候选签名: " + (desc.ifEmpty { "(无)" }))
         }
         throw IllegalStateException("Os.socketpair 没有可用签名")
     }

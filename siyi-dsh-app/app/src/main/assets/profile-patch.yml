@@ -135,3 +135,17 @@
 - insert:
     - id: siyi-mobile-layout
       name: 'dsh-client-ui-siyi-mobile'
+
+# ── 登录支持 ────────────────────────────────────────────────
+# dsh-base 会挂 deepseek-account provider（OAuth + PKCE），但它需要一个
+# 本地回调服务器来接授权码，否则前端点登录后一直等回调，表现为白屏。
+# 官方 bundle-android 就是靠这条挂上 @dsh-android/plugin-account，
+# 思忆集此前缺这一条，所以登录页空白。
+- insert:
+    - id: android-account
+      name: '@dsh-android/plugin-account'
+      config:
+        locale: !!js "process.env.DSH_ANDROID_LOCALE || ''"
+        # 应用内登录 WebView 完成后会打开这个 scheme 回到 App
+        appScheme: dsh-android
+        appPackage: com.siyi.dshapp

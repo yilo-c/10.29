@@ -2,6 +2,9 @@ package com.siyi.dshapp
 
 import android.app.ActivityManager
 import android.content.Context
+import android.net.LocalServerSocket
+import android.net.LocalSocket
+import android.net.LocalSocketAddress
 import android.os.BatteryManager
 import android.os.Build
 import android.os.Environment
@@ -81,67 +84,37 @@ object DeviceBridge {
         android.util.Log.w(TAG, "fcntlInt 不可用，fd 可能被子进程关闭")
     }
 
-    /** 反射调用 Os.socketpair，兼容 3 参数与 4 参数两种签名。 */
+    /**
+     * 建一对已连接的 UNIX socket，返回两个 FileDescriptor。
+     *
+     * 不用 Os.socketpair：它是 @hide API，各 ROM 签名不一致
+     * （这台设备是 5 参数 void 形式），反射易失配且受非 SDK 接口限制。
+     *
+     * 改用公开 API：LocalServerSocket + LocalSocket，抽象命名空间无需文件权限，
+     * accept 后两端即一对连通 fd，正是引擎侧 net.Socket({fd}) 期望的形态。
+     */
     private fun openSocketPair(): Array<FileDescriptor> {
-        val os = Class.forName("android.system.Os")
-        val afUnix = OsConstants.AF_UNIX
-        val sockStream = OsConstants.SOCK_STREAM
-        // 优先试 5 参数：socketpair(int,int,int,FileDescriptor,FileDescriptor) -> void
-        // 这台设备（Android 15 / MTK）实际就是这个签名，前两轮漏掉了它。
-        for (m in os.declaredMethods) {
-            if (m.name != "socketpair") continue
-            val ps = m.parameterTypes
-            if (ps.size != 5) continue
-            val firstThreeInt = ps[0] == Int::class.javaPrimitiveType &&
-                ps[1] == Int::class.javaPrimitiveType &&
-                ps[2] == Int::class.javaPrimitiveType
-            val lastTwoFd = ps[3] == FileDescriptor::class.java && ps[4] == FileDescriptor::class.java
-            if (!firstThreeInt || !lastTwoFd) continue
-            try {
-                // FileDescriptor 需要先构造实例，由 native 填入 fd
-                val a = FileDescriptor()
-                val b = FileDescriptor()
-                m.invoke(null, afUnix, sockStream, 0, a, b)
-                // 校验确实拿到了有效 fd
-                if (fdNumber(a) >= 0 && fdNumber(b) >= 0) return arrayOf(a, b)
-            } catch (_: Throwable) {}
+        val name = "siyi-bridge-" + java.util.UUID.randomUUID().toString()
+        var server: LocalServerSocket? = null
+        var client: LocalSocket? = null
+        try {
+            server = LocalServerSocket(name)
+            client = LocalSocket()
+            client.connect(LocalSocketAddress(name, LocalSocketAddress.Namespace.ABSTRACT))
+            val peer = server.accept()
+                ?: throw IllegalStateException("LocalServerSocket.accept 返回 null")
+            // 两个 socket 与 server 都要保活，否则 GC 会关掉 fd
+            keepAlive = listOf(client, peer, server)
+            return arrayOf(client.fileDescriptor, peer.fileDescriptor)
+        } catch (t: Throwable) {
+            runCatching { client?.close() }
+            runCatching { server?.close() }
+            throw t
         }
-        // 再试 3 参数：socketpair(int,int,int) -> FileDescriptor[]
-        for (m in os.declaredMethods) {
-            if (m.name != "socketpair") continue
-            val ps = m.parameterTypes
-            try {
-                if (ps.size == 3 && ps.all { it == Int::class.javaPrimitiveType }) {
-                    val r = m.invoke(null, afUnix, sockStream, 0)
-                    if (r is Array<*> && r.size >= 2 && r[0] is FileDescriptor && r[1] is FileDescriptor) {
-                        return arrayOf(r[0] as FileDescriptor, r[1] as FileDescriptor)
-                    }
-                }
-            } catch (_: Throwable) {}
-        }
-        // 最后试 4 参数：socketpair(int,int,int,FileDescriptor[])
-        val out = arrayOfNulls<FileDescriptor>(2)
-        for (m in os.declaredMethods) {
-            if (m.name != "socketpair") continue
-            val ps = m.parameterTypes
-            try {
-                if (ps.size == 4 && ps[3] == Array<FileDescriptor>::class.java) {
-                    m.invoke(null, afUnix, sockStream, 0, out)
-                    val a = out[0]; val b = out[1]
-                    if (a != null && b != null) return arrayOf(a, b)
-                }
-            } catch (_: Throwable) {}
-        }
-        // 记录真实签名，便于定位（Android 15 上曾出现两种都匹配不到的情况）
-        runCatching {
-            val all = os.declaredMethods.filter { it.name == "socketpair" }
-            val desc = all.joinToString(" ; ") { m ->
-                m.name + "(" + m.parameterTypes.joinToString(",") { it.simpleName } + ")->" + m.returnType.simpleName
-            }
-            log("socketpair 候选签名: " + (desc.ifEmpty { "(无)" }))
-        }
-        throw IllegalStateException("Os.socketpair 没有可用签名")
     }
+
+    /** 保活 socket 对象，防止 fd 被回收。 */
+    private var keepAlive: List<Any>? = null
 
     /** 从 FileDescriptor 取 int fd（反射，Android 无公开 API）。 */
     private fun fdNumber(fd: FileDescriptor): Int {

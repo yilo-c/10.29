@@ -42,7 +42,14 @@ android {
 
     // 关键：不要压缩 .so，且把 jniLibs 打进 APK
     packagingOptions {
-        jniLibs { useLegacyPackaging = true }
+        // 绝不能打进 NDK 自带的 libc++_shared.so：
+        // 官方 APK 里那份是 9.3MB 完整版，libnode.so 依赖它；
+        // NDK 那份 1.4MB 精简版覆盖后引擎会直接崩。
+        // jniLibs 目录里由 CI 从官方 APK 提取，用 pickFirsts 保证它优先。
+        jniLibs {
+            useLegacyPackaging = true
+            pickFirsts += ['**/libc++_shared.so']
+        }
     }
     androidResources {
         noCompress 'zip', 'so'

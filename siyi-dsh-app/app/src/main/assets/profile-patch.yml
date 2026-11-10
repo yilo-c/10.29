@@ -59,3 +59,79 @@
 - insert:
     - id: android-device
       name: '@dsh-android/plugin-device'
+
+# ── 工具面解禁（对齐 DSH android profile）────────────────────
+# web profile 默认禁用了一批工具（它走 preset 架构另行挂载）。
+# 思忆集没有 preset 会话，所以这里逐条解禁，恢复完整工具面：
+# 读写文件、内容搜索、执行 shell、后台任务、子代理、待办、联网、计划模式。
+# 缺了这些，模型只能「聊」，不能「干活」。
+- id: tool-bash
+  disabled: false
+- id: tool-pwsh
+  disabled: false
+- id: tool-jobs
+  disabled: false
+- id: tool-fs
+  disabled: false
+- id: tool-fs-search
+  disabled: false
+- id: skill-filesystem
+  disabled: false
+- id: tool-skill
+  disabled: false
+- id: tool-todo
+  disabled: false
+- id: tool-web
+  disabled: false
+- id: tool-subagent
+  disabled: false
+- id: tool-subagent-control
+  disabled: false
+- id: tool-subagent-fork
+  disabled: false
+- id: tool-subagent-list-agents
+  disabled: false
+- id: plan-mode
+  disabled: false
+- id: command-compact
+  disabled: false
+- id: compaction-basic
+  disabled: false
+- id: tool-result-pruner
+  disabled: false
+- id: tool-plugin-manager
+  disabled: false
+- id: agent-instructions
+  disabled: false
+
+# ── 沙箱与审批 ──────────────────────────────────────────────
+# Android 没有 bwrap/Landlock/seatbelt（sandbox-local 会 fail closed），
+# 所以必须显式设 danger-full-access 并依赖审批把关，
+# 否则 bash/文件写入一执行就报 no sandbox backend is usable。
+- id: sandbox-policy
+  config:
+    mode: danger-full-access
+    workspaceRoot: !!js "process.env.HOME || process.cwd()"
+
+- id: approval
+  config:
+    policy: ask
+
+- id: permission
+  config:
+    defaultPreset: android
+    presets:
+      android:
+        sandbox: danger-full-access
+        approval: ask
+        name: android
+        description: Android 无 OS 沙箱；每个改机动作都会请求审批。
+
+# ── 思忆集 UI 插件 ──────────────────────────────────────────
+# 移动端布局补丁：设置面板在窄屏改为「顶部横向标签 + 下方内容」，
+# 并禁止中文逐字换行。原先 panel 固定 800px、nav 固定 188px，
+# 在 376px 视口的手机上右栏只剩约 140px，导致文字竖排。
+# 注意：客户端插件必须在 cordis 树里 insert 才会被清单扫描到。
+- insert:
+    - id: siyi-mobile-layout
+      name: 'dsh-client-ui-siyi-mobile'

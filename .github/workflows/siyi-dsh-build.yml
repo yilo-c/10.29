@@ -95,9 +95,22 @@ jobs:
           unzip -q "$ZIP"
           cd - > /dev/null
 
+          # 1) plugin-account 补丁（按字符串改）
           node "$PATCHER" "$W"
 
-          # 重新打包（保持 engine.zip 内部结构不变）
+          # 2) 设备桥：用仓库里改好的 plugin-device 覆盖原始版本。
+          #    官方走 DSH_BRIDGE_FD 传 fd，但 Android 的 ProcessBuilder 只保留 0/1/2，
+          #    ≥3 的 fd 一律关闭，那条路永远拿不到可用 fd，引擎报
+          #    "Unsupported fd type: UNKNOWN"。改后的版本支持 DSH_BRIDGE_SOCK。
+          SRC=$(readlink -f "$GITHUB_WORKSPACE/$APP_DIR/patches/plugin-device")
+          test -d "$SRC" || { echo "找不到 patches/plugin-device"; exit 1; }
+          DEV="$W/node_modules/@dsh-android/plugin-device"
+          test -d "$DEV" || { echo "解包目录里找不到 plugin-device"; exit 1; }
+          cp "$SRC/index.js" "$DEV/index.js"
+          cp "$SRC/bridge.js" "$DEV/bridge.js"
+          echo "已覆盖 plugin-device"
+
+          # 3) 重新打包
           cd "$W"
           rm -f "$ZIP"
           zip -q -r "$ZIP" . > /dev/null
@@ -105,10 +118,14 @@ jobs:
           rm -rf "$W"
           echo "engine.zip 大小: $(stat -c%s "$ZIP") 字节"
 
-          # 校验补丁确实进去了
+          # 4) 双项校验，任一未生效就失败
           V=$(unzip -p "$ZIP" 'node_modules/@dsh-android/plugin-account/index.js' | grep -c existingWebServer || true)
-          echo "补丁校验 existingWebServer: $V"
+          echo "补丁校验 account existingWebServer: $V"
           test "$V" -gt 0 || { echo "plugin-account 补丁未生效"; exit 1; }
+
+          D=$(unzip -p "$ZIP" 'node_modules/@dsh-android/plugin-device/index.js' | grep -c DSH_BRIDGE_SOCK || true)
+          echo "补丁校验 device DSH_BRIDGE_SOCK: $D"
+          test "$D" -gt 0 || { echo "plugin-device 补丁未生效"; exit 1; }
 
       - name: Build web profile
         run: |

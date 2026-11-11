@@ -9,7 +9,7 @@ import java.io.BufferedReader
 import java.io.File
 
 /**
- * 前台服务：解压引擎与 profile，启动 dsh web（--profile web --port 3080），
+ * 前台服务：解压引擎与 profile，启动 dsh web（--profile web --port 3180），
  * 从 stdout 抓取带 token 的 URL 存入 WebState。
  */
 class EngineService : Service() {
@@ -17,7 +17,7 @@ class EngineService : Service() {
     companion object {
         const val CHANNEL_ID = "siyi_engine"
         const val NOTIF_ID = 1001
-        const val WEB_PORT = 3080
+        const val WEB_PORT = 3180
 
         @Volatile private var liveProcess: Process? = null
         /** 供 DeviceBridge 的工具查询引擎是否仍在跑。 */
@@ -120,7 +120,7 @@ class EngineService : Service() {
         val bridgeEnv = DeviceBridge.prepare()
         if (bridgeEnv != null) {
             pb.environment()[bridgeEnv.first] = bridgeEnv.second
-            stage("bridge fd=" + bridgeEnv.second)
+            stage("bridge " + bridgeEnv.first + "=" + bridgeEnv.second)
         } else {
             stage("bridge 未启用")
         }

@@ -83,12 +83,20 @@ jobs:
       - name: Patch engine.zip (plugin-account)
         run: |
           set -e
-          ZIP="$APP_DIR/app/src/main/assets/engine.zip"
+          # 必须用绝对路径：下面会 cd 到临时目录，相对路径会失效
+          ZIP=$(readlink -f "$GITHUB_WORKSPACE/$APP_DIR/app/src/main/assets/engine.zip")
+          PATCHER=$(readlink -f "$GITHUB_WORKSPACE/$APP_DIR/patches/fix-account-webcombo.mjs")
+          echo "ZIP: $ZIP"
+          test -f "$ZIP" || { echo "找不到 engine.zip"; exit 1; }
+          test -f "$PATCHER" || { echo "找不到补丁脚本"; exit 1; }
+
           W=$(mktemp -d)
           cd "$W"
           unzip -q "$ZIP"
           cd - > /dev/null
-          node "$APP_DIR/patches/fix-account-webcombo.mjs" "$W"
+
+          node "$PATCHER" "$W"
+
           # 重新打包（保持 engine.zip 内部结构不变）
           cd "$W"
           rm -f "$ZIP"
@@ -96,6 +104,11 @@ jobs:
           cd - > /dev/null
           rm -rf "$W"
           echo "engine.zip 大小: $(stat -c%s "$ZIP") 字节"
+
+          # 校验补丁确实进去了
+          V=$(unzip -p "$ZIP" 'node_modules/@dsh-android/plugin-account/index.js' | grep -c existingWebServer || true)
+          echo "补丁校验 existingWebServer: $V"
+          test "$V" -gt 0 || { echo "plugin-account 补丁未生效"; exit 1; }
 
       - name: Build web profile
         run: |

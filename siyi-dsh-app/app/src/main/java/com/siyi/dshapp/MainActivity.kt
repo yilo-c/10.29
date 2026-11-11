@@ -107,18 +107,33 @@ class MainActivity : AppCompatActivity() {
         // WebView 默认 edge-to-edge，内容会画到状态栏与导航条下面，
         // 顶部按钮因此被遮挡。env(safe-area-inset-*) 在普通 Android WebView 里
         // 恒为 0（只有 display-cutout 全屏模式才有值），所以必须在原生侧补 padding。
-        ViewCompat.setOnApplyWindowInsetsListener(web) { v, insets ->
+        // 顶部避让。两条路径都要走，因为监听器在部分 ROM 上不触发
+        // （实测 SiyiInsets 一条日志都没有，说明回调从未被调用）：
+        //   1. onCreate 里直接读一次 rootWindowInsets，立即设 padding
+        //   2. 监听器应对旋转 / 分屏 / 状态栏显隐变化
+        fun applyBars(insets: WindowInsetsCompat?) {
+            if (insets == null) return
             val bars = insets.getInsets(
                 WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
             )
-            android.util.Log.i("SiyiInsets", "insets top=" + bars.top + " bottom=" + bars.bottom +
+            android.util.Log.i("SiyiInsets", "top=" + bars.top + " bottom=" + bars.bottom +
                 " left=" + bars.left + " right=" + bars.right)
-            v.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+            web.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+        }
+        ViewCompat.setOnApplyWindowInsetsListener(web) { v, insets ->
+            applyBars(insets)
             insets
         }
-        // 必须先把 WebView 挂到窗口上，insets 才会派发；
-        // 之前 requestApplyInsets 在 setContentView 之前调用，监听器从未触发。
         setContentView(web)
+
+        // 立即读一次（此时 web 已挂到窗口，rootWindowInsets 可用）
+        web.post {
+            runCatching {
+                applyBars(ViewCompat.getRootWindowInsets(web))
+            }.onFailure {
+                android.util.Log.w("SiyiInsets", "getRootWindowInsets 失败: " + it.message)
+            }
+        }
 
         addContentView(waitView, ViewGroup.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,

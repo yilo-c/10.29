@@ -112,6 +112,10 @@ jobs:
           # 所有 shell 工具都会报 spawn bash EACCES。
           node "$WS/$APP_DIR/patches/fix-android-bash.mjs" "$WS/$APP_DIR/profile-build/profiles/web"
 
+          # 登录白屏：plugin-account 在 Web 组合下与 dsh-host-webserver 抢 webServer，
+          # 引擎启动失败。改成复用宿主机、只注册回调路由。
+          node "$WS/$APP_DIR/patches/fix-account-webcombo.mjs" "$WS/$APP_DIR/profile-build/profiles/web"
+
           echo "包数: $(ls node_modules/@deepseek-ai | wc -l)"
           echo "client-ui: $(ls node_modules/@deepseek-ai | grep -c client-ui || true)"
           ls -la "$WS/$APP_DIR/profile-build/profiles" || true

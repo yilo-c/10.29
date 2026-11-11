@@ -31,13 +31,24 @@ window.__ModuleLoader__.load({
 
     var CSS = [
       // ── 1. 隐藏左侧折叠轨道（collapsedWidth 变 0 后的副作用修正）──
-      // 该属性会让布局给 frame 加 padding-top，这里把变量压成 0
-      // 只压掉 titlebar 高度（那是 Windows 桌面的标题栏），
-      // 绝不能动 --dsh-frame-top-clearance / chrome-top：
-      // 它们是 DSH 自己给顶部工具栏预留的高度，压掉会把右上角按钮挤出可视区。
-      // 安全区由 App 侧给 WebView 加 padding 解决，CSS 层不参与。
+      //
+      // 关键：--dsh-windows-titlebar-height 不能压成 0。
+      // 左侧折叠按钮的样式是：
+      //   .hHd-Xa_toggle { top: calc((var(--dsh-windows-titlebar-height) - 28px) / 2);
+      //                    position: fixed; left: 12px }
+      // 代入 0 得 top = -14px，按钮被顶到视口上方，正好被状态栏盖住。
+      // 右侧按钮不走 fixed，所以在文档流里被 WebView padding 正常推下来 —— 这就是
+      // 「右边好、左边坏」的全部原因。
+      //
+      // WebView 已由 App 侧加了状态栏高度的 padding（实测 118px），
+      // 所以这里给一个让按钮落在视口内的取值：top = (40 - 28)/2 = 6px。
       'html[' + ATTR + '] {',
-      '  --dsh-windows-titlebar-height: 0px !important;',
+      '  --dsh-windows-titlebar-height: 40px !important;',
+      '}',
+      // 兜底：直接钉住折叠按钮位置，不依赖上面那个变量参与计算
+      'html[' + ATTR + '] .hHd-Xa_toggle {',
+      '  top: 6px !important;',
+      '  left: 12px !important;',
       '}',
       // 去掉圆角与顶部拖拽条
       'html[' + ATTR + '] [class*="_frame_"] {',

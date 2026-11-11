@@ -116,9 +116,17 @@ class MainActivity : AppCompatActivity() {
             val bars = insets.getInsets(
                 WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
             )
-            android.util.Log.i("SiyiInsets", "top=" + bars.top + " bottom=" + bars.bottom +
-                " left=" + bars.left + " right=" + bars.right)
-            web.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+            // FIT_INSETS_CONTROLLED + LAYOUT_IN_SCREEN 下，系统把状态栏 inset
+            // 派发成 0（实测 top=0 bottom=153），直接用会在状态栏下面画内容。
+            // 改从系统资源读真实状态栏高度，硬加顶部 padding。
+            val statusPx = try {
+                val id = resources.getIdentifier("status_bar_height", "dimen", "android")
+                if (id > 0) resources.getDimensionPixelSize(id) else 0
+            } catch (t: Throwable) { 0 }
+            val top = maxOf(bars.top, statusPx)
+            android.util.Log.i("SiyiInsets", "barsTop=" + bars.top + " statusRes=" + statusPx +
+                " top=" + top + " bottom=" + bars.bottom)
+            web.setPadding(bars.left, top, bars.right, bars.bottom)
         }
         ViewCompat.setOnApplyWindowInsetsListener(web) { v, insets ->
             applyBars(insets)

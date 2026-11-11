@@ -2,6 +2,8 @@ package com.siyi.dshapp
 
 import android.app.ActivityManager
 import android.content.Context
+import android.net.LocalServerSocket
+import android.net.LocalSocket
 import android.os.BatteryManager
 import android.os.Build
 import android.os.Environment
@@ -50,55 +52,61 @@ object DeviceBridge {
     private var appCtx: Context? = null
 
     /**
-     * 建 socket 对并把引擎端 fd 号交给引擎。
-     * 全程分步写日志到 bridge.log，装一次包就能定位断点。
+     * 建立设备桥并返回要交给引擎的环境变量。
+     *
+     * 为什么用抽象命名空间 socket 而不是 socketpair：
+     * Android 的 ProcessBuilder 走 posix_spawn，默认只保留 0/1/2，
+     * ≥3 的 fd 一律被关闭（即使清了 CLOEXEC），所以 fd 继承在手机上走不通。
+     * 改成让 App 当服务端、引擎按名字连过来，就完全不依赖 fd 继承了。
+     *
+     * @return ("DSH_BRIDGE_SOCK" to 名字) 或 null（失败）
      */
     fun prepare(): Pair<String, String>? {
-        log("=== prepare 开始 ===")
+        log("=== prepare 开始（抽象命名空间 socket）===")
         return try {
-            log("步骤1: 调 openSocketPair")
-            val fds = openSocketPair()
-            val app = fds[0]
-            val eng = fds[1]
-            log("步骤2: 拿到两个 FileDescriptor")
+            val name = "siyi-bridge-" + java.util.UUID.randomUUID().toString().take(8)
+            log("步骤1: 创建 LocalServerSocket, name=" + name)
+            val server = LocalServerSocket(name)
+            log("步骤2: LocalServerSocket 创建成功")
 
-            val appNo = fdNumber(app)
-            val engNo = fdNumber(eng)
-            log("步骤3: app fd=" + appNo + ", engine fd=" + engNo)
-            if (appNo < 0 || engNo < 0) {
-                log("失败: fdNumber 取不到有效 fd（FileDescriptor 私有字段名可能变了）")
-                return null
+            // 引擎会连过来；accept 在独立线程里等，不阻塞主流程
+            val acceptThread = Thread {
+                try {
+                    log("步骤3: 等待引擎连接…")
+                    val peer = server.accept()
+                    if (peer == null) {
+                        log("步骤3 失败: accept 返回 null")
+                        return@Thread
+                    }
+                    log("步骤3 成功: 引擎已连接")
+                    peerSocket = peer
+                    reader = BufferedReader(InputStreamReader(peer.inputStream, Charsets.UTF_8))
+                    writer = OutputStreamWriter(peer.outputStream, Charsets.UTF_8)
+                    log("步骤4: 读写流已建立，等 start() 启动读取循环")
+                    // 用 CAS 保证只启动一次；start() 可能在 accept 之前就调用过
+                    if (running.compareAndSet(false, true)) {
+                        launchReadLoop(peer)
+                    }
+                } catch (t: Throwable) {
+                    log("accept 线程异常: " + t.javaClass.simpleName + ": " + t.message)
+                }
             }
-            if (appNo == engNo) {
-                log("失败: 两端 fd 号相同(" + appNo + ")，socket 对没建成")
-                return null
-            }
+            acceptThread.isDaemon = true
+            acceptThread.start()
+            serverSocket = server
 
-            log("步骤4: clearCloexec(engine fd)")
-            clearCloexec(eng)
-            log("步骤5: clearCloexec 返回")
-
-            log("步骤6: 建立读写流")
-            reader = BufferedReader(InputStreamReader(FileInputStream(app), Charsets.UTF_8))
-            writer = OutputStreamWriter(FileOutputStream(app), Charsets.UTF_8)
-            engineFd = eng
-            log("步骤7: 完成，DSH_BRIDGE_FD=" + engNo)
-
-            // 自检：列出本进程所有 fd，确认 engine fd 在内
-            runCatching {
-                val fds2 = File("/proc/self/fd").list()
-                log("自检: /proc/self/fd 共 " + (fds2?.size ?: 0) + " 项，含 " + engNo + "? " + (fds2?.contains(engNo.toString()) == true))
-            }
-
-            "DSH_BRIDGE_FD" to engNo.toString()
+            log("步骤5: 返回 DSH_BRIDGE_SOCK=" + name)
+            "DSH_BRIDGE_SOCK" to name
         } catch (t: Throwable) {
             log("失败: " + t.javaClass.simpleName + ": " + t.message)
-            runCatching {
-                t.stackTrace.take(4).forEach { e -> log("  at " + e) }
-            }
+            runCatching { t.stackTrace.take(4).forEach { e -> log("  at " + e) } }
             null
         }
     }
+
+    /** 服务端 socket 与已接受的连接，退出时关闭。 */
+    private var serverSocket: LocalServerSocket? = null
+    private var peerSocket: LocalSocket? = null
 
     /**
      * 清除 FD_CLOEXEC，让 fd 在 exec 后仍被子进程继承。
@@ -127,23 +135,7 @@ object DeviceBridge {
     }
 
 
-    /**
-     * 建一对已连接的 UNIX socket。
-     *
-     * 走 JNI 调 libc 的 socketpair(2)：这是唯一同时满足两个约束的做法——
-     *   ① 不碰 @hide API（Os.socketpair 签名各 ROM 不一，反射不可靠）
-     *   ② 产生对等匿名 socket，libuv 能识别为 UV_NAMED_PIPE
-     *      （LocalSocket 那种监听-接受型会被判成 UNKNOWN，引擎直接拒收）
-     */
-    private fun openSocketPair(): Array<FileDescriptor> {
-        val pair = NativeBridge.createSocketPair()
-        if (pair != null) {
-            log("  openSocketPair: JNI socketpair 成功")
-            return pair
-        }
-        log("  openSocketPair: JNI 不可用（NativeBridge.available=" + NativeBridge.available + "）")
-        throw IllegalStateException("NativeBridge 建 socketpair 失败")
-    }
+
 
 
 
@@ -167,18 +159,26 @@ object DeviceBridge {
 
     fun start(ctx: Context) {
         appCtx = ctx.applicationContext
-        if (!running.compareAndSet(false, true)) return
+        // 若 accept 已完成，这里会直接起循环；否则等 accept 线程来起。
+        val peer = peerSocket ?: return
+        if (running.compareAndSet(false, true)) {
+            launchReadLoop(peer)
+        }
+    }
+
+    /** 起读取循环。同一个 peer 只起一次。 */
+    private fun launchReadLoop(peer: LocalSocket) {
         thread = Thread({
-            val r = reader ?: return@Thread
-            log("桥接已启动")
+            log("读取循环已启动")
             try {
+                val r = reader ?: return@Thread
                 while (running.get()) {
                     val line = r.readLine() ?: break
                     if (line.isBlank()) continue
                     handleLine(line)
                 }
             } catch (t: Throwable) {
-                log("读取循环异常: ${t.javaClass.simpleName}: ${t.message}")
+                log("读取循环异常: " + t.javaClass.simpleName + ": " + t.message)
             } finally {
                 log("桥接已关闭")
                 running.set(false)
@@ -358,9 +358,15 @@ object DeviceBridge {
         running.set(false)
         try { reader?.close() } catch (_: Throwable) {}
         try { writer?.close() } catch (_: Throwable) {}
+        // 关掉两端的 socket，避免每次重启泄漏一对 fd
+        try { peerSocket?.close() } catch (_: Throwable) {}
+        try { serverSocket?.close() } catch (_: Throwable) {}
         try { engineFd?.let { Os.close(it) } } catch (_: Throwable) {}
+        peerSocket = null
+        serverSocket = null
         thread?.interrupt()
         thread = null
+        log("桥接资源已释放")
     }
 
     /**

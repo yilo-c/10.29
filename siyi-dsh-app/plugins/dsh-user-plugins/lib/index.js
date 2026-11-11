@@ -6,15 +6,36 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { createRequire } from 'node:module'
 
 export const name = 'siyi-user-plugins'
-export const inject = []
+
+/**
+ * 必须声明 inject：cordis 的 ctx 是 Proxy，未在 inject 里列出的服务
+ * 一读就抛 cannot get property "xxx" without inject。
+ * 用户插件最常用的是 ctx.tools，所以至少要声明它。
+ */
+export const inject = ['tools', 'commands', 'sessions', 'credentials', 'systemPrompt']
 
 function log(level, msg) {
   try { process.stderr.write(`[siyi-user-plugins] ${level}: ${msg}\n`) } catch {}
 }
 
 export function apply(ctx) {
+  // 用户插件放在 /sdcard/思忆集/plugins，那里没有 node_modules，
+  // 无法直接 import '@deepseek-ai/dsh-tools'。这里从引擎侧解析后
+  // 挂到 ctx 上，用户插件用 ctx.defineTool(...) 即可。
+  let defineTool
+  try {
+    const req = createRequire(import.meta.url)
+    defineTool = req('@deepseek-ai/dsh-tools').defineTool
+  } catch (e) {
+    log('warn', '无法加载 dsh-tools，用户插件将不能注册工具: ' + e.message)
+  }
+  if (defineTool) {
+    try { ctx.provide('defineTool', defineTool) } catch {}
+  }
+
   const dir = process.env.DSH_USER_PLUGINS
   if (!dir) { log('info', 'DSH_USER_PLUGINS 未设置，跳过'); return }
   let files
@@ -42,6 +63,9 @@ export function apply(ctx) {
         // 直接用 ctx：ctx.isolate(name) 是「隔离某个具名服务」，
         // 不是创建通用子上下文，误用会拿不到 ctx.tools 等内建能力。
         const cfg = typeof mod.Config === 'function' ? mod.Config({}) : {}
+        // 第二个参数除 config 外再挂 defineTool，避开 cordis 的 inject 限制：
+        // 用户插件自己 provide 不了服务，但可以直接拿到这个函数。
+        if (defineTool) cfg.defineTool = defineTool
         const d = mod.apply(ctx, cfg)
         if (typeof d === 'function') disposers.push(d)
         log('info', '已加载 ' + f + ' (' + pName + ')')

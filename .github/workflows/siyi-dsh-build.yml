@@ -78,6 +78,25 @@ jobs:
           unzip -o -j dsh.apk 'assets/engine.zip' -d "$APP_DIR/app/src/main/assets"
           ls -lh "$APP_DIR/app/src/main/assets/engine.zip"
 
+      # plugin-account 只在 engine.zip 里（不在 npm 上），运行时由 App 建软链。
+      # 所以在 engine.zip 内部打补丁：解包 → 改 → 重新打包。
+      - name: Patch engine.zip (plugin-account)
+        run: |
+          set -e
+          ZIP="$APP_DIR/app/src/main/assets/engine.zip"
+          W=$(mktemp -d)
+          cd "$W"
+          unzip -q "$ZIP"
+          cd - > /dev/null
+          node "$APP_DIR/patches/fix-account-webcombo.mjs" "$W"
+          # 重新打包（保持 engine.zip 内部结构不变）
+          cd "$W"
+          rm -f "$ZIP"
+          zip -q -r "$ZIP" . > /dev/null
+          cd - > /dev/null
+          rm -rf "$W"
+          echo "engine.zip 大小: $(stat -c%s "$ZIP") 字节"
+
       - name: Build web profile
         run: |
           set -e
@@ -111,10 +130,6 @@ jobs:
           # 两个插件会去 spawn bash，而 Android 只有 /system/bin/sh，
           # 所有 shell 工具都会报 spawn bash EACCES。
           node "$WS/$APP_DIR/patches/fix-android-bash.mjs" "$WS/$APP_DIR/profile-build/profiles/web"
-
-          # 登录白屏：plugin-account 在 Web 组合下与 dsh-host-webserver 抢 webServer，
-          # 引擎启动失败。改成复用宿主机、只注册回调路由。
-          node "$WS/$APP_DIR/patches/fix-account-webcombo.mjs" "$WS/$APP_DIR/profile-build/profiles/web"
 
           echo "包数: $(ls node_modules/@deepseek-ai | wc -l)"
           echo "client-ui: $(ls node_modules/@deepseek-ai | grep -c client-ui || true)"

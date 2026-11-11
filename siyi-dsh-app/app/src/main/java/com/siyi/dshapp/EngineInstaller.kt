@@ -115,11 +115,27 @@ object EngineInstaller {
     private fun ensureEngine(ctx: Context): String? {
         val root = EnginePaths.engineRoot(ctx)
         val mark = File(root, MARK_ENGINE)
-        if (mark.exists() && File(root, "node_modules/@deepseek-ai/dsh/lib/bin.js").exists()) return null
+        val present = mark.exists() && File(root, "node_modules/@deepseek-ai/dsh/lib/bin.js").exists()
+        // 只在「已解压 + 指纹一致」时跳过。
+        // 早先只判 mark.exists()，导致换包后仍用旧的解压结果，所有改动都不生效。
+        if (present && mark.readText() == assetFingerprint(ctx)) return null
         deleteRecursively(root); root.mkdirs()
         unzipAsset(ctx, "engine.zip", root)?.let { return it }
-        mark.writeText("ok")
+        mark.writeText(assetFingerprint(ctx))
         return null
+    }
+
+    /**
+     * 解压产物的指纹：APK 的 versionCode + lastUpdateTime。
+     * 每次装新包都会变，用来判断是否需要重新解压 assets 里的引擎与 profile。
+     */
+    private fun assetFingerprint(ctx: Context): String {
+        return try {
+            val info = ctx.packageManager.getPackageInfo(ctx.packageName, 0)
+            info.versionCode.toString() + "-" + info.lastUpdateTime
+        } catch (t: Throwable) {
+            "unknown-" + System.currentTimeMillis()
+        }
     }
 
     private fun ensureProfile(ctx: Context): String? {
@@ -127,12 +143,32 @@ object EngineInstaller {
         val mark = File(home, MARK_PROFILE)
         val pkg = File(home, "profiles/web/package.json")
         val boot = File(home, "profiles/web/node_modules/@deepseek-ai/dsh-app-boot")
-        if (mark.exists() && pkg.exists() && boot.exists()) return null
+        val present = mark.exists() && pkg.exists() && boot.exists()
+        if (present && mark.readText() == assetFingerprint(ctx)) return null
+        // 重新解压前保留用户数据目录（sessions / android 配置由 App 自己维护）
+        val keep = listOf("sessions", "android")
+        // parentFile 可能为 null（home 是相对路径时），回退到 cacheDir 下的暂存区
+        val stashRoot = home.parentFile ?: ctx.cacheDir
+        val stash = keep.mapNotNull { name ->
+            val src = File(home, name)
+            if (!src.isDirectory) null else {
+                val tmp = File(stashRoot, ".siyi-keep-" + name)
+                deleteRecursively(tmp)
+                if (src.renameTo(tmp)) tmp else null
+            }
+        }
         deleteRecursively(home); home.mkdirs()
         unzipAsset(ctx, "web-profile.zip", home)?.let { return it }
+        // 还原用户数据
+        for (tmp in stash) {
+            val name = tmp.name.removePrefix(".siyi-keep-")
+            val dst = File(home, name)
+            deleteRecursively(dst)
+            tmp.renameTo(dst)
+        }
         if (!pkg.exists()) return "web-profile.zip 解压后缺少 profiles/web/package.json"
         if (!boot.exists()) return "web-profile.zip 解压后缺少 dsh-app-boot"
-        mark.writeText("ok")
+        mark.writeText(assetFingerprint(ctx))
         return null
     }
 

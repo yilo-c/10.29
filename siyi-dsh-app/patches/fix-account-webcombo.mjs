@@ -85,7 +85,14 @@ for (const dir of dirs) {
         try { loopback.close() } catch {}
       }
     }, 'android-account: reuse host webserver')
-  }`
+  }
+
+  // sign-in/start 必须用宿主的 origin 作为 redirect_uri。
+  // 官方实现调 loopback.listen()，会起一个随机端口的服务器，但回调路由
+  // 挂在了宿主机上，浏览器回到随机端口会 404，loginOrigin 校验失败 → protocol。
+  const signInOrigin = existingWebServer === undefined
+    ? undefined
+    : () => existingWebServer.origin`
 
   if (!s.includes(oldProvide)) {
     console.log('no match (provide): ' + path.relative(profile, idx))
@@ -94,6 +101,15 @@ for (const dir of dirs) {
     fs.writeFileSync(idx, s)
     changed += 1
     console.log('patched index.js: ' + path.relative(profile, idx))
+  }
+
+  // ── 3. index.js：sign-in/start 用宿主 origin ──
+  if (s.includes('const origin = await loopback.listen()')) {
+    s = s.replace('const origin = await loopback.listen()',
+      'const origin = signInOrigin ? signInOrigin() : await loopback.listen()')
+    fs.writeFileSync(idx, s)
+    changed += 1
+    console.log('patched sign-in/start origin: ' + path.relative(profile, idx))
   }
 
   // ── 2. loopback.js：暴露 handle ──

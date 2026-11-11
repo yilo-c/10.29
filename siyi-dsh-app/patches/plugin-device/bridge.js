@@ -64,7 +64,10 @@ export class BridgePeer extends EventEmitter {
    * @param name socket 名（抽象命名空间时以 \0 开头）
    */
   static fromPath(name) {
-    const path = name.startsWith('\0') ? name : name
+    // App 侧用 LocalServerSocket(name) 建的是抽象命名空间 socket，
+    // 内核地址带 \0 前缀。Node 的 net.connect({ path }) 不会自动加，
+    // 不加就会被当成文件系统路径，报 connect ENOENT。
+    const path = name.startsWith('\0') ? name : '\0' + name
     const socket = net.connect({ path })
     return new BridgePeer(socket)
   }

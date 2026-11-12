@@ -9,8 +9,13 @@ android {
         applicationId "com.siyi.dshapp"
         minSdk 26
         targetSdk 34
-        versionCode 1
-        versionName "0.1.0"
+        // versionCode 必须递增，否则部分 ROM 会拒绝覆盖安装。
+        // 用日期做基数（2026-11-12 -> 20261112），配合 CI 传入的 build 号。
+        // ⚠ Groovy 不是 Kotlin：String 上没有 toInt()，只有 toInteger()。
+        // 写成 .toInt() 会让整个构建在配置阶段就崩（No signature of method），
+        // 表现是 Build debug APK 8 秒失败、什么都没编出来。
+        versionCode = (System.getenv("SIYI_VERSION_CODE") ?: "2026111201").toInteger()
+        versionName = System.getenv("SIYI_VERSION_NAME") ?: "0.33.0"
         ndk { abiFilters 'arm64-v8a' }
     }
 
@@ -59,6 +64,7 @@ android {
 
 dependencies {
     implementation 'androidx.appcompat:appcompat:1.7.0'
+    implementation 'androidx.activity:activity-ktx:1.9.3'
     implementation 'androidx.webkit:webkit:1.11.0'
     implementation 'com.google.android.material:material:1.12.0'
 }

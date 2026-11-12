@@ -22,6 +22,8 @@ env:
 
 jobs:
   build:
+    permissions:
+      contents: write
     runs-on: ubuntu-latest
     timeout-minutes: 50
     steps:
@@ -110,7 +112,17 @@ jobs:
           cp "$SRC/bridge.js" "$DEV/bridge.js"
           echo "已覆盖 plugin-device"
 
-          # 3) 重新打包
+          # 3) 终端：subprocess-local 的 createProcessInspector 只认 linux/darwin/win32，
+          #    android 直接抛「terminal inspection is unsupported」。
+          #    Android 内核就是 Linux，/proc 字段齐全，复用 Linux 实现即可。
+          TERM_PATCHER=$(readlink -f "$GITHUB_WORKSPACE/$APP_DIR/patches/fix-terminal-android.mjs")
+          test -f "$TERM_PATCHER" || { echo "找不到 fix-terminal-android.mjs"; exit 1; }
+          node "$TERM_PATCHER" "$W/node_modules"
+          T=$(grep -rl 'platform === "android"' "$W/node_modules/@deepseek-ai/dsh-subprocess-local/lib/" 2>/dev/null | wc -l)
+          echo "补丁校验 terminal android 分支: $T"
+          test "$T" -gt 0 || { echo "terminal 补丁未生效"; exit 1; }
+
+          # 4) 重新打包
           cd "$W"
           rm -f "$ZIP"
           zip -q -r "$ZIP" . > /dev/null
@@ -118,7 +130,7 @@ jobs:
           rm -rf "$W"
           echo "engine.zip 大小: $(stat -c%s "$ZIP") 字节"
 
-          # 4) 双项校验，任一未生效就失败
+          # 5) 双项校验，任一未生效就失败
           V=$(unzip -p "$ZIP" 'node_modules/@dsh-android/plugin-account/index.js' | grep -c existingWebServer || true)
           echo "补丁校验 account existingWebServer: $V"
           test "$V" -gt 0 || { echo "plugin-account 补丁未生效"; exit 1; }
@@ -155,6 +167,10 @@ jobs:
           rm -rf "node_modules/dsh-client-ui-siyi-mobile"
           cp -r "$WS/$APP_DIR/plugins/dsh-client-ui-siyi-mobile" "node_modules/dsh-client-ui-siyi-mobile"
           echo "plugin installed: $(ls node_modules/dsh-client-ui-siyi-mobile/lib)"
+          # 用户插件动态加载器：让 App 免 CI 自己加能力
+          rm -rf "node_modules/dsh-user-plugins"
+          cp -r "$WS/$APP_DIR/plugins/dsh-user-plugins" "node_modules/dsh-user-plugins"
+          echo "user-plugins loader installed: $(ls node_modules/dsh-user-plugins/lib)"
 
           # 修正 shell 写死成 bash 的问题：普通 node 启动时 platform 是 linux，
           # 两个插件会去 spawn bash，而 Android 只有 /system/bin/sh，
@@ -173,6 +189,14 @@ jobs:
       - name: Build debug APK
         run: |
           cd "$APP_DIR"
+          # versionCode 用日期+运行号递增，避免部分 ROM 因 versionCode 不变而拒绝覆盖。
+          # ⚠ 必须是 int32：Android 的 versionCode 上限 2147483647。
+          # 之前拼成 2026111243136691423（19 位）会直接溢出，
+          # 所以改成 日期*100 + 运行号后两位 = 2026111200 ~ 2026111299。
+          VC=$(( $(date -u +%Y%m%d) * 100 + GITHUB_RUN_NUMBER % 100 ))
+          echo "SIYI_VERSION_CODE=$VC" >> $GITHUB_ENV
+          echo "SIYI_VERSION_NAME=0.33.$GITHUB_RUN_NUMBER" >> $GITHUB_ENV
+          echo "versionCode=$VC"
           pwd; ls -la settings.gradle build.gradle
           gradle assembleDebug --no-daemon --stacktrace
 
@@ -217,9 +241,27 @@ jobs:
 
           # 重新签名
           BT=$(ls -d /usr/local/lib/android/sdk/build-tools/* | sort -V | tail -1)
-          KS="$HOME/.android/debug.keystore"
+          # 签名密钥必须固定，否则每次 CI 都生成新密钥，
+          # 导致新包无法覆盖安装（报「与已安装应用签名不同」，error -7）。
+          # 优先用仓库里固化的 keystore；没有则临时生成并上传为 artifact，
+          # 由维护者下载后提交进仓库，之后所有版本复用同一把。
+          KS="$GITHUB_WORKSPACE/$APP_DIR/keystore/debug.keystore"
           if [ ! -f "$KS" ]; then
-            keytool -genkeypair -v -keystore "$KS" -storepass android -keypass android               -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000               -dname "CN=Android Debug,O=Android,C=US" > /dev/null 2>&1
+            mkdir -p "$(dirname "$KS")"
+            keytool -genkeypair -v -keystore "$KS" -storepass android -keypass android \
+              -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=Siyi Debug,O=Siyi,C=CN" > /dev/null 2>&1
+            echo "keystore 首次生成，尝试自动提交进仓库"
+            ( cd "$GITHUB_WORKSPACE" \
+              && git config user.name "siyi-bot" \
+              && git config user.email "siyi-bot@users.noreply.github.com" \
+              && git add -f "$APP_DIR/keystore/debug.keystore" \
+              && git commit -m "chore: 固化签名密钥（此后所有版本可覆盖升级）" \
+              && git push origin HEAD:dsh-app ) \
+              && echo "keystore 已提交" \
+              || echo "::warning::自动提交失败，请手动下载 artifact 并提交"
+          else
+            echo "使用仓库固化的 keystore"
           fi
           "$BT/zipalign" -f -p 4 "$APK" "$APK.aligned"
           # 显式指定 v1+v2+v3，缺 v2 会导致 Android 7+ 报「系统不兼容」
@@ -231,6 +273,16 @@ jobs:
           echo "--- 最终校验 ---"
           unzip -l "$APK" | grep "libc++_shared" || true
           "$BT/apksigner" verify "$APK" && echo "签名校验通过"
+
+      # keystore 只在首次生成时存在；无条件尝试上传，没有文件时静默跳过。
+      # 用 hashFiles 做 if 条件在 job 早期会返回空，所以改用 if-no-files-found: ignore。
+      - name: Upload keystore
+        uses: actions/upload-artifact@v4
+        with:
+          name: siyi-keystore
+          path: ${{ env.APP_DIR }}/keystore/debug.keystore
+          if-no-files-found: ignore
+          retention-days: 90
 
       - name: Upload APK
         uses: actions/upload-artifact@v4

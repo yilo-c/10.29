@@ -1,9 +1,17 @@
 package com.siyi.dshapp
 
 import android.annotation.SuppressLint
+import android.app.Activity
+import android.content.ClipData
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
+import android.provider.MediaStore
+import android.webkit.ValueCallback
+import android.webkit.WebChromeClient
+import android.webkit.WebChromeClient.FileChooserParams
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.result.registerForActivityResult
 import android.os.Bundle
 import android.os.Environment
 import android.os.Handler
@@ -23,12 +31,45 @@ import androidx.core.view.WindowInsetsCompat
 
 class MainActivity : AppCompatActivity() {
 
+
     private lateinit var web: WebView
     private lateinit var waitView: TextView
     private val handler = Handler(Looper.getMainLooper())
     private var navigated = false
     private var lastMsg = ""
+    /** 白屏自愈计数：主框架加载失败后自动重试，成功后归零。 */
+    private var retries = 0
+    /** 上一次下发加载的时刻，用来判断「已经过去太久还是空的」。 */
+    private var loadAt = 0L
     private val startAt = System.currentTimeMillis()
+
+    // 文件选择 / 交互回调
+    private var filePathCallback: ValueCallback<Array<Uri>>? = null
+    /** GetContent 在 launch(mime) 时才决定类型，一个 launcher 覆盖图片与文件。 */
+    private val pickLauncher = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        deliverUri("pick", uri)
+    }
+    private val takePhotoLauncher = registerForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
+        deliverUri("take_photo", if (ok) photoUri else null)
+    }
+    /** WebView 的 <input type=file> 回调：用新 ActivityResult API 接，避免与旧 requestCode 混用。 */
+    private val fileChooserLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
+        val uris: Array<Uri>? = if (r.resultCode == Activity.RESULT_OK) {
+            val clip = r.data?.clipData
+            if (clip != null) Array(clip.itemCount) { clip.getItemAt(it).uri }
+            else r.data?.data?.let { arrayOf(it) }
+        } else null
+        filePathCallback?.onReceiveValue(uris)
+        filePathCallback = null
+    }
+    private val voiceLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
+        val list = r.data?.getStringArrayListExtra(android.speech.RecognizerIntent.EXTRA_RESULTS)
+        val text = list?.firstOrNull() ?: ""
+        InteractionHub.onResult(org.json.JSONObject().put("ok", text.isNotEmpty())
+            .put("text", text).toString())
+    }
+    private var photoUri: Uri? = null
+    private var textForWeb: String? = null
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -79,6 +120,35 @@ class MainActivity : AppCompatActivity() {
                     }
                     return true
                 }
+                // WebView 不自带文件选择器：宿主不实现这个方法，
+                // <input type="file"> 就是静默无反应。
+                override fun onShowFileChooser(
+                    view: WebView,
+                    cb: ValueCallback<Array<Uri>>,
+                    params: FileChooserParams
+                ): Boolean {
+                    filePathCallback?.onReceiveValue(null)
+                    filePathCallback = cb
+                    return try {
+                        val i = params.createIntent()
+                        i.type = "*/*"
+                        i.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, params.mode == FileChooserParams.MODE_OPEN_MULTIPLE)
+                        fileChooserLauncher.launch(Intent.createChooser(i, "选择文件"))
+                        true
+                    } catch (t: Throwable) {
+                        filePathCallback = null
+                        false
+                    }
+                }
+            }
+            // 下载链接：交给系统 DownloadManager
+            setDownloadListener { url, _, _, _, _ ->
+                runCatching {
+                    val req = android.app.DownloadManager.Request(Uri.parse(url))
+                    req.setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                    val dm = getSystemService(android.content.Context.DOWNLOAD_SERVICE) as android.app.DownloadManager
+                    dm.enqueue(req)
+                }
             }
             webViewClient = object : WebViewClient() {
                 override fun onPageFinished(view: WebView?, url: String?) {
@@ -92,7 +162,14 @@ class MainActivity : AppCompatActivity() {
                     super.onReceivedError(view, req, err)
                     android.util.Log.e("SiyiWeb", "onReceivedError " + req?.url + " -> " + err?.description)
                     if (req?.isForMainFrame == true) {
-                        showWaiting("页面加载失败：${err?.description ?: "未知错误"}")
+                        val why = "页面加载失败：${err?.description ?: "未知错误"}"
+                        if (retries < 5 && WebState.getUrl() != null) {
+                            retries++
+                            showWaiting("$why\n第 $retries 次重试…")
+                            handler.postDelayed({ retryLoad(why) }, 1500L * retries)
+                        } else {
+                            showWaiting(why)
+                        }
                     }
                 }
                 override fun onReceivedHttpError(view: WebView?, req: WebResourceRequest?, res: android.webkit.WebResourceResponse?) {
@@ -150,11 +227,31 @@ class MainActivity : AppCompatActivity() {
         // 挂载完成后再请求一次，双保险
         web.post { ViewCompat.requestApplyInsets(web) }
 
+        setupInteraction()
+        handleShare(intent)
         runCatching { startForegroundService(Intent(this, EngineService::class.java)) }
         poll()
     }
 
-    /** 用 JS 检查 React 是否已挂载内容 */
+    /** 重新拉一次页面。引擎可能还在解冻，失败会有下一轮 probeRendered 接着重试。 */
+    private fun retryLoad(why: String) {
+        val url = WebState.getUrl() ?: return
+        if (WebState.getError() != null) return
+        showWaiting(why)
+        loadUrl(url)
+        handler.postDelayed({ probeRendered() }, 2000)
+        handler.postDelayed({ probeRendered() }, 7000)
+    }
+
+    /** 真正下发加载，同时记下时刻并挂两个看门狗：请求卡死时也能自己救回来。 */
+    private fun loadUrl(url: String) {
+        loadAt = System.currentTimeMillis()
+        web.loadUrl(url)
+        handler.postDelayed({ probeRendered() }, 6000)
+        handler.postDelayed({ probeRendered() }, 13000)
+    }
+
+    /** 用 JS 检查 React 是否已挂载内容；一直没有内容就当作白屏重挂。 */
     private fun probeRendered() {
         web.evaluateJavascript(
             "(function(){var r=document.getElementById('root');" +
@@ -162,8 +259,100 @@ class MainActivity : AppCompatActivity() {
         ) { value ->
             if (value != null && value.contains("yes")) {
                 waitView.visibility = View.GONE
+                lastMsg = ""
+                retries = 0
+            } else if (retries < 5 && System.currentTimeMillis() - loadAt > 5000) {
+                // 页面 DOM 一直是空的 = 白屏。多半是引擎刚解冻/刚就绪还没响应，
+                // 隔一会儿重挂一次，别把用户丢在空白页上。
+                retries++
+                retryLoad("界面空白，第 $retries 次重新加载…")
             }
         }
+    }
+
+    /** InteractionHub 的拉起动作：主线程执行，按 kind 发对应 Intent。 */
+    private fun setupInteraction() {
+        InteractionHub.launcher = { p ->
+            when (p.kind) {
+                "pick" -> {
+                    val mime = p.arg.ifEmpty { "*/*" }
+                    pickLauncher.launch(mime)
+                }
+                "take_photo" -> {
+                    // FileProvider 要求目标文件先存在（哪怕 0 字节），相机才有地方写。
+                    val dir = java.io.File(cacheDir, "photos").also { it.mkdirs() }
+                    val f = java.io.File(dir, "photo-" + System.currentTimeMillis() + ".jpg")
+                    f.createNewFile()
+                    val uri = androidx.core.content.FileProvider.getUriForFile(
+                        this, packageName + ".fileprovider", f)
+                    photoUri = uri
+                    // 相机 App 以别的 uid 运行，必须显式授权写这个 content://
+                    runCatching {
+                        grantUriPermission("com.android.camera", uri,
+                            Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        grantUriPermission("com.google.android.GoogleCamera", uri,
+                            Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    takePhotoLauncher.launch(uri)
+                }
+                "voice" -> {
+                    val i = Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+                        .putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+                            android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                    runCatching { voiceLauncher.launch(i) }
+                        .onFailure { InteractionHub.cancel() }
+                }
+                else -> InteractionHub.cancel()
+            }
+        }
+    }
+
+    /** 把 content:// URI 拷成 App 私有文件，结果回传给交互等待方。 */
+    private fun deliverUri(kind: String, uri: Uri?) {
+        val out = org.json.JSONObject()
+        if (uri == null) {
+            out.put("ok", false).put("error", "用户取消")
+        } else {
+            runCatching {
+                val dir = java.io.File(cacheDir, "picked").also { it.mkdirs() }
+                val name = "picked-" + System.currentTimeMillis()
+                val f = java.io.File(dir, name)
+                contentResolver.openInputStream(uri)?.use { input ->
+                    f.outputStream().use { out2 -> input.copyTo(out2) }
+                }
+                out.put("ok", true).put("path", f.absolutePath).put("bytes", f.length())
+                    .put("uri", uri.toString())
+            }.onFailure { out.put("ok", false).put("error", it.message) }
+        }
+        InteractionHub.onResult(out.toString())
+    }
+
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleShare(intent)
+    }
+
+    /** 接收别的 App 分享进来的文本/图片，写入剪贴板并记入日志，供 AI 读取。 */
+    private fun handleShare(i: Intent?) {
+        if (i?.action != Intent.ACTION_SEND) return
+        val text = i.getStringExtra(Intent.EXTRA_TEXT)
+        val stream = i.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
+        val sb = StringBuilder()
+        text?.let { sb.append(it) }
+        stream?.let { sb.append("[共享文件] ").append(it.toString()) }
+        if (sb.isNotEmpty()) {
+            val value = sb.toString()
+            val cm = getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+            cm.setPrimaryClip(ClipData.newPlainText("siyi_share", value))
+            android.util.Log.i("SiyiShare", value.take(200))
+            textForWeb = value
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    override fun onBackPressed() {
+        if (web.canGoBack()) web.goBack() else super.onBackPressed()
     }
 
     private fun poll() {
@@ -172,11 +361,17 @@ class MainActivity : AppCompatActivity() {
                 val url = WebState.getUrl()
                 val err = WebState.getError()
                 when {
-                    err != null -> showWaiting("引擎启动失败\n\n$err")
+                    // 地址优先：只要引擎打出了带 token 的地址，就是能用的。
+                    // 曾经的错误（比如被淘汰的那次启动）不能挡住可用的引擎。
                     url != null && !navigated -> {
                         navigated = true
                         showWaiting("引擎已就绪，正在加载界面…")
-                        web.loadUrl(url)
+                        loadUrl(url)
+                    }
+                    // 出错也要继续轮询：引擎可能稍后起来，或者用户手动重启一下就好。
+                    url == null && err != null -> {
+                        showWaiting("引擎启动失败，正在自动重试…\n\n$err")
+                        handler.postDelayed(this, 3000)
                     }
                     url == null -> {
                         val s = (System.currentTimeMillis() - startAt) / 1000
@@ -198,7 +393,17 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         val url = WebState.getUrl()
-        if (url != null && !navigated) { navigated = true; web.loadUrl(url) }
+        if (url != null && !navigated) {
+            navigated = true
+            loadUrl(url)
+        } else if (url != null) {
+            // 从后台回来：引擎可能刚被解冻，页面还是空的。重置计数后重新体检一次，
+            // 6 秒后仍没有内容就自动重挂（probeRendered 自己会处理）。
+            retries = 0
+            loadAt = System.currentTimeMillis()
+            handler.postDelayed({ probeRendered() }, 2000)
+            handler.postDelayed({ probeRendered() }, 6500)
+        }
     }
 
     override fun onDestroy() {

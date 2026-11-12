@@ -50,7 +50,9 @@
 - id: agent-default-model
   config:
     provider: local
-    model: loomy/qwen3.8-flash
+    # 钉在 minimax：其余渠道长期限流或掉凭据，默认走 loomy 时每轮都要先失败
+    # 一次、再靠 8427 的兜底链落到 minimax，白等 2~3 秒。
+    model: minimax/MiniMax-M3.1-Flash
 
 # ── 设备能力桥 ────────────────────────────────────────────────
 # App 侧 EngineService 通过 DSH_BRIDGE_FD 传入 socketpair 的一端，
@@ -149,3 +151,10 @@
         # 应用内登录 WebView 完成后会打开这个 scheme 回到 App
         appScheme: dsh-android
         appPackage: com.siyi.dshapp
+
+# ── 用户插件动态加载器（免 CI 扩展）────────────────────────
+# 引擎启动时扫描 DSH_USER_PLUGINS 目录（App 注入，默认 /sdcard/思忆集/plugins），
+# 把每个 .js 当作一个 DSH 插件加载。以后加能力只需往目录里丢文件并重启引擎。
+- insert:
+    - id: siyi-user-plugins
+      name: 'dsh-user-plugins'

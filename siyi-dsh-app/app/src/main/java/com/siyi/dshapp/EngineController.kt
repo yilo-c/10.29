@@ -458,16 +458,22 @@ object EngineController {
         Thread {
             stage("看门狗已挂上（HTTP 探测）")
             var fails = 0
+            val spawnedAt = System.currentTimeMillis()
             while (!stopping.get()) {
-                Thread.sleep(3000)
-                // 只有「已就绪」才探测：启动中端口本来就没监听
-                if (stateRef.get().phase != Phase.READY) { fails = 0; continue }
-                if (isListening()) { fails = 0; continue }
+                Thread.sleep(2000)
+                val listening = isListening()
+                val phase = stateRef.get().phase
+                stage("探测 listening=" + listening + " phase=" + phase + " fails=" + fails)
+                if (listening) { fails = 0; continue }
+                if (phase != Phase.READY && System.currentTimeMillis() - spawnedAt < 30000L) {
+                    fails = 0
+                    continue
+                }
                 fails++
-                stage("HTTP 探测失败 " + fails + "/3")
-                if (fails < 3) continue
+                stage("HTTP 探测失败 " + fails + "/5")
+                if (fails < 5) continue
 
-                stage("引擎无响应，判定已退出")
+                stage("引擎无响应（连续5次），判定已退出")
                 if (processRef.get() !== p) { stage("已不是当前引擎，忽略"); return@Thread }
                 // 顺手把可能的残留进程清掉，避免下一轮撞端口
                 runCatching { p.destroyForcibly() }
@@ -477,7 +483,7 @@ object EngineController {
                 break
             }
             if (stopping.get()) { stage("主动停止，不做重启"); return@Thread }
-            if (fails < 3) return@Thread
+            if (fails < 5) return@Thread
 
             val c = appCtx ?: ctx
             val n = restartCount.incrementAndGet()

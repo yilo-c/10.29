@@ -75,9 +75,20 @@ class EngineService : Service() {
         getSystemService(NotificationManager::class.java).notify(NOTIF_ID, notif(text))
     }
 
+    /**
+     * 启动阶段诊断，追加到 /sdcard/思忆集/app/boot.log。
+     * 必须是类级方法：freePort() 里也要写日志，而 boot() 内的局部函数它看不见，
+     * 写成局部函数会直接 Unresolved reference: stage，构建就停在 compileDebugKotlin。
+     */
+    private fun stage(msg: String) {
+        runCatching {
+            val diag = File("/sdcard/思忆集/app/boot.log")
+            diag.parentFile?.mkdirs()
+            diag.appendText("[${System.currentTimeMillis()}] $msg\n")
+        }
+    }
+
     private fun boot() {
-        val diag = File("/sdcard/思忆集/app/boot.log").also { it.parentFile?.mkdirs() }
-        fun stage(msg: String) { runCatching { diag.appendText("[${System.currentTimeMillis()}] $msg\n") } }
         stage("boot start")
         var lastNotify = 0L
         EngineInstaller.onProgress = { n, txt ->

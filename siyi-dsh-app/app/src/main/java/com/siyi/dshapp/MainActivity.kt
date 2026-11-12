@@ -168,7 +168,9 @@ class MainActivity : AppCompatActivity() {
                 override fun onReceivedError(view: WebView?, req: WebResourceRequest?, err: WebResourceError?) {
                     super.onReceivedError(view, req, err)
                     android.util.Log.e("SiyiWeb", "onReceivedError " + req?.url + " -> " + err?.description)
-                    if (req?.isForMainFrame == true) {
+                    // 外部页面（登录授权页等）的加载失败不归我们管，
+                    // 否则会把用户从授权流程里拽回来。
+                    if (req?.isForMainFrame == true && isEnginePage()) {
                         val why = "页面加载失败：${err?.description ?: "未知错误"}"
                         if (retries < 5 && EngineController.state().url != null) {
                             retries++
@@ -244,6 +246,7 @@ class MainActivity : AppCompatActivity() {
 
     /** 重新拉一次页面。引擎可能还在解冻，失败会有下一轮 probeRendered 接着重试。 */
     private fun retryLoad(why: String) {
+        if (!isEnginePage()) return
         val url = EngineController.state().url ?: return
         if (EngineController.state().error != null) return
         showWaiting(why)
@@ -262,7 +265,25 @@ class MainActivity : AppCompatActivity() {
     }
 
     /** 用 JS 检查 React 是否已挂载内容；一直没有内容就当作白屏重挂。 */
+    /**
+     * 当前 WebView 是不是引擎自己的页面。
+     *
+     * 白屏检测只能作用于引擎页面。登录时会跳到 platform.deepseek.com 的授权页，
+     * 那页没有 #root，如果不加判断就会被误判成白屏、
+     * 5 秒后强行 reload 回引擎地址 —— 等于把用户从授权页拽走，
+     * 授权流程中断，日志里表现为 sign-in failed { errorCode: 'expired' }。
+     */
+    private fun isEnginePage(): Boolean {
+        val u = runCatching { web.url }.getOrNull() ?: return false
+        return u.startsWith("http://127.0.0.1:") && u.contains(":" + EngineController.WEB_PORT)
+    }
+
     private fun probeRendered() {
+        // 外部页面（登录授权页等）不参与白屏检测
+        if (!isEnginePage()) {
+            waitView.visibility = View.GONE
+            return
+        }
         web.evaluateJavascript(
             "(function(){var r=document.getElementById('root');" +
             "return r && r.children.length > 0 ? 'yes' : 'no';})()"

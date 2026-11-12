@@ -323,6 +323,14 @@ object EngineController {
      *
      * 正确做法：读 /proc/net/tcp{,6}，只看状态为 LISTEN(0A) 的行。
      */
+    /** 引擎的 HTTP 端口是否还在响应（连接能否建立）。与 ROM 实现无关，必定有效。 */
+    private fun isListening(): Boolean = runCatching {
+        java.net.Socket().use { sock ->
+            sock.connect(java.net.InetSocketAddress("127.0.0.1", WEB_PORT), 1500)
+            true
+        }
+    }.getOrDefault(false)
+
     private fun isPortInUse(port: Int): Boolean {
         val hex = port.toString(16).padStart(4, '0').uppercase()
         for (f in listOf("/proc/net/tcp", "/proc/net/tcp6")) {
@@ -440,39 +448,36 @@ object EngineController {
             }
         }.apply { isDaemon = true; start() }
 
-        // 进程存活看门狗 + 自动重启
+        // 存活看门狗：用 HTTP 探测，不用 Process 的任何方法。
         //
-        // 不用 Process.waitFor()：Android 上它依赖一个内部「退出通知」线程，
-        // 某些 ROM/内核组合下那个线程不触发，waitFor 会永久阻塞 ——
-        // 实测引擎被 kill -9 之后看门狗一声不响，白屏永远不会自愈。
-        // 改成轮询 /proc/<pid> 是否还存在，这条路和 ROM 实现无关，必定有效。
-        // 不用 pid，也不用 waitFor：
-        //   - Process.pid() 在部分 ROM 上反射不到（实测返回 -1），看门狗会直接失效；
-        //   - Process.waitFor() 依赖内部退出通知线程，某些 ROM 上永不触发。
-        // Process.isAlive() 是非阻塞的即时查询，不依赖上面两者，最可靠。
+        // 为什么：Android 的 Process.waitFor() / isAlive() 都依赖一个内部
+        // 「退出通知」线程（ProcessManager.waitForProcessExit）。实测在这台机器上
+        // 那个线程不工作，引擎被 kill -9 之后 waitFor 永久阻塞、isAlive 永远为 true，
+        // 看门狗一声不响，白屏永远不会自愈。
+        // 引擎的职责就是提供 HTTP 服务，端口不响应 == 它已经没用了，直接判死。
         Thread {
-            stage("看门狗已挂上")
-            while (p.isAlive) {
-                if (stopping.get()) {
-                    stage("引擎是主动停止的，看门狗退出")
-                    return@Thread
-                }
-                Thread.sleep(1000)
+            stage("看门狗已挂上（HTTP 探测）")
+            var fails = 0
+            while (!stopping.get()) {
+                Thread.sleep(3000)
+                // 只有「已就绪」才探测：启动中端口本来就没监听
+                if (stateRef.get().phase != Phase.READY) { fails = 0; continue }
+                if (isListening()) { fails = 0; continue }
+                fails++
+                stage("HTTP 探测失败 " + fails + "/3")
+                if (fails < 3) continue
+
+                stage("引擎无响应，判定已退出")
+                if (processRef.get() !== p) { stage("已不是当前引擎，忽略"); return@Thread }
+                // 顺手把可能的残留进程清掉，避免下一轮撞端口
+                runCatching { p.destroyForcibly() }
+                processRef.set(null)
+                stateRef.set(State(Phase.FAILED, error = "引擎无响应，正在重启…"))
+                statusSink?.invoke("引擎无响应，正在重启…")
+                break
             }
-            if (stopping.get()) {
-                stage("引擎是主动停止的，不做重启")
-                return@Thread
-            }
-            val code = runCatching { p.exitValue() }.getOrDefault(-1)
-            stage("引擎意外退出 exitCode=" + code)
-            // 只有当前进程才代表引擎（可能已经被新一轮启动替换）
-            if (processRef.get() !== p) {
-                stage("退出的是旧进程，忽略")
-                return@Thread
-            }
-            processRef.set(null)
-            stateRef.set(State(Phase.FAILED, error = "引擎已退出（code=" + code + "），正在重启…"))
-            statusSink?.invoke("引擎已退出，正在重启…")
+            if (stopping.get()) { stage("主动停止，不做重启"); return@Thread }
+            if (fails < 3) return@Thread
 
             val c = appCtx ?: ctx
             val n = restartCount.incrementAndGet()

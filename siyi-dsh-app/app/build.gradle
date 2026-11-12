@@ -1,6 +1,19 @@
 apply plugin: 'com.android.application'
 apply plugin: 'org.jetbrains.kotlin.android'
 
+// 加载 app/version.properties（CI 在 gradle 之前生成）。
+// ⚠ Gradle 只自动加载 gradle.properties；自定义文件必须显式 load，
+//   否则 findProperty 返回 null，versionCode 会一直是默认值 2026111201，
+//   每次构建都一样，部分 ROM 就会拒绝覆盖安装。
+def siyiVersionProps = new Properties()
+def siyiVersionFile = file('version.properties')
+if (siyiVersionFile.exists()) {
+    siyiVersionFile.withInputStream { siyiVersionProps.load(it) }
+    logger.lifecycle("siyi version: " + siyiVersionProps)
+} else {
+    logger.lifecycle("siyi version.properties 不存在，用默认值")
+}
+
 android {
     namespace 'com.siyi.dshapp'
     compileSdk 34
@@ -22,8 +35,8 @@ android {
         // CI 会在 gradle 之前生成 app/version.properties，内容形如：
         //   siyi.versionCode=2026111242
         //   siyi.versionName=0.34.242
-        versionCode = (project.findProperty("siyi.versionCode") ?: "2026111201").toString().toInteger()
-        versionName = (project.findProperty("siyi.versionName") ?: "0.34.0").toString()
+        versionCode = siyiVersionProps.getProperty("siyi.versionCode", "2026111201").toString().toInteger()
+        versionName = siyiVersionProps.getProperty("siyi.versionName", "0.34.0").toString()
         ndk { abiFilters 'arm64-v8a' }
     }
 

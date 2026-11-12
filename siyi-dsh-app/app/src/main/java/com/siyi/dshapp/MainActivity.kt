@@ -115,11 +115,48 @@ class MainActivity : AppCompatActivity() {
             val defaultUa = android.webkit.WebSettings.getDefaultUserAgent(this@MainActivity)
             settings.userAgentString = defaultUa.replace(" wv)", ")")
             settings.javaScriptCanOpenWindowsAutomatically = true
-            settings.setSupportMultipleWindows(false)
+            // ⚠ 必须开启多窗口。登录按钮走的是 window.open(authorizeUrl)：
+            // 设成 false 时 WebView 会把弹窗「就地导航」，结果停在 about:blank，
+            // 整个界面变成白屏（logcat 里能看到 onPageFinished about:blank）。
+            // 开启后由下面的 onCreateWindow 接住，交给系统浏览器打开。
+            settings.setSupportMultipleWindows(true)
             settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
             // 诊断用：把 WebView 控制台与失败请求打到 logcat，
             // 登录白屏时靠这个定位前端卡在哪一步。
             webChromeClient = object : android.webkit.WebChromeClient() {
+                /**
+                 * 接住 window.open 的弹窗请求。
+                 *
+                 * 登录、第三方授权都是新窗口打开的。WebView 自己不该承载这些页面
+                 * （它们不在我们的源里，也不该拿到 localStorage），
+                 * 正确做法是丢给系统浏览器（Chrome），授权完它自己会回到
+                 * http://127.0.0.1:3180/oauth/callback。
+                 */
+                override fun onCreateWindow(
+                    view: WebView?,
+                    isDialog: Boolean,
+                    isUserGesture: Boolean,
+                    resultMsg: android.os.Message?
+                ): Boolean {
+                    val transport = resultMsg?.obj as? WebView.WebViewTransport ?: return false
+                    // 用一个临时 WebView 只为拿到要打开的 URL
+                    val probe = WebView(this@MainActivity)
+                    probe.webViewClient = object : WebViewClient() {
+                        override fun shouldOverrideUrlLoading(
+                            v: WebView?, req: android.webkit.WebResourceRequest?
+                        ): Boolean {
+                            val url = req?.url?.toString()
+                            if (!url.isNullOrEmpty()) openExternally(url)
+                            v?.stopLoading()
+                            probe.destroy()
+                            return true
+                        }
+                    }
+                    transport.webView = probe
+                    resultMsg.sendToTarget()
+                    return true
+                }
+
                 override fun onConsoleMessage(m: android.webkit.ConsoleMessage?): Boolean {
                     if (m != null) {
                         android.util.Log.i("SiyiWeb", m.messageLevel().name + " " + m.message() +
@@ -165,6 +202,21 @@ class MainActivity : AppCompatActivity() {
                     handler.postDelayed({ probeRendered() }, 2500)
                     handler.postDelayed({ probeRendered() }, 5000)
                 }
+                /**
+                 * 非引擎页面的导航一律交给系统浏览器。
+                 *
+                 * 这样 WebView 永远停在引擎页面上：外部授权页、外链都不会
+                 * 把界面导航走，也就不会出现「跳出去回不来」的白屏。
+                 */
+                override fun shouldOverrideUrlLoading(
+                    view: WebView?, req: android.webkit.WebResourceRequest?
+                ): Boolean {
+                    val url = req?.url?.toString() ?: return false
+                    if (isEngineUrl(url)) return false      // 引擎页面留在 WebView
+                    openExternally(url)
+                    return true
+                }
+
                 override fun onReceivedError(view: WebView?, req: WebResourceRequest?, err: WebResourceError?) {
                     super.onReceivedError(view, req, err)
                     android.util.Log.e("SiyiWeb", "onReceivedError " + req?.url + " -> " + err?.description)
@@ -275,11 +327,45 @@ class MainActivity : AppCompatActivity() {
      */
     private fun isEnginePage(): Boolean {
         val u = runCatching { web.url }.getOrNull() ?: return false
-        return u.startsWith("http://127.0.0.1:") && u.contains(":" + EngineController.WEB_PORT)
+        return isEngineUrl(u)
+    }
+
+    /** 给定 URL 是不是引擎自己的地址。 */
+    private fun isEngineUrl(u: String): Boolean =
+        u.startsWith("http://127.0.0.1:") && u.contains(":" + EngineController.WEB_PORT)
+
+    /**
+     * 用系统浏览器打开外部链接。
+     *
+     * 登录授权页必须走真实浏览器：它要用到平台的 cookie 和跳转，
+     * 塞在 WebView 里既不安全也容易卡死（window.open 曾直接变成 about:blank）。
+     * 授权完成后浏览器会命中 http://127.0.0.1:3180/oauth/callback，
+     * 由引擎处理并把控制权交回 App。
+     */
+    private fun openExternally(url: String) {
+        runCatching {
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+        }.onFailure {
+            android.util.Log.e("SiyiWeb", "打开外部浏览器失败: " + it.message)
+            // 打不开浏览器就退回用 WebView 加载，总比什么都不做强
+            runCatching { web.loadUrl(url) }
+        }
     }
 
     private fun probeRendered() {
-        // 外部页面（登录授权页等）不参与白屏检测
+        // 空页兜底：window.open 被就地导航、或外部页面销毁后，WebView 会停在
+        // about:blank。这种状态既不是引擎页面、也没人会来救，必须自己拉回来。
+        val now = runCatching { web.url }.getOrNull()
+        if (now == null || now == "about:blank" || now.isEmpty()) {
+            val engineUrl = EngineController.state().url
+            if (engineUrl != null && retries < 5) {
+                retries++
+                showWaiting("界面已重置，正在恢复…")
+                loadUrl(engineUrl)
+            }
+            return
+        }
+        // 其它外部页面（登录授权页等）不参与白屏检测，避免把用户从授权流程里拽走
         if (!isEnginePage()) {
             waitView.visibility = View.GONE
             return

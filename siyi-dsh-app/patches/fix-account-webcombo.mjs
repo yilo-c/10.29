@@ -7,9 +7,15 @@
 //   service "webServer" has been registered at <WebServer>
 // 引擎启动失败，登录页白屏。
 //
-// 修法：检测到 webServer 已存在时改为复用它 —— 把 /oauth/callback 与
-// /oauth/complete 两个路由注册到宿主机上，不再自建 loopback 监听。
-// 两者接口兼容：register(route) / port / origin / listen()。
+// 修法：检测到 webServer 已存在时改为复用它 —— 只把 /oauth/complete
+// 注册到宿主机上，不再自建 loopback 监听。
+//
+// ⚠ 为什么不再注册 /oauth/callback：dsh 的账号平台（deepseek-account-platform）
+// 在登录时自己会在同一个 webServer 上注册 /oauth/callback。我们再注册一次
+// 会撞上 "webserver: duplicate exact route"，那个错不是 PlatformAuthError，
+// 被平台归类成 protocol —— 表现就是「登录白屏 + sign-in failed { errorCode: 'protocol' }」。
+//
+// 两者接口兼容：register(route) / port / getOrigin() / listen()。
 //
 // 本脚本在 CI 的 profile 构建阶段执行，作用于 node_modules 里的包副本，
 // 因此重装 APK 不会丢失。
@@ -73,7 +79,12 @@ for (const dir of dirs) {
     log('info', 'webServer 已存在（Web 组合），把回调路由挂到宿主机上')
     ctx.effect(() => {
       const disposers = []
-      for (const p of ['/oauth/callback', '/oauth/complete']) {
+      // ⚠ 只能注册 /oauth/complete。
+      // /oauth/callback 由 dsh 的账号平台（deepseek-account-platform）在登录时
+      // 自己在这个 webServer 上注册；我们再注册一次会撞上
+      // "webserver: duplicate exact route"。那个错不是 PlatformAuthError，
+      // 于是被平台归类成 protocol —— 表现就是「登录白屏 + sign-in failed protocol」。
+      for (const p of ['/oauth/complete']) {
         disposers.push(existingWebServer.register({
           kind: 'exact',
           path: p,

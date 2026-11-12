@@ -163,7 +163,7 @@ class MainActivity : AppCompatActivity() {
                     android.util.Log.e("SiyiWeb", "onReceivedError " + req?.url + " -> " + err?.description)
                     if (req?.isForMainFrame == true) {
                         val why = "页面加载失败：${err?.description ?: "未知错误"}"
-                        if (retries < 5 && WebState.getUrl() != null) {
+                        if (retries < 5 && EngineController.state().url != null) {
                             retries++
                             showWaiting("$why\n第 $retries 次重试…")
                             handler.postDelayed({ retryLoad(why) }, 1500L * retries)
@@ -235,8 +235,8 @@ class MainActivity : AppCompatActivity() {
 
     /** 重新拉一次页面。引擎可能还在解冻，失败会有下一轮 probeRendered 接着重试。 */
     private fun retryLoad(why: String) {
-        val url = WebState.getUrl() ?: return
-        if (WebState.getError() != null) return
+        val url = EngineController.state().url ?: return
+        if (EngineController.state().error != null) return
         showWaiting(why)
         loadUrl(url)
         handler.postDelayed({ probeRendered() }, 2000)
@@ -358,22 +358,21 @@ class MainActivity : AppCompatActivity() {
     private fun poll() {
         handler.postDelayed(object : Runnable {
             override fun run() {
-                val url = WebState.getUrl()
-                val err = WebState.getError()
+                val st = EngineController.state()
                 when {
                     // 地址优先：只要引擎打出了带 token 的地址，就是能用的。
                     // 曾经的错误（比如被淘汰的那次启动）不能挡住可用的引擎。
-                    url != null && !navigated -> {
+                    st.url != null && !navigated -> {
                         navigated = true
                         showWaiting("引擎已就绪，正在加载界面…")
-                        loadUrl(url)
+                        loadUrl(st.url)
                     }
                     // 出错也要继续轮询：引擎可能稍后起来，或者用户手动重启一下就好。
-                    url == null && err != null -> {
-                        showWaiting("引擎启动失败，正在自动重试…\n\n$err")
+                    st.phase == EngineController.Phase.FAILED -> {
+                        showWaiting("引擎启动失败，正在自动重试…\n\n" + (st.error ?: ""))
                         handler.postDelayed(this, 3000)
                     }
-                    url == null -> {
+                    else -> {
                         val s = (System.currentTimeMillis() - startAt) / 1000
                         showWaiting("正在启动引擎…\n已等待 $s 秒（首次需解压 400MB 资源，可能数分钟）")
                         handler.postDelayed(this, 1500)
@@ -392,7 +391,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        val url = WebState.getUrl()
+        val url = EngineController.state().url
         if (url != null && !navigated) {
             navigated = true
             loadUrl(url)

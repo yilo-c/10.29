@@ -320,7 +320,7 @@ object DeviceBridge {
             .put("package", c.packageName)
             .put("version", pi.versionName ?: "?")
             .put("data_dir", c.filesDir.path)
-            .put("engine_running", EngineService.isRunning())
+            .put("engine_running", EngineController.isRunning())
             .toString(2)
     }
 

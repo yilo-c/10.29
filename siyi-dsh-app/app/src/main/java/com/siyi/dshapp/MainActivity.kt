@@ -296,6 +296,28 @@ class MainActivity : AppCompatActivity() {
         poll()
     }
 
+    /**
+     * 前后台切换后的最终兜底：页面确实没有内容就整页重载一次。
+     *
+     * 后台期间引擎可能被冻结（MIUI 会挂起整个进程），回来时 WebView
+     * 可能还停在旧帧、或者内容已经被系统回收。前面几次体检只是「问一问」，
+     * 这里才真正动手重载。
+     */
+    private fun forceReloadIfBlank() {
+        if (!isEnginePage()) return
+        web.evaluateJavascript(
+            "(function(){var r=document.getElementById('root');" +
+            "return r && r.children.length > 0 ? 'yes' : 'no';})()"
+        ) { value ->
+            if (value != null && value.contains("yes")) return@evaluateJavascript
+            val url = EngineController.state().url ?: return@evaluateJavascript
+            android.util.Log.i("SiyiWeb", "后台回来页面为空，强制重载")
+            retries = 0
+            loadUrl(url)
+            handler.postDelayed({ probeRendered() }, 2500)
+        }
+    }
+
     /** 重新拉一次页面。引擎可能还在解冻，失败会有下一轮 probeRendered 接着重试。 */
     private fun retryLoad(why: String) {
         if (!isEnginePage()) return
@@ -557,18 +579,21 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        // 与 onPause 配对：即使将来有人 pause 了 WebView，这里也会恢复渲染。
+        runCatching { web.onResume() }
         val url = EngineController.state().url
         if (url != null && url != loadedUrl) {
             // 后台期间引擎重启过（token 变了），必须重新加载
             navigated = true
             loadUrl(url)
         } else if (url != null) {
-            // 从后台回来：引擎可能刚被解冻，页面还是空的。重置计数后重新体检一次，
-            // 6 秒后仍没有内容就自动重挂（probeRendered 自己会处理）。
+            // 从后台回来：引擎可能刚被解冻，页面也可能被系统回收了内容。
+            // 先体检一次（2 秒），不行再重挂（6.5 秒），最后兜底整页重载（12 秒）。
             retries = 0
             loadAt = System.currentTimeMillis()
             handler.postDelayed({ probeRendered() }, 2000)
             handler.postDelayed({ probeRendered() }, 6500)
+            handler.postDelayed({ forceReloadIfBlank() }, 12000)
         }
     }
 
@@ -598,9 +623,14 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onPause() {
-        // WebView 在后台继续跑定时器和网络请求是纯浪费，暂停它。
-        // 注意：不能 pauseTimers()，那会让引擎里的 SSE 对话流断掉。
-        runCatching { web.onPause() }
+        // ⚠ 这里**不能**调 web.onPause()。
+        // WebView.onPause() 会停掉渲染，必须和 web.onResume() 成对使用；
+        // 只 pause 不 resume，WebView 就永远停在暂停态，
+        // 回到前台页面是一片空白，只能退出重进才恢复。
+        //
+        // 不用 pauseTimers()：那会让引擎里的 SSE 对话流断掉。
+        // 代价是后台仍在跑 WebView 的定时器和网络请求 ——
+        // 对这个 App 可以接受，换来的是前后台切换不掉链子。
         super.onPause()
     }
 

@@ -237,6 +237,8 @@ class MainActivity : AppCompatActivity() {
         setupInteraction()
         handleShare(intent)
         runCatching { startForegroundService(Intent(this, EngineService::class.java)) }
+        // 首次启动时引导用户加白名单，否则后台一冻结就白屏
+        handler.postDelayed({ ensureBackgroundSurvival() }, 2500)
         poll()
     }
 
@@ -393,6 +395,50 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }, 800)
+    }
+
+
+    // ── 后台存活引导 ────────────────────────────────────────────────────────
+    // 这是本 App 最大的体验隐患：引擎是个子进程，App 一进后台，
+    // MIUI 会冻结整个进程（线程全部挂起，看门狗也不再探测），
+    // 内存紧张时还会直接杀掉。表现就是「回到 App 一片白，要等很久才恢复」。
+    //
+    // 代码层面只能做到两件事：
+    //   1. 申请电池优化白名单（最有效，能显著降低被冻结的概率）
+    //   2. 给出可操作的自启动指引（MIUI 的自启动开关没有公开 API）
+    // 真正的「无限制」需要用户自己去设置里点，所以这里只做一次性提醒。
+
+    private fun ensureBackgroundSurvival() {
+        val pm = getSystemService(POWER_SERVICE) as android.os.PowerManager
+        if (pm.isIgnoringBatteryOptimizations(packageName)) return
+        // 已经问过就不再骚扰
+        val prefs = getSharedPreferences("siyi", MODE_PRIVATE)
+        if (prefs.getBoolean("asked_battery", false)) return
+
+        android.app.AlertDialog.Builder(this)
+            .setTitle("让引擎在后台活下来")
+            .setMessage(
+                "思忆集的 AI 引擎跑在后台。系统会为了省电把它冻结甚至杀掉，" +
+                "这就是「切出去一会儿回来就白屏」的原因。\n\n" +
+                "点「去设置」后会弹出系统授权，请选「允许」。\n" +
+                "另外建议在小米/红米的「应用设置 → 省电策略」里选「无限制」，" +
+                "并打开「自启动」。"
+            )
+            .setPositiveButton("去设置") { _, _ ->
+                prefs.edit().putBoolean("asked_battery", true).apply()
+                runCatching {
+                    startActivity(
+                        Intent(
+                            android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                            android.net.Uri.parse("package:$packageName")
+                        )
+                    )
+                }
+            }
+            .setNegativeButton("以后再说") { _, _ ->
+                prefs.edit().putBoolean("asked_battery", true).apply()
+            }
+            .show()
     }
 
     private fun showWaiting(msg: String) {

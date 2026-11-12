@@ -346,7 +346,7 @@ object DeviceBridge {
     private fun log(msg: String) {
         android.util.Log.i(TAG, msg)
         runCatching {
-            File("/sdcard/思忆集/app/bridge.log").appendText("[${System.currentTimeMillis()}] $msg\n")
+            AppLog.write("bridge.log", msg)
         }
     }
 }

@@ -225,7 +225,7 @@ object EngineController {
                 runCatching {
                     p.inputStream.bufferedReader().use { br: BufferedReader ->
                         br.forEachLine { line ->
-                            runCatching { logFile.appendText(line + "\n") }
+                            AppLog.write("engine-stdout.log", line)
                             val m = Regex("token=([A-Za-z0-9_-]+)").find(line)
                             if (m != null) {
                                 val url = "http://127.0.0.1:$WEB_PORT/?token=${m.groupValues[1]}"
@@ -244,7 +244,7 @@ object EngineController {
                 runCatching {
                     p.errorStream.bufferedReader().use { br ->
                         br.forEachLine { line ->
-                            runCatching { errLog.appendText(line + "\n") }
+                            AppLog.write("engine-stderr.log", line)
                             // 只有「启动失败」才是致命信号；普通的 "Error:" 多半是
                             // 某个插件自己的告警（比如模型渠道 502），拿来判定整体
                             // 失败会把能用的引擎判死，界面就卡在错误页不再重试。
@@ -411,8 +411,7 @@ object EngineController {
     /** 启动阶段诊断，追加到 /sdcard/思忆集/app/boot.log。 */
     private fun stage(msg: String) {
         runCatching {
-            LOG_DIR.mkdirs()
-            File(LOG_DIR, "boot.log").appendText("[${System.currentTimeMillis()}] $msg\n")
+            AppLog.write("boot.log", msg)
         }
     }
 

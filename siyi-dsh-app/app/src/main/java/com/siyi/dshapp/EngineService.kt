@@ -15,6 +15,8 @@ import java.io.File
 class EngineService : Service() {
 
     companion object {
+        /** 空白分隔的正则（/proc/net/tcp 每列之间是空格）。 */
+        private val WHITESPACE = Regex("\\s+")
         const val CHANNEL_ID = "siyi_engine"
         const val NOTIF_ID = 1001
         const val WEB_PORT = 3180
@@ -340,17 +342,31 @@ class EngineService : Service() {
         }.getOrDefault(-1)
     }
 
-    /** 尝试绑定端口判断是否被占用。 */
+    /**
+     * 端口是否真的被**监听**。
+     *
+     * 不能只看「能不能 bind 成功」：刚杀掉的引擎会留下 TIME_WAIT 连接，
+     * 那种状态下 bind 会失败（EADDRINUSE），但端口已经没人监听了。
+     * 于是 freePort 判定「仍被占用」→ 放弃启动 → 界面白屏。
+     *
+     * 正确做法：读 /proc/net/tcp{,6}，只看状态为 LISTEN(0A) 的行。
+     * /proc/net/tcp 是全局只读的，untrusted_app 也读得到。
+     */
     private fun isPortInUse(port: Int): Boolean {
-        return try {
-            java.net.ServerSocket().use { s ->
-                s.reuseAddress = false
-                s.bind(java.net.InetSocketAddress("127.0.0.1", port), 1)
+        val hex = port.toString(16).padStart(4, '0').uppercase()
+        for (f in listOf("/proc/net/tcp", "/proc/net/tcp6")) {
+            var listening = false
+            runCatching {
+                File(f).forEachLine { line ->
+                    val parts = line.trim().split(WHITESPACE)
+                    if (parts.size < 4) return@forEachLine
+                    if (!parts[1].endsWith(":" + hex)) return@forEachLine
+                    if (parts[3] == "0A") listening = true
+                }
             }
-            false
-        } catch (t: Throwable) {
-            true
+            if (listening) return true
         }
+        return false
     }
 
     private fun killEngine() {

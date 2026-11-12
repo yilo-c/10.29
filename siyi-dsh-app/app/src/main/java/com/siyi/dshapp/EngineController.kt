@@ -55,6 +55,25 @@ object EngineController {
      */
     private val starting = AtomicBoolean(false)
 
+    /** 主动停止标记。用来区分「我们杀的」和「它自己崩的」——
+     *  崩溃才需要自动重启，主动停止不该被 watchdog 又拉起来。 */
+    private val stopping = AtomicBoolean(false)
+
+    /** 持有 Context 供 watchdog 重启时用。 */
+    @Volatile private var appCtx: Context? = null
+
+    /** 状态变化回调（通知栏文案）。 */
+    @Volatile private var statusSink: ((String) -> Unit)? = null
+
+    /** 连续自动重启次数。成功后清零；超过上限就停在 FAILED，不再无限重试。 */
+    private val restartCount = java.util.concurrent.atomic.AtomicInteger(0)
+
+    /** 自动重启上限：超过就停手，避免崩溃循环把电池和存储写爆。 */
+    private const val MAX_RESTARTS = 3
+
+    /** 启动超时：从拉起进程到打出带 token 地址的最长等待。 */
+    private const val START_TIMEOUT_MS = 180_000L
+
     // ── 对外 API ────────────────────────────────────────────────────────────
 
     /** 当前状态。 */
@@ -68,6 +87,9 @@ object EngineController {
      * MainActivity、BootReceiver、START_STICKY 重投全部走这里，重复调用安全。
      */
     fun ensureRunning(ctx: Context, onStatus: (String) -> Unit = {}) {
+        appCtx = ctx.applicationContext
+        statusSink = onStatus
+        stopping.set(false)
         if (isRunning()) {
             stage("引擎已在运行 pid=" + pidOf(processRef.get()) + "，复用")
             return
@@ -85,6 +107,8 @@ object EngineController {
 
     /** 停止引擎。 */
     fun stop() {
+        stopping.set(true)
+        restartCount.set(0)
         val p = processRef.get()
         processRef.set(null)
         stateRef.set(State(Phase.IDLE))
@@ -190,6 +214,9 @@ object EngineController {
             processRef.set(p)
             writePidFile(ctx, pidOf(p))
             if (bridgeEnv != null) DeviceBridge.start(ctx)
+            // 挂上监督：引擎崩了要有人知道，否则状态永远停在 READY，
+            // UI 会拿着已经死掉的地址反复刷新 → 白屏且不自愈。
+            supervise(ctx, p)
 
             // 读 stdout 抓 token
             val logFile = File(LOG_DIR, "engine-stdout.log").also { it.parentFile?.mkdirs() }
@@ -202,6 +229,7 @@ object EngineController {
                             if (m != null) {
                                 val url = "http://127.0.0.1:$WEB_PORT/?token=${m.groupValues[1]}"
                                 stateRef.set(State(Phase.READY, url = url))
+                                restartCount.set(0)   // 成功就绪，重启计数归零
                                 onStatus("就绪，可打开界面")
                             }
                         }
@@ -356,6 +384,73 @@ object EngineController {
             LOG_DIR.mkdirs()
             File(LOG_DIR, "boot.log").appendText("[${System.currentTimeMillis()}] $msg\n")
         }
+    }
+
+
+    // ── 监督：崩溃感知 + 超时 + 自动重启 ─────────────────────────────────────
+
+    /**
+     * 盯住引擎进程。
+     *
+     * 之前引擎起完就没人管了：它被系统杀掉或自己崩掉之后，
+     * stateRef 永远停在 READY，UI 继续用旧 token 刷页面 → 白屏且不会自愈。
+     *
+     * 现在做三件事：
+     *   1. 轮询进程是否还活着，死了立刻把状态改成 FAILED（UI 会显示等待并重试）
+     *   2. 启动超时：长时间拿不到 token 也判失败，不让用户无限等
+     *   3. 非主动停止的情况下自动重启，带指数退避和次数上限
+     */
+    private fun supervise(ctx: Context, p: Process) {
+        // 启动超时看门狗
+        Thread {
+            val deadline = System.currentTimeMillis() + START_TIMEOUT_MS
+            while (System.currentTimeMillis() < deadline) {
+                if (!p.isAlive()) return@Thread          // 已退出，交给下面的死亡检测
+                if (stateRef.get().phase == Phase.READY) return@Thread  // 已就绪
+                Thread.sleep(1000)
+            }
+            // 只有「当前这个进程」仍代表引擎时才判超时。
+            // 否则上一轮的超时看门狗会误伤重启后的新进程。
+            if (processRef.get() === p && stateRef.get().phase == Phase.STARTING) {
+                stage("启动超时（" + (START_TIMEOUT_MS / 1000) + "s 未就绪），判定失败")
+                stateRef.set(State(Phase.FAILED, error = "引擎启动超时，正在重试…"))
+                statusSink?.invoke("引擎启动超时，正在重试…")
+            }
+        }.apply { isDaemon = true; start() }
+
+        // 进程存活看门狗 + 自动重启
+        Thread {
+            runCatching { p.waitFor() }   // 阻塞到进程退出
+            if (stopping.get()) {
+                stage("引擎是主动停止的，不做重启")
+                return@Thread
+            }
+            val code = runCatching { p.exitValue() }.getOrDefault(-1)
+            stage("引擎意外退出 exitCode=" + code)
+            // 只有当前进程才代表引擎（可能已经被新一轮启动替换）
+            if (processRef.get() !== p) {
+                stage("退出的是旧进程，忽略")
+                return@Thread
+            }
+            processRef.set(null)
+            stateRef.set(State(Phase.FAILED, error = "引擎已退出（code=" + code + "），正在重启…"))
+            statusSink?.invoke("引擎已退出，正在重启…")
+
+            val c = appCtx ?: ctx
+            val n = restartCount.incrementAndGet()
+            if (n > MAX_RESTARTS) {
+                stage("已连续重启 " + n + " 次，停止自动重启")
+                stateRef.set(State(Phase.FAILED, error = "引擎反复退出，请手动重启应用"))
+                statusSink?.invoke("引擎反复退出，请手动重启应用")
+                return@Thread
+            }
+            // 指数退避：1s, 2s, 4s
+            val delayMs = 1000L shl (n - 1)
+            stage("第 " + n + " 次自动重启，等待 " + delayMs + "ms")
+            Thread.sleep(delayMs)
+            if (stopping.get()) { stage("等待期间被主动停止，放弃重启"); return@Thread }
+            ensureRunning(c, statusSink ?: {})
+        }.apply { isDaemon = true; start() }
     }
 
     /** 空白分隔的正则（/proc/net/tcp 每列之间是空格）。 */

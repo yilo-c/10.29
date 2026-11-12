@@ -8,13 +8,10 @@ import android.os.BatteryManager
 import android.os.Build
 import android.os.Environment
 import android.os.StatFs
-import android.system.Os
-import android.system.OsConstants
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.File
-import java.io.FileDescriptor
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.InputStreamReader
@@ -43,11 +40,32 @@ object DeviceBridge {
     // 引擎侧默认 300s；needsUnlock 时 900s。这里给读操作短一些。
     private const val TIMEOUT_MS = 30_000
 
-    private var reader: BufferedReader? = null
-    private var writer: OutputStreamWriter? = null
-    private var engineFd: FileDescriptor? = null
-    private var thread: Thread? = null
-    private val running = AtomicBoolean(false)
+    /**
+     * 一次桥接会话的所有状态，收在一处。
+     *
+     * 之前这些字段散落在类里（reader/writer/thread/running/serverSocket/peerSocket），
+     * prepare() 和 start() 都能改它们，谁也不知道当前到底连的是哪一套：
+     *   - prepare() 每次都新建 socket 名，第二次调用会另起一套，
+     *     旧的 serverSocket 泄漏，引擎拿着旧名字去连 → 设备工具全部失联；
+     *   - start() 与 prepare() 里的 accept 线程都用 running.compareAndSet 抢读取循环，
+     *     但抢到的是「各自的」循环，状态对不上。
+     *
+     * 现在：会话是唯一的，prepare() 发现已有会话就直接复用。
+     */
+    private class Session {
+        var name: String = ""
+        var serverSocket: LocalServerSocket? = null
+        var peerSocket: LocalSocket? = null
+        var reader: BufferedReader? = null
+        var writer: OutputStreamWriter? = null
+        var thread: Thread? = null
+        /** 读取循环是否在跑。 */
+        val running = AtomicBoolean(false)
+    }
+
+    /** 当前会话。null = 未建立。 */
+    @Volatile private var session: Session? = null
+
     private val cancelled = ConcurrentHashMap<String, Boolean>()
     private var appCtx: Context? = null
 
@@ -62,6 +80,14 @@ object DeviceBridge {
      * @return ("DSH_BRIDGE_SOCK" to 名字) 或 null（失败）
      */
     fun prepare(): Pair<String, String>? {
+        // 已有会话就复用，不要另起一套：另起会让引擎拿着旧名字去连，
+        // 设备工具会全部失联（表现为工具调用超时或 unknown tool）。
+        session?.let {
+            if (it.peerSocket != null || it.serverSocket != null) {
+                log("=== prepare 复用已有会话 name=" + it.name + " ===")
+                return "DSH_BRIDGE_SOCK" to it.name
+            }
+        }
         log("=== prepare 开始（抽象命名空间 socket）===")
         return try {
             val name = "siyi-bridge-" + java.util.UUID.randomUUID().toString().take(8)
@@ -79,13 +105,14 @@ object DeviceBridge {
                         return@Thread
                     }
                     log("步骤3 成功: 引擎已连接")
-                    peerSocket = peer
-                    reader = BufferedReader(InputStreamReader(peer.inputStream, Charsets.UTF_8))
-                    writer = OutputStreamWriter(peer.outputStream, Charsets.UTF_8)
+                    val s = session ?: return@Thread
+                    s.peerSocket = peer
+                    s.reader = BufferedReader(InputStreamReader(peer.inputStream, Charsets.UTF_8))
+                    s.writer = OutputStreamWriter(peer.outputStream, Charsets.UTF_8)
                     log("步骤4: 读写流已建立，等 start() 启动读取循环")
                     // 用 CAS 保证只启动一次；start() 可能在 accept 之前就调用过
-                    if (running.compareAndSet(false, true)) {
-                        launchReadLoop(peer)
+                    if (s.running.compareAndSet(false, true)) {
+                        launchReadLoop(s, peer)
                     }
                 } catch (t: Throwable) {
                     log("accept 线程异常: " + t.javaClass.simpleName + ": " + t.message)
@@ -93,7 +120,10 @@ object DeviceBridge {
             }
             acceptThread.isDaemon = true
             acceptThread.start()
-            serverSocket = server
+            session = Session().also {
+                it.name = name
+                it.serverSocket = server
+            }
 
             log("步骤5: 返回 DSH_BRIDGE_SOCK=" + name)
             "DSH_BRIDGE_SOCK" to name
@@ -104,75 +134,23 @@ object DeviceBridge {
         }
     }
 
-    /** 服务端 socket 与已接受的连接，退出时关闭。 */
-    private var serverSocket: LocalServerSocket? = null
-    private var peerSocket: LocalSocket? = null
-
-    /**
-     * 清除 FD_CLOEXEC，让 fd 在 exec 后仍被子进程继承。
-     * 优先走 JNI（直接 fcntl），失败再反射兜底。
-     */
-    private fun clearCloexec(fd: FileDescriptor) {
-        if (NativeBridge.clearCloexec(fd)) {
-            log("clearCloexec: JNI 成功")
-            return
-        }
-        runCatching {
-            val os = Class.forName("android.system.Os")
-            for (m in os.declaredMethods) {
-                if (m.name != "fcntlInt") continue
-                val ps = m.parameterTypes
-                if (ps.size == 3 && ps[0] == FileDescriptor::class.java &&
-                    ps[1] == Int::class.javaPrimitiveType && ps[2] == Int::class.javaPrimitiveType
-                ) {
-                    m.invoke(null, fd, OsConstants.F_SETFD, 0)
-                    log("clearCloexec: 反射 fcntlInt 成功")
-                    return
-                }
-            }
-        }
-        log("clearCloexec: 全部路径失败，fd 可能在 exec 时被关闭")
-    }
-
-
-
-
-
-
-    /** 从 FileDescriptor 取 int fd（反射，Android 无公开 API）。 */
-    private fun fdNumber(fd: FileDescriptor): Int {
-        return try {
-            val f = FileDescriptor::class.java.getDeclaredField("descriptor")
-            f.isAccessible = true
-            f.getInt(fd)
-        } catch (t: Throwable) {
-            // Android 12+ 字段名可能是 fd
-            try {
-                val f = FileDescriptor::class.java.getDeclaredField("fd")
-                f.isAccessible = true
-                f.getInt(fd)
-            } catch (_: Throwable) {
-                -1
-            }
-        }
-    }
-
     fun start(ctx: Context) {
         appCtx = ctx.applicationContext
         // 若 accept 已完成，这里会直接起循环；否则等 accept 线程来起。
-        val peer = peerSocket ?: return
-        if (running.compareAndSet(false, true)) {
-            launchReadLoop(peer)
+        val s = session ?: return
+        val peer = s.peerSocket ?: return
+        if (s.running.compareAndSet(false, true)) {
+            launchReadLoop(s, peer)
         }
     }
 
     /** 起读取循环。同一个 peer 只起一次。 */
-    private fun launchReadLoop(peer: LocalSocket) {
-        thread = Thread({
+    private fun launchReadLoop(s: Session, peer: LocalSocket) {
+        s.thread = Thread({
             log("读取循环已启动")
             try {
-                val r = reader ?: return@Thread
-                while (running.get()) {
+                val r = s.reader ?: return@Thread
+                while (s.running.get()) {
                     val line = r.readLine() ?: break
                     if (line.isBlank()) continue
                     handleLine(line)
@@ -181,7 +159,7 @@ object DeviceBridge {
                 log("读取循环异常: " + t.javaClass.simpleName + ": " + t.message)
             } finally {
                 log("桥接已关闭")
-                running.set(false)
+                s.running.set(false)
             }
         }, "siyi-device-bridge").apply { isDaemon = true; start() }
     }
@@ -233,7 +211,7 @@ object DeviceBridge {
     @Synchronized
     private fun send(obj: JSONObject) {
         try {
-            val w = writer ?: return
+            val w = session?.writer ?: return
             w.write(obj.toString())
             w.write("\n")
             w.flush()
@@ -254,17 +232,12 @@ object DeviceBridge {
             return fail("cancelled", "调用已取消")
         }
         val ctx = appCtx ?: return fail("no_context", "应用上下文不可用")
+        // 全部能力统一交给 Capabilities（清单和实现都在那一个文件里）。
+        // 以前这里单独硬编码分派 4 个工具，同一份能力分裂在两个文件里维护。
         // 先算出结果再包成 ToolResult：when 分支里不能直接 return，
         // 否则 when 的类型推断会失败（Nothing 与 String 混用）。
         val text: String? = try {
-            when (tool) {
-                "device_status" -> deviceStatus()
-                "device_storage" -> storageStatus()
-                "device_app_info" -> appInfo()
-                "device_bridge_status" -> bridgeStatus()
-                // 其余能力统一交给 Capabilities；null 表示真·未知工具
-                else -> Capabilities.invoke(ctx, tool, args)
-            }
+            Capabilities.invoke(ctx, tool, args)
         } catch (t: Throwable) {
             return fail("invoke_failed", "${t.javaClass.simpleName}: ${t.message}")
         }
@@ -279,53 +252,9 @@ object DeviceBridge {
         .put("error", JSONObject().put("code", code).put("message", message))
         .put("content", JSONArray().put(JSONObject().put("type", "text").put("text", message)))
 
-    private fun deviceStatus(): String {
-        val c = appCtx ?: return "应用上下文不可用"
-        val bm = c.getSystemService(Context.BATTERY_SERVICE) as? BatteryManager
-        val level = bm?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1
-        val charging = bm?.isCharging ?: false
-        val act = c.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
-        val mem = ActivityManager.MemoryInfo().also { act?.getMemoryInfo(it) }
-        return JSONObject()
-            .put("battery_percent", level)
-            .put("charging", charging)
-            .put("model", Build.MODEL)
-            .put("manufacturer", Build.MANUFACTURER)
-            .put("android", Build.VERSION.RELEASE)
-            .put("sdk", Build.VERSION.SDK_INT)
-            .put("uptime_ms", android.os.SystemClock.uptimeMillis())
-            .put("avail_mem_mb", mem.availMem / 1048576)
-            .put("low_memory", mem.lowMemory)
-            .toString(2)
-    }
-
-    private fun storageStatus(): String {
-        val dir = Environment.getExternalStorageDirectory()
-        val st = StatFs(dir.path)
-        val total = st.totalBytes
-        val free = st.availableBytes
-        return JSONObject()
-            .put("path", dir.path)
-            .put("total_mb", total / 1048576)
-            .put("free_mb", free / 1048576)
-            .put("used_percent", if (total > 0) ((total - free) * 100 / total) else 0)
-            .toString(2)
-    }
-
-    private fun appInfo(): String {
-        val c = appCtx ?: return "{}"
-        val pm = c.packageManager
-        val pi = pm.getPackageInfo(c.packageName, 0)
-        return JSONObject()
-            .put("package", c.packageName)
-            .put("version", pi.versionName ?: "?")
-            .put("data_dir", c.filesDir.path)
-            .put("engine_running", EngineController.isRunning())
-            .toString(2)
-    }
-
-    private fun bridgeStatus(): String = JSONObject()
-        .put("connected", running.get())
+    /** 桥接状态（供 Capabilities 的 device_bridge_status 工具用）。 */
+    fun statusJson(): String = JSONObject()
+        .put("connected", session?.running?.get() == true)
         .put("tool_count", descriptors().length())
         .put("cancelled_pending", cancelled.size)
         .toString(2)
@@ -339,18 +268,18 @@ object DeviceBridge {
     }
 
     fun stop() {
-        running.set(false)
-        try { reader?.close() } catch (_: Throwable) {}
-        try { writer?.close() } catch (_: Throwable) {}
+        val s = session
+        session = null
+        if (s == null) { log("桥接资源已释放（无会话）"); return }
+        s.running.set(false)
+        try { s.reader?.close() } catch (_: Throwable) {}
+        try { s.writer?.close() } catch (_: Throwable) {}
         // 关掉两端的 socket，避免每次重启泄漏一对 fd
-        try { peerSocket?.close() } catch (_: Throwable) {}
-        try { serverSocket?.close() } catch (_: Throwable) {}
-        try { engineFd?.let { Os.close(it) } } catch (_: Throwable) {}
-        peerSocket = null
-        serverSocket = null
-        thread?.interrupt()
-        thread = null
-        log("桥接资源已释放")
+        try { s.peerSocket?.close() } catch (_: Throwable) {}
+        try { s.serverSocket?.close() } catch (_: Throwable) {}
+        s.thread?.interrupt()
+        s.thread = null
+        log("桥接资源已释放 name=" + s.name)
     }
 
     /**

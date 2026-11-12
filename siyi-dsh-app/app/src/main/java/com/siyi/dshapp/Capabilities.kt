@@ -1,5 +1,6 @@
 package com.siyi.dshapp
 
+import android.app.ActivityManager
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -8,6 +9,8 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.os.BatteryManager
+import android.os.StatFs
 import android.location.LocationManager
 import android.media.AudioManager
 import android.net.Uri
@@ -132,6 +135,12 @@ object Capabilities {
         "device_take_photo" -> pickOrCapture(ctx, "image/*", true)
         "device_share_text" -> shareText(ctx, args.optString("text"), args.optString("title"))
         "device_voice_input" -> voiceInput(ctx)
+        // 这 4 个原本实现在 DeviceBridge 里，清单却在 Capabilities 里 ——
+        // 同一份能力分裂在两个文件里维护。现在统一到 Capabilities。
+        "device_status" -> deviceStatus(ctx)
+        "device_storage" -> storageStatus(ctx)
+        "device_app_info" -> appInfo(ctx)
+        "device_bridge_status" -> bridgeStatus(ctx)
         else -> null
     }
 
@@ -396,4 +405,51 @@ object Capabilities {
         return JSONObject().put("ok", true).put("chars", text.length).toString(2)
     }
     private fun voiceInput(ctx: Context): String = awaitInteraction(ctx, "voice", "")
+
+    // ── 系统概览（原本实现在 DeviceBridge，这里统一收口）────────────────────
+    private fun deviceStatus(ctx: Context): String {
+        val bm = ctx.getSystemService(Context.BATTERY_SERVICE) as? BatteryManager
+        val level = bm?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1
+        val charging = bm?.isCharging ?: false
+        val act = ctx.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
+        val mem = ActivityManager.MemoryInfo().also { act?.getMemoryInfo(it) }
+        return JSONObject()
+            .put("battery_percent", level)
+            .put("charging", charging)
+            .put("model", Build.MODEL)
+            .put("manufacturer", Build.MANUFACTURER)
+            .put("android", Build.VERSION.RELEASE)
+            .put("sdk", Build.VERSION.SDK_INT)
+            .put("uptime_ms", android.os.SystemClock.uptimeMillis())
+            .put("avail_mem_mb", mem.availMem / 1048576)
+            .put("low_memory", mem.lowMemory)
+            .toString(2)
+    }
+
+    private fun storageStatus(ctx: Context): String {
+        val dir = android.os.Environment.getExternalStorageDirectory()
+        val st = StatFs(dir.path)
+        val total = st.totalBytes
+        val free = st.availableBytes
+        return JSONObject()
+            .put("path", dir.path)
+            .put("total_mb", total / 1048576)
+            .put("free_mb", free / 1048576)
+            .put("used_percent", if (total > 0) ((total - free) * 100 / total) else 0)
+            .toString(2)
+    }
+
+    private fun appInfo(ctx: Context): String {
+        val pm = ctx.packageManager
+        val pi = pm.getPackageInfo(ctx.packageName, 0)
+        return JSONObject()
+            .put("package", ctx.packageName)
+            .put("version", pi.versionName ?: "?")
+            .put("data_dir", ctx.filesDir.path)
+            .put("engine_running", EngineController.isRunning())
+            .toString(2)
+    }
+
+    /** 桥接状态由 DeviceBridge 提供（它才知道 socket 的情况）。 */
+    private fun bridgeStatus(ctx: Context): String = DeviceBridge.statusJson()
 }

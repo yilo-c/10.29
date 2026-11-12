@@ -32,6 +32,11 @@ import androidx.core.view.WindowInsetsCompat
 class MainActivity : AppCompatActivity() {
 
 
+    private companion object {
+        private const val KEY_LOADED_URL = "siyi.loadedUrl"
+        private const val KEY_NAVIGATED = "siyi.navigated"
+    }
+
     private lateinit var web: WebView
     private lateinit var waitView: TextView
     private val handler = Handler(Looper.getMainLooper())
@@ -41,6 +46,8 @@ class MainActivity : AppCompatActivity() {
     private var retries = 0
     /** 上一次下发加载的时刻，用来判断「已经过去太久还是空的」。 */
     private var loadAt = 0L
+    /** 当前 WebView 里加载的是哪个地址。引擎重启后 token 会变，靠它识别。 */
+    private var loadedUrl: String? = null
     private val startAt = System.currentTimeMillis()
 
     // 文件选择 / 交互回调
@@ -246,6 +253,7 @@ class MainActivity : AppCompatActivity() {
     /** 真正下发加载，同时记下时刻并挂两个看门狗：请求卡死时也能自己救回来。 */
     private fun loadUrl(url: String) {
         loadAt = System.currentTimeMillis()
+        loadedUrl = url
         web.loadUrl(url)
         handler.postDelayed({ probeRendered() }, 6000)
         handler.postDelayed({ probeRendered() }, 13000)
@@ -359,20 +367,25 @@ class MainActivity : AppCompatActivity() {
         handler.postDelayed(object : Runnable {
             override fun run() {
                 val st = EngineController.state()
+                val url = st.url
                 when {
-                    // 地址优先：只要引擎打出了带 token 的地址，就是能用的。
-                    // 曾经的错误（比如被淘汰的那次启动）不能挡住可用的引擎。
-                    st.url != null && !navigated -> {
+                    // 1) 有新地址且和页面上加载的不是同一个 → 加载它。
+                    //    引擎崩溃自动重启后 token 会变，这里必须跟着换，
+                    //    否则会一直用旧 token 刷一个已经死掉的地址。
+                    url != null && url != loadedUrl -> {
                         navigated = true
+                        retries = 0
                         showWaiting("引擎已就绪，正在加载界面…")
-                        loadUrl(st.url)
+                        loadUrl(url)
                     }
-                    // 出错也要继续轮询：引擎可能稍后起来，或者用户手动重启一下就好。
+                    // 2) 引擎正在重连/失败 → 明确告诉用户，并继续等
                     st.phase == EngineController.Phase.FAILED -> {
-                        showWaiting("引擎启动失败，正在自动重试…\n\n" + (st.error ?: ""))
-                        handler.postDelayed(this, 3000)
+                        navigated = false
+                        showWaiting("引擎正在自动重试…\n\n" + (st.error ?: ""))
+                        handler.postDelayed(this, 2000)
                     }
-                    else -> {
+                    // 3) 首次启动中
+                    url == null -> {
                         val s = (System.currentTimeMillis() - startAt) / 1000
                         showWaiting("正在启动引擎…\n已等待 $s 秒（首次需解压 400MB 资源，可能数分钟）")
                         handler.postDelayed(this, 1500)
@@ -392,7 +405,8 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         val url = EngineController.state().url
-        if (url != null && !navigated) {
+        if (url != null && url != loadedUrl) {
+            // 后台期间引擎重启过（token 变了），必须重新加载
             navigated = true
             loadUrl(url)
         } else if (url != null) {
@@ -403,6 +417,38 @@ class MainActivity : AppCompatActivity() {
             handler.postDelayed({ probeRendered() }, 2000)
             handler.postDelayed({ probeRendered() }, 6500)
         }
+    }
+
+    /**
+     * 保存 WebView 状态。
+     *
+     * 不保存的话，旋转屏幕、分屏、或系统回收 Activity 之后 WebView 会重建，
+     * 正在进行的对话直接丢失，用户看到的是空白页。
+     */
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        runCatching { web.saveState(outState) }
+        loadedUrl?.let { outState.putString(KEY_LOADED_URL, it) }
+        outState.putBoolean(KEY_NAVIGATED, navigated)
+    }
+
+    override fun onRestoreInstanceState(savedInstanceState: Bundle) {
+        super.onRestoreInstanceState(savedInstanceState)
+        loadedUrl = savedInstanceState.getString(KEY_LOADED_URL)
+        navigated = savedInstanceState.getBoolean(KEY_NAVIGATED, false)
+        val restored = runCatching { web.restoreState(savedInstanceState) }.getOrNull()
+        if (restored == null) {
+            // 恢复不出来就走 poll() 重新加载
+            loadedUrl = null
+            navigated = false
+        }
+    }
+
+    override fun onPause() {
+        // WebView 在后台继续跑定时器和网络请求是纯浪费，暂停它。
+        // 注意：不能 pauseTimers()，那会让引擎里的 SSE 对话流断掉。
+        runCatching { web.onPause() }
+        super.onPause()
     }
 
     override fun onDestroy() {

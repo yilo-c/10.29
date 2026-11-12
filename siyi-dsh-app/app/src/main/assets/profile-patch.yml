@@ -26,7 +26,10 @@
             displayName: 本机网关
             interfaceType: openai-chat-completions
             baseURL: http://127.0.0.1:8427/v1
-            apiKey: x9_oulU0SPbg490TBnD_hEapn09Qv36vSYaaxSrim-g
+            # 密钥不进版本库：运行时由 App 侧从 /sdcard/思忆集/app/gateway.key 读，
+            # 写进环境变量 SIYI_GATEWAY_KEY。没配置时用占位串避免配置校验失败，
+            # 模型调用会 401，界面会明确提示「本机网关未配置密钥」。
+            apiKey: !!js "process.env.SIYI_GATEWAY_KEY || 'unset'"
             includeUsage: true
             models:
               - id: loomy/qwen3.8-flash

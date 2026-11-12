@@ -188,6 +188,19 @@ object EngineController {
         if (!userPlugins.exists()) userPlugins.mkdirs()
         pb.environment()["DSH_USER_PLUGINS"] = userPlugins.absolutePath
 
+        // 本机网关密钥：不再硬编码在 assets/profile-patch.yml 里（那会进版本库）。
+        // 运行时从这里读，由人/脚本预先放好：
+        //   /sdcard/思忆集/app/gateway.key
+        // 读不到就留空，profile 侧会用占位串，模型调用会 401 ——
+        // 但界面会明确提示「未配置密钥」，不会变成莫名的白屏。
+        val gwKey = readGatewayKey()
+        if (gwKey != null) {
+            pb.environment()["SIYI_GATEWAY_KEY"] = gwKey
+            stage("gateway key loaded len=" + gwKey.length)
+        } else {
+            stage("警告：/sdcard/思忆集/app/gateway.key 不存在，模型调用会 401")
+        }
+
         // 设备能力桥：先跑环境自检（结果写 bridge.log，装一次包就能定位断点），
         // 再建 socketpair 把引擎端 fd 号传下去。
         // 失败不影响引擎启动（设备类工具会缺失，但聊天与 shell 仍可用）。
@@ -323,6 +336,17 @@ object EngineController {
      *
      * 正确做法：读 /proc/net/tcp{,6}，只看状态为 LISTEN(0A) 的行。
      */
+    /**
+     * 读本机网关密钥。放共享存储而不是 assets，避免密钥进版本库。
+     * 只取第一行并去掉空白，兼容用户用文本编辑器保存的情况。
+     */
+    private fun readGatewayKey(): String? = runCatching {
+        val f = File("/sdcard/思忆集/app/gateway.key")
+        if (!f.exists()) return null
+        val v = f.readText().lineSequence().firstOrNull()?.trim()
+        if (v.isNullOrEmpty()) null else v
+    }.getOrNull()
+
     /** 引擎的 HTTP 端口是否还在响应（连接能否建立）。与 ROM 实现无关，必定有效。 */
     private fun isListening(): Boolean = runCatching {
         java.net.Socket().use { sock ->

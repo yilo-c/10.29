@@ -113,20 +113,14 @@ object EngineController {
         processRef.set(null)
         stateRef.set(State(Phase.IDLE))
         if (p == null) return
-        val pid = pidOf(p)
+        // destroyForcibly() 原生就是 SIGKILL，不需要自己拿 pid 去 kill。
+        // 引擎不响应 SIGTERM 时会变成孤儿占着 3180，这里必须真的杀掉。
         runCatching {
             p.destroy()
             if (!p.waitFor(2, java.util.concurrent.TimeUnit.SECONDS)) {
+                stage("SIGTERM 无效，改用 destroyForcibly（SIGKILL）")
                 p.destroyForcibly()
-                p.waitFor(2, java.util.concurrent.TimeUnit.SECONDS)
-            }
-        }
-        // 引擎可能不响应 SIGTERM，补一刀 SIGKILL，否则它会变成孤儿占着 3180。
-        if (pid > 1 && isAlive(pid)) {
-            stage("SIGTERM 无效，SIGKILL 引擎 pid=" + pid)
-            runCatching {
-                ProcessBuilder("kill", "-9", pid.toString())
-                    .start().waitFor(1, java.util.concurrent.TimeUnit.SECONDS)
+                p.waitFor(3, java.util.concurrent.TimeUnit.SECONDS)
             }
         }
     }
@@ -205,6 +199,13 @@ object EngineController {
             stage("bridge " + bridgeEnv.first + "=" + bridgeEnv.second)
         } else {
             stage("bridge 未启用")
+        }
+
+        // 最后一道保险：解压和端口检查期间引擎可能已经起来了
+        // （看门狗重启、或另一条启动路径），这时绝不能再起第二个。
+        if (isRunning()) {
+            stage("启动前复查：引擎已在运行，放弃本次启动")
+            return
         }
 
         runCatching {
@@ -365,12 +366,33 @@ object EngineController {
 
     // ── 杂项 ────────────────────────────────────────────────────────────────
 
-    /** 取子进程 pid（Process.pid() 在旧 API 上不可用，用反射兜底）。 */
+    /**
+     * 取子进程 pid。
+     *
+     * 先试 Process.pid()（API 33+ / Java 9+ 有），拿不到就扫 /proc：
+     * 找 PPID 等于本进程、且 cmdline 里带 libdshnode.so 的那个。
+     * 都失败返回 -1 —— 调用方必须能容忍 -1（不要拿它做唯一判据）。
+     */
     private fun pidOf(p: Process?): Int {
         if (p == null) return -1
-        return runCatching {
+        val direct = runCatching {
             val m = Process::class.java.getMethod("pid")
             (m.invoke(p) as Number).toInt()
+        }.getOrDefault(-1)
+        if (direct > 1) return direct
+        return runCatching {
+            val parent = android.os.Process.myPid().toString()
+            File("/proc").listFiles()
+                ?.filter { it.isDirectory && it.name.all(Char::isDigit) }
+                ?.firstOrNull { dir ->
+                    val stat = runCatching { File(dir, "stat").readText() }.getOrNull() ?: return@firstOrNull false
+                    // stat: pid (comm) state ppid ...
+                    val ppid = stat.substringAfter(") ").split(" ").getOrNull(1)?.trim()
+                    if (ppid != parent) return@firstOrNull false
+                    val cmd = runCatching { File(dir, "cmdline").readText() }.getOrNull() ?: return@firstOrNull false
+                    cmd.contains("libdshnode.so")
+                }
+                ?.name?.toIntOrNull() ?: -1
         }.getOrDefault(-1)
     }
 
@@ -424,10 +446,13 @@ object EngineController {
         // 某些 ROM/内核组合下那个线程不触发，waitFor 会永久阻塞 ——
         // 实测引擎被 kill -9 之后看门狗一声不响，白屏永远不会自愈。
         // 改成轮询 /proc/<pid> 是否还存在，这条路和 ROM 实现无关，必定有效。
-        val watchPid = pidOf(p)
+        // 不用 pid，也不用 waitFor：
+        //   - Process.pid() 在部分 ROM 上反射不到（实测返回 -1），看门狗会直接失效；
+        //   - Process.waitFor() 依赖内部退出通知线程，某些 ROM 上永不触发。
+        // Process.isAlive() 是非阻塞的即时查询，不依赖上面两者，最可靠。
         Thread {
-            stage("看门狗已挂上 pid=" + watchPid)
-            while (watchPid > 1 && isAlive(watchPid)) {
+            stage("看门狗已挂上")
+            while (p.isAlive) {
                 if (stopping.get()) {
                     stage("引擎是主动停止的，看门狗退出")
                     return@Thread
@@ -439,9 +464,9 @@ object EngineController {
                 return@Thread
             }
             val code = runCatching { p.exitValue() }.getOrDefault(-1)
-            stage("引擎意外退出 pid=" + watchPid + " exitCode=" + code)
+            stage("引擎意外退出 exitCode=" + code)
             // 只有当前进程才代表引擎（可能已经被新一轮启动替换）
-            if (pidOf(processRef.get()) != watchPid) {
+            if (processRef.get() !== p) {
                 stage("退出的是旧进程，忽略")
                 return@Thread
             }

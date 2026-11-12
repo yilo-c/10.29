@@ -90,6 +90,13 @@ class EngineService : Service() {
 
     private fun boot() {
         stage("boot start")
+        // 引擎已经在跑就直接复用，绝不能再起一个。
+        // 以前这里不看直接往下走，会起第二个引擎抢 3180，
+        // 输的那个报 EADDRINUSE → web-app 拿不到 host → 白屏。
+        if (process?.isAlive == true) {
+            stage("引擎已在运行 pid=" + process?.pid() + "，复用")
+            return
+        }
         var lastNotify = 0L
         EngineInstaller.onProgress = { n, txt ->
             stage("progress $n $txt")
@@ -102,7 +109,16 @@ class EngineService : Service() {
 
         // 启动前清掉占用端口的残留引擎，否则 webserver 报 EADDRINUSE，
         // 连带 web-app 拿不到 host，界面白屏。
-        freePort(WEB_PORT)
+        //
+        // ⚠ 实测（Android 15 / MIUI）：force-stop 确实会带走引擎进程，
+        // 但「本次 App 进程里已经起了一个引擎」时它会一直占着 3180。
+        // 以前这种情况下硬起第二个 → EADDRINUSE → web-app 拿不到 host → 白屏。
+        // 现在端口腾不出来就放弃本次启动，等下一轮 onStartCommand 再试。
+        if (!freePort(WEB_PORT)) {
+            stage("端口未腾出，放弃本次启动（避免双引擎互撞）")
+            update("引擎端口被占用，正在重试…")
+            return
+        }
 
         val nodeBin = File(applicationInfo.nativeLibraryDir, "libdshnode.so")
         val engine = EnginePaths.engineRoot(this)
@@ -169,6 +185,7 @@ class EngineService : Service() {
             val p = pb.start()
             stage("engine started, alive=" + p.isAlive)
             process = p
+            runCatching { writePidFile(p.pid()) }
             if (bridgeEnv != null) DeviceBridge.start(this@EngineService)
             // 读 stdout 抓 token
             val logFile = File("/sdcard/思忆集/app/engine-stdout.log").also { it.parentFile?.mkdirs() }
@@ -237,32 +254,90 @@ class EngineService : Service() {
      *
      * 只杀本 App 自己的引擎进程（按 cmdline 里的路径匹配），不动别人。
      */
-    private fun freePort(port: Int) {
-        if (!isPortInUse(port)) { stage("port " + port + " 空闲"); return }
+    private fun freePort(port: Int): Boolean {
+        if (!isPortInUse(port)) { stage("port " + port + " 空闲"); return true }
         stage("port " + port + " 被占用，尝试清理")
-        runCatching {
-            val pids = File("/proc").listFiles()
-                ?.filter { it.isDirectory && it.name.all(Char::isDigit) }
-                ?.mapNotNull { dir ->
-                    val cmdline = runCatching {
-                        File(dir, "cmdline").readText().replace('\u0000', ' ').trim()
-                    }.getOrNull() ?: return@mapNotNull null
-                    // 只认思忆集的引擎进程
-                    if (cmdline.contains("com.siyi.dshapp") &&
-                        cmdline.contains("bin.js") &&
-                        cmdline.contains("--port " + port)) dir.name else null
-                } ?: emptyList()
-            for (pid in pids) {
-                stage("kill 残留引擎 pid=" + pid)
-                runCatching { android.os.Process.killProcess(pid.toInt()) }
+        // ⚠ 不能再靠扫 /proc 找进程。
+        // Android 的 untrusted_app 域读不到其它进程的 /proc/<pid>/cmdline，
+        // 扫描结果永远是空 → 清理永远无效 → 硬起第二个引擎 → EADDRINUSE → 白屏。
+        // 改成读 pid 文件：引擎启动时把 pid 写在 App 自己的私有目录里，
+        // App 重启后依然能读到，能精确找到那个孤儿。
+        val orphans = readPidFile().filter { it != process?.pid() }
+        stage("port " + port + " pid文件里的引擎: " + orphans.joinToString(","))
+        for (pid in orphans) {
+            stage("kill 残留引擎 pid=" + pid)
+            // 先 SIGTERM 再 SIGKILL：node 引擎不一定响应 SIGTERM，
+            // 只发一次就放弃的话新引擎照样撞 EADDRINUSE。
+            runCatching { android.os.Process.killProcess(pid) }
+            var waited = 0
+            while (waited < 15 && isAlive(pid)) { Thread.sleep(100); waited++ }
+            if (isAlive(pid)) {
+                stage("SIGTERM 无效，SIGKILL pid=" + pid)
+                runCatching {
+                    ProcessBuilder("kill", "-9", pid.toString())
+                        .start().waitFor(1, java.util.concurrent.TimeUnit.SECONDS)
+                }
+                waited = 0
+                while (waited < 20 && isAlive(pid)) { Thread.sleep(100); waited++ }
             }
+            stage("kill 完成 pid=" + pid + " alive=" + isAlive(pid))
         }
-        // 等端口释放，最多 3 秒
-        for (i in 0 until 30) {
-            if (!isPortInUse(port)) { stage("port " + port + " 已释放"); return }
+        clearPidFile()
+        // 等端口释放，最多 5 秒
+        for (i in 0 until 50) {
+            if (!isPortInUse(port)) { stage("port " + port + " 已释放"); return true }
             Thread.sleep(100)
         }
-        stage("port " + port + " 仍被占用，继续尝试启动")
+        stage("port " + port + " 仍被占用")
+        return false
+    }
+
+    /** 引擎 pid 文件：App 私有目录，App 重启后依然能读到。 */
+    private fun pidFile(): File = File(applicationContext.filesDir, "engine.pid")
+
+    /** 读 pid 文件里的引擎 pid 列表。 */
+    private fun readPidFile(): List<Int> = runCatching {
+        if (!pidFile().exists()) return emptyList()
+        pidFile().readText()
+            .split("\n".toRegex())
+            .mapNotNull { it.trim().toIntOrNull() }
+            .filter { it > 1 }
+    }.getOrDefault(emptyList())
+
+    /** 记录引擎 pid。 */
+    private fun writePidFile(pid: Int) {
+        runCatching {
+            val all = (readPidFile() + pid).distinct()
+            pidFile().writeText(all.joinToString("\n"))
+        }
+    }
+
+    /** 清掉 pid 文件（引擎都清干净后）。 */
+    private fun clearPidFile() {
+        runCatching { pidFile().delete() }
+    }
+
+    /** 进程是否还活着。 */
+    private fun isAlive(pid: Int): Boolean =
+        runCatching { File("/proc/" + pid).exists() }.getOrDefault(false)
+
+    /** 取子进程 pid（Process.pid() 在旧 API 上不可用，用反射兜底）。 */
+    private fun Process.pid(): Int = runCatching {
+        val m = Process::class.java.getMethod("pid")
+        (m.invoke(this) as Number).toInt()
+    }.getOrElse {
+        // 退路：从 /proc 里找 cmdline 含 bin.js 且是本进程父子的那个
+        runCatching {
+            val parent = android.os.Process.myPid().toString()
+            File("/proc").listFiles()
+                ?.filter { it.isDirectory && it.name.all(Char::isDigit) }
+                ?.firstOrNull { dir ->
+                    val st = File(dir, "stat").readText()
+                    st.substringAfter(") ").split(" ").getOrNull(1)?.trim() == parent &&
+                        File(dir, "cmdline").readText().contains("bin.js")
+                }
+                ?.name?.toIntOrNull() ?: -1
+        }.getOrDefault(-1)
     }
 
     /** 尝试绑定端口判断是否被占用。 */
@@ -281,7 +356,8 @@ class EngineService : Service() {
     private fun killEngine() {
         val p = process
         process = null
-        if (p == null) return
+        if (p == null) { clearPidFile(); return }
+        val pid = runCatching { p.pid() }.getOrDefault(-1)
         runCatching {
             p.destroy()
             if (!p.waitFor(2, java.util.concurrent.TimeUnit.SECONDS)) {
@@ -289,6 +365,15 @@ class EngineService : Service() {
                 p.waitFor(2, java.util.concurrent.TimeUnit.SECONDS)
             }
         }
+        // 引擎可能不响应 SIGTERM，再补一刀 SIGKILL，否则它会变成孤儿占着 3180。
+        if (pid > 1 && isAlive(pid)) {
+            stage("SIGTERM 无效，SIGKILL 引擎 pid=" + pid)
+            runCatching {
+                ProcessBuilder("kill", "-9", pid.toString())
+                    .start().waitFor(1, java.util.concurrent.TimeUnit.SECONDS)
+            }
+        }
+        clearPidFile()
     }
 
 }

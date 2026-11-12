@@ -116,9 +116,12 @@ object EngineInstaller {
         val root = EnginePaths.engineRoot(ctx)
         val mark = File(root, MARK_ENGINE)
         val present = mark.exists() && File(root, "node_modules/@deepseek-ai/dsh/lib/bin.js").exists()
+        val fp = assetFingerprint(ctx)
+        val stored = if (mark.exists()) mark.readText() else "(无)"
+        bootLog("engine: present=" + present + " stored=" + stored + " fp=" + fp)
         // 只在「已解压 + 指纹一致」时跳过。
-        // 早先只判 mark.exists()，导致换包后仍用旧的解压结果，所有改动都不生效。
-        if (present && mark.readText() == assetFingerprint(ctx)) return null
+        if (present && stored == fp) { bootLog("engine: 跳过解压"); return null }
+        bootLog("engine: 需要重新解压")
         deleteRecursively(root); root.mkdirs()
         unzipAsset(ctx, "engine.zip", root)?.let { return it }
         mark.writeText(assetFingerprint(ctx))
@@ -129,6 +132,14 @@ object EngineInstaller {
      * 解压产物的指纹：APK 的 versionCode + lastUpdateTime。
      * 每次装新包都会变，用来判断是否需要重新解压 assets 里的引擎与 profile。
      */
+    /** 写一行到 boot.log，便于排查解压决策。 */
+    private fun bootLog(msg: String) {
+        runCatching {
+            File("/sdcard/思忆集/app/boot.log")
+                .appendText("[" + System.currentTimeMillis() + "] " + msg + "\n")
+        }
+    }
+
     private fun assetFingerprint(ctx: Context): String {
         return try {
             val info = ctx.packageManager.getPackageInfo(ctx.packageName, 0)

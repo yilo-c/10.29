@@ -243,29 +243,8 @@ object DeviceBridge {
     }
 
     /** 工具清单。每项都会被引擎注册成真正的 dsh tool。 */
-    private fun descriptors(): JSONArray {
-        val list = JSONArray()
-
-        fun add(name: String, group: String, desc: String, schema: JSONObject, risk: String = "read") {
-            list.put(JSONObject()
-                .put("name", name)
-                .put("group", group)
-                .put("description", desc)
-                .put("inputSchema", schema)
-                .put("risk", risk)
-                .put("needsUnlock", false)
-                .put("timeoutMs", TIMEOUT_MS))
-        }
-
-        val empty = JSONObject().put("type", "object").put("properties", JSONObject())
-
-        add("device_status", "system", "设备状态：电量、充电、存储、型号、系统版本、运行时长。", empty)
-        add("device_storage", "files", "共享存储用量：总空间、可用空间、已用百分比。", empty)
-        add("device_app_info", "apps", "本应用信息：版本名、数据目录、引擎是否在运行。", empty)
-        add("device_bridge_status", "system", "设备能力桥状态：已注册工具数、连接状态。", empty)
-
-        return list
-    }
+    /** 工具清单委托给 Capabilities：加能力只需改那一个文件。 */
+    private fun descriptors(): JSONArray = Capabilities.descriptorList()
 
     private fun invoke(params: JSONObject): JSONObject {
         val tool = params.optString("tool", "")
@@ -274,17 +253,22 @@ object DeviceBridge {
         if (cancelled.remove(callId) == true) {
             return fail("cancelled", "调用已取消")
         }
-        val text = try {
+        val ctx = appCtx ?: return fail("no_context", "应用上下文不可用")
+        // 先算出结果再包成 ToolResult：when 分支里不能直接 return，
+        // 否则 when 的类型推断会失败（Nothing 与 String 混用）。
+        val text: String? = try {
             when (tool) {
                 "device_status" -> deviceStatus()
                 "device_storage" -> storageStatus()
                 "device_app_info" -> appInfo()
                 "device_bridge_status" -> bridgeStatus()
-                else -> return fail("unknown_tool", "未知工具: $tool")
+                // 其余能力统一交给 Capabilities；null 表示真·未知工具
+                else -> Capabilities.invoke(ctx, tool, args)
             }
         } catch (t: Throwable) {
             return fail("invoke_failed", "${t.javaClass.simpleName}: ${t.message}")
         }
+        if (text == null) return fail("unknown_tool", "未知工具: $tool")
         return JSONObject()
             .put("ok", true)
             .put("content", JSONArray().put(JSONObject().put("type", "text").put("text", text)))

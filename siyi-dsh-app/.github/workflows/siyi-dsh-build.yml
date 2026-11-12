@@ -246,23 +246,20 @@ jobs:
           # 优先用仓库里固化的 keystore；没有则临时生成并上传为 artifact，
           # 由维护者下载后提交进仓库，之后所有版本复用同一把。
           KS="$GITHUB_WORKSPACE/$APP_DIR/keystore/debug.keystore"
+          # 指纹必须是这把：设备上已安装的版本就是用它签的。
+          # 换任何一把都会导致覆盖安装失败（INSTALL_FAILED_UPDATE_INCOMPATIBLE，-7）。
+          KS_SHA=83a7e5148bd2bfd6360b90cb2cc2676787a334b7a3b366355858f273da3c80ed
           if [ ! -f "$KS" ]; then
-            mkdir -p "$(dirname "$KS")"
-            keytool -genkeypair -v -keystore "$KS" -storepass android -keypass android \
-              -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 \
-              -dname "CN=Siyi Debug,O=Siyi,C=CN" > /dev/null 2>&1
-            echo "keystore 首次生成，尝试自动提交进仓库"
-            ( cd "$GITHUB_WORKSPACE" \
-              && git config user.name "siyi-bot" \
-              && git config user.email "siyi-bot@users.noreply.github.com" \
-              && git add -f "$APP_DIR/keystore/debug.keystore" \
-              && git commit -m "chore: 固化签名密钥（此后所有版本可覆盖升级）" \
-              && git push origin HEAD:dsh-app ) \
-              && echo "keystore 已提交" \
-              || echo "::warning::自动提交失败，请手动下载 artifact 并提交"
-          else
-            echo "使用仓库固化的 keystore"
+            echo "::error::仓库里没有 keystore/debug.keystore，拒绝随机生成（换了钥匙就装不上了）"
+            exit 1
           fi
+          GOT_SHA=$(sha256sum "$KS" | cut -d' ' -f1)
+          echo "keystore 指纹: $GOT_SHA"
+          if [ "$GOT_SHA" != "$KS_SHA" ]; then
+            echo "::error::keystore 指纹不符：期望 $KS_SHA，实际 $GOT_SHA。拒绝签名，否则覆盖安装会失败(-7)。"
+            exit 1
+          fi
+          echo "使用仓库固化的 keystore（指纹已核对）"
           "$BT/zipalign" -f -p 4 "$APK" "$APK.aligned"
           # 显式指定 v1+v2+v3，缺 v2 会导致 Android 7+ 报「系统不兼容」
           "$BT/apksigner" sign --ks "$KS" --ks-pass pass:android --key-pass pass:android \

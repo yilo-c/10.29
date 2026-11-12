@@ -202,7 +202,11 @@ jobs:
           # ⚠ 必须在这里把变量直接导给 gradle：$GITHUB_ENV 只对**后续**步骤生效，
           # 同一步骤里读不到。所以之前 gradle 一直拿默认值 2026111201，
           # 每次构建的 versionCode 都不变，部分 ROM 会拒绝覆盖安装。
-          SIYI_VERSION_CODE="$VC" SIYI_VERSION_NAME="$VN" gradle assembleDebug --no-daemon --stacktrace
+          # 写进 properties 文件：Gradle 配置阶段读 System.getenv 拿不到同一步骤 export 的值，
+          # 之前 versionCode 一直是默认值。现在直接落到文件里，Gradle 用 findProperty 读。
+          printf 'siyi.versionCode=%s\nsiyi.versionName=%s\n' "$VC" "$VN" > app/version.properties
+          cat app/version.properties
+          gradle assembleDebug --no-daemon --stacktrace
 
       # NDK 编译 jniLibs 时会把它自带的精简版 libc++_shared.so（约 1.3MB）打进 APK，
       # 覆盖 jniLibs 里从官方 APK 提取的完整版（约 8.9MB）。libnode.so 依赖完整版，

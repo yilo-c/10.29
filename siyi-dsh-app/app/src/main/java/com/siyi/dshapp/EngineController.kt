@@ -419,16 +419,29 @@ object EngineController {
         }.apply { isDaemon = true; start() }
 
         // 进程存活看门狗 + 自动重启
+        //
+        // 不用 Process.waitFor()：Android 上它依赖一个内部「退出通知」线程，
+        // 某些 ROM/内核组合下那个线程不触发，waitFor 会永久阻塞 ——
+        // 实测引擎被 kill -9 之后看门狗一声不响，白屏永远不会自愈。
+        // 改成轮询 /proc/<pid> 是否还存在，这条路和 ROM 实现无关，必定有效。
+        val watchPid = pidOf(p)
         Thread {
-            runCatching { p.waitFor() }   // 阻塞到进程退出
+            stage("看门狗已挂上 pid=" + watchPid)
+            while (watchPid > 1 && isAlive(watchPid)) {
+                if (stopping.get()) {
+                    stage("引擎是主动停止的，看门狗退出")
+                    return@Thread
+                }
+                Thread.sleep(1000)
+            }
             if (stopping.get()) {
                 stage("引擎是主动停止的，不做重启")
                 return@Thread
             }
             val code = runCatching { p.exitValue() }.getOrDefault(-1)
-            stage("引擎意外退出 exitCode=" + code)
+            stage("引擎意外退出 pid=" + watchPid + " exitCode=" + code)
             // 只有当前进程才代表引擎（可能已经被新一轮启动替换）
-            if (processRef.get() !== p) {
+            if (pidOf(processRef.get()) != watchPid) {
                 stage("退出的是旧进程，忽略")
                 return@Thread
             }

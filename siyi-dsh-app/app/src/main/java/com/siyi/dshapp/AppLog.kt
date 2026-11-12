@@ -5,7 +5,7 @@ import java.io.File
 /**
  * 统一日志出口：带大小上限和轮转。
  *
- * 之前每个模块各自 `File(...).appendText(...)` 往 /sdcard/思忆集/app/*.log 追加，
+ * 之前每个模块各自 `File(...).appendText(...)` 往 /sdcard/思忆集/app 目录下的 .log 文件追加，
  * 没有上限也没有轮转。长期运行会把共享存储写满 —— 实测已经因此装不上新包
  * （INSTALL_FAILED_INSUFFICIENT_STORAGE）。
  *

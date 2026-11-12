@@ -90,9 +90,23 @@ for (const dir of dirs) {
   // sign-in/start 必须用宿主的 origin 作为 redirect_uri。
   // 官方实现调 loopback.listen()，会起一个随机端口的服务器，但回调路由
   // 挂在了宿主机上，浏览器回到随机端口会 404，loginOrigin 校验失败 → protocol。
+  //
+  // ⚠ 宿主服务上**没有** origin 这个属性：dsh-host-webserver 只暴露 getOrigin()。
+  // 早先这里读 existingWebServer.origin，拿到 undefined，redirect_uri 变成
+  // "undefined/oauth/callback"，服务端直接按 protocol 错误打回，
+  // 表现就是「登录转一圈回来白屏 + sign-in failed { errorCode: 'protocol' }」。
+  // 未绑定端口时 getOrigin() 会抛错，退回自建 loopback 保底。
   const signInOrigin = existingWebServer === undefined
     ? undefined
-    : () => existingWebServer.origin`
+    : () => {
+        try {
+          return typeof existingWebServer.getOrigin === 'function'
+            ? existingWebServer.getOrigin()
+            : existingWebServer.origin
+        } catch {
+          return undefined
+        }
+      }`
 
   if (!s.includes(oldProvide)) {
     console.log('no match (provide): ' + path.relative(profile, idx))
@@ -105,8 +119,10 @@ for (const dir of dirs) {
 
   // ── 3. index.js：sign-in/start 用宿主 origin ──
   if (s.includes('const origin = await loopback.listen()')) {
+    // signInOrigin() 取不到时必须真的退回自建 loopback，
+    // 否则 origin 是 undefined，redirect_uri 拼出来就是 "undefined/oauth/callback"。
     s = s.replace('const origin = await loopback.listen()',
-      'const origin = signInOrigin ? signInOrigin() : await loopback.listen()')
+      'const origin = (signInOrigin && signInOrigin()) || await loopback.listen()')
     fs.writeFileSync(idx, s)
     changed += 1
     console.log('patched sign-in/start origin: ' + path.relative(profile, idx))

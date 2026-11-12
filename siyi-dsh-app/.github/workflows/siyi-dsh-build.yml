@@ -194,11 +194,15 @@ jobs:
           # 之前拼成 2026111243136691423（19 位）会直接溢出，
           # 所以改成 日期*100 + 运行号后两位 = 2026111200 ~ 2026111299。
           VC=$(( $(date -u +%Y%m%d) * 100 + GITHUB_RUN_NUMBER % 100 ))
+          VN="0.34.$GITHUB_RUN_NUMBER"
           echo "SIYI_VERSION_CODE=$VC" >> $GITHUB_ENV
-          echo "SIYI_VERSION_NAME=0.33.$GITHUB_RUN_NUMBER" >> $GITHUB_ENV
-          echo "versionCode=$VC"
+          echo "SIYI_VERSION_NAME=$VN" >> $GITHUB_ENV
+          echo "versionCode=$VC versionName=$VN"
           pwd; ls -la settings.gradle build.gradle
-          gradle assembleDebug --no-daemon --stacktrace
+          # ⚠ 必须在这里把变量直接导给 gradle：$GITHUB_ENV 只对**后续**步骤生效，
+          # 同一步骤里读不到。所以之前 gradle 一直拿默认值 2026111201，
+          # 每次构建的 versionCode 都不变，部分 ROM 会拒绝覆盖安装。
+          SIYI_VERSION_CODE="$VC" SIYI_VERSION_NAME="$VN" gradle assembleDebug --no-daemon --stacktrace
 
       # NDK 编译 jniLibs 时会把它自带的精简版 libc++_shared.so（约 1.3MB）打进 APK，
       # 覆盖 jniLibs 里从官方 APK 提取的完整版（约 8.9MB）。libnode.so 依赖完整版，

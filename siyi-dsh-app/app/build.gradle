@@ -14,8 +14,16 @@ android {
         // ⚠ Groovy 不是 Kotlin：String 上没有 toInt()，只有 toInteger()。
         // 写成 .toInt() 会让整个构建在配置阶段就崩（No signature of method），
         // 表现是 Build debug APK 8 秒失败、什么都没编出来。
-        versionCode = (System.getenv("SIYI_VERSION_CODE") ?: "2026111201").toInteger()
-        versionName = System.getenv("SIYI_VERSION_NAME") ?: "0.33.0"
+        // 从 properties 文件读，不用 System.getenv。
+        // 原因：System.getenv 在 Gradle **配置阶段**（configuration phase）拿到的是
+        // Gradle daemon 启动时的环境快照，同一步骤里 export 的变量读不到，
+        // 结果 versionCode 永远取默认值 2026111201，每次构建都一样，
+        // 部分 ROM 会因此拒绝覆盖安装。
+        // CI 会在 gradle 之前生成 app/version.properties，内容形如：
+        //   siyi.versionCode=2026111242
+        //   siyi.versionName=0.34.242
+        versionCode = (project.findProperty("siyi.versionCode") ?: "2026111201").toString().toInteger()
+        versionName = (project.findProperty("siyi.versionName") ?: "0.34.0").toString()
         ndk { abiFilters 'arm64-v8a' }
     }
 

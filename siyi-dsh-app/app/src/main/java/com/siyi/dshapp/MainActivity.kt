@@ -149,7 +149,6 @@ class MainActivity : AppCompatActivity() {
         skeletonReady = runCatching {
             assets.open("skeleton.html").bufferedReader().use { it.readText() }
         }.getOrNull() != null
-        if (skeletonReady) web.loadUrl("file:///android_asset/skeleton.html")
 
         web = WebView(this).apply {
             settings.javaScriptEnabled = true
@@ -352,8 +351,11 @@ class MainActivity : AppCompatActivity() {
         addContentView(waitView, ViewGroup.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.MATCH_PARENT))
-        // 骨架屏就绪时，初始不显示纯色文字层，让 web 里的骨架占位直接可见。
-        if (skeletonReady) waitView.visibility = View.GONE
+        // 骨架屏就绪时：先铺本地骨架页（web 此刻已初始化），并隐藏纯色文字层。
+        if (skeletonReady) {
+            web.loadUrl("file:///android_asset/skeleton.html")
+            waitView.visibility = View.GONE
+        }
 
         // 挂载完成后再请求一次，双保险
         web.post { ViewCompat.requestApplyInsets(web) }

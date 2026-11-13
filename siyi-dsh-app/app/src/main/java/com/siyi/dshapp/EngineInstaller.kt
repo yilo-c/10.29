@@ -161,17 +161,26 @@ object EngineInstaller {
         val boot = File(home, "profiles/web/node_modules/@deepseek-ai/dsh-app-boot")
         val present = mark.exists() && pkg.exists() && boot.exists()
         if (present && mark.readText() == assetFingerprint(ctx)) return null
-        // 重新解压前保留用户数据目录（sessions / android 配置由 App 自己维护）
-        val keep = listOf("sessions", "android")
+        // 重新解压前保留用户数据。
+        //
+        // ⚠ 这里曾经漏掉 storages，代价很大。每次覆盖安装都会先整个删掉 dsh-home
+        //   再解压 web-profile.zip，当时只保留了 sessions，于是：
+        //     storages/workspace.json     工作区注册表（会话清单、置顶、归档）被清
+        //     storages/session_projcache  会话投影缓存被清 —— 侧栏标题就存在这里
+        //   表现正是「一升级侧栏全是未命名」。标题虽然还能从会话日志重建，
+        //   但列表接口只读缓存、不会主动重算，所以要逐个打开会话才慢慢恢复。
+        //   顺带把登录凭据一起保住，否则每次升级都要重新登录。
+        val keepDirs = listOf("sessions", "storages")
+        val keepFiles = listOf(".credentials.yaml", ".anonymous-user-id")
         // parentFile 可能为 null（home 是相对路径时），回退到 cacheDir 下的暂存区
         val stashRoot = home.parentFile ?: ctx.cacheDir
-        val stash = keep.mapNotNull { name ->
+        val stash = ArrayList<File>()
+        for (name in keepDirs + keepFiles) {
             val src = File(home, name)
-            if (!src.isDirectory) null else {
-                val tmp = File(stashRoot, ".siyi-keep-" + name)
-                deleteRecursively(tmp)
-                if (src.renameTo(tmp)) tmp else null
-            }
+            if (!src.exists()) continue
+            val tmp = File(stashRoot, ".siyi-keep-" + name)
+            deleteRecursively(tmp)
+            if (src.renameTo(tmp)) stash.add(tmp)
         }
         deleteRecursively(home); home.mkdirs()
         unzipAsset(ctx, "web-profile.zip", home)?.let { return it }

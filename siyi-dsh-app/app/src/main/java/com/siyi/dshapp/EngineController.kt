@@ -255,6 +255,18 @@ object EngineController {
         )
         val pb = ProcessBuilder(cmd)
         pb.directory(engine)
+        // stdout/stderr 直接重定向到文件，而不是靠 App 进程去读管道。
+        //
+        // 常驻引擎的关键问题：之前 App 进程负责读引擎的 stdout/stderr，
+        // 一旦那个 App 进程死了（切出、被回收），管道就没人读了，
+        // 引擎再往里写会阻塞；新 App 进程接管后也没有管道可读，
+        // engine-stderr.log 直接断掉 —— 登录失败这类线索就没了。
+        //
+        // 重定向到文件后，日志由引擎自己写，跨进程、跨会话都在。
+        val outFile = File(LOG_DIR, "engine-stdout.log").also { it.parentFile?.mkdirs() }
+        val errFile = File(LOG_DIR, "engine-stderr.log").also { it.parentFile?.mkdirs() }
+        pb.redirectOutput(outFile)
+        pb.redirectError(errFile)
         pb.environment()["DSH_HOME"] = home.absolutePath
         pb.environment()["DSH_NATIVE_DIR"] = ctx.applicationInfo.nativeLibraryDir
         pb.environment()["TZ"] = "Asia/Shanghai"
@@ -341,11 +353,11 @@ object EngineController {
             // UI 会拿着已经死掉的地址反复刷新 → 白屏且不自愈。
             supervise(ctx, p)
 
-            // 读 stdout 抓 token
+            // 从 stdout 日志文件里抓 token（stdout 已重定向到文件，没有管道可读）
             val logFile = File(LOG_DIR, "engine-stdout.log").also { it.parentFile?.mkdirs() }
             Thread {
                 runCatching {
-                    p.inputStream.bufferedReader().use { br: BufferedReader ->
+                    logFile.bufferedReader().use { br: BufferedReader ->
                         br.forEachLine { line ->
                             AppLog.write("engine-stdout.log", line)
                             val m = Regex("token=([A-Za-z0-9_-]+)").find(line)
@@ -360,11 +372,11 @@ object EngineController {
                 }
             }.start()
 
-            // 读 stderr 判断失败
+            // 监控 stderr 日志文件里的失败信号
             Thread {
                 val errLog = File(LOG_DIR, "engine-stderr.log").also { it.parentFile?.mkdirs() }
                 runCatching {
-                    p.errorStream.bufferedReader().use { br ->
+                    errLog.bufferedReader().use { br ->
                         br.forEachLine { line ->
                             AppLog.write("engine-stderr.log", line)
                             // 只有「启动失败」才是致命信号；普通的 "Error:" 多半是

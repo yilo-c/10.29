@@ -30,6 +30,8 @@ class EngineService : Service() {
     companion object {
         const val CHANNEL_ID = "siyi_engine"
         const val NOTIF_ID = 1001
+        /** 通知栏「停止引擎」的动作标识。 */
+        const val ACTION_STOP = "com.siyi.dshapp.action.STOP_ENGINE"
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -43,6 +45,14 @@ class EngineService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // 用户点了通知栏的「停止引擎」：这才是主动停止，要真的收掉进程。
+        if (intent?.action == ACTION_STOP) {
+            EngineController.stop()
+            DeviceBridge.stop()
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+            return START_NOT_STICKY
+        }
         startForeground(NOTIF_ID, notif("准备引擎…"))
         // 唯一的启动入口。重复调用安全：引擎已活着就直接返回。
         Thread {
@@ -57,21 +67,57 @@ class EngineService : Service() {
             .setContentText(text)
             .setSmallIcon(android.R.drawable.stat_notify_sync)
             .setOngoing(true)
+            .addAction(buildStopAction())
             .build()
 
     private fun update(text: String) {
         getSystemService(NotificationManager::class.java).notify(NOTIF_ID, notif(text))
     }
 
+    /**
+     * 通知栏的「停止引擎」按钮。
+     *
+     * 引擎常驻意味着它会一直跑，所以必须给用户一个明确的关闭入口，
+     * 否则就是「关不掉的常驻进程」——成熟产品不能这样。
+     */
+    private fun buildStopAction(): Notification.Action {
+        val intent = Intent(this, EngineService::class.java).setAction(ACTION_STOP)
+        val pi = android.app.PendingIntent.getService(
+            this, 1, intent,
+            android.app.PendingIntent.FLAG_UPDATE_CURRENT or
+                (if (Build.VERSION.SDK_INT >= 23) android.app.PendingIntent.FLAG_IMMUTABLE else 0)
+        )
+        return Notification.Action.Builder(
+            android.R.drawable.ic_menu_close_clear_cancel, "停止引擎", pi
+        ).build()
+    }
+
+    /**
+     * 服务销毁时不杀引擎。
+     *
+     * 引擎是「常驻资源」而不是「Activity 的附属品」：
+     * 用户从最近列表划掉 App、Activity 被回收、甚至 App 进程被系统杀，
+     * 引擎都应该继续活着 —— 下次打开 App 直接连上去，0 等待。
+     *
+     * 之前这里会 EngineController.stop()，导致每次打开 App 都要重新起引擎，
+     * 白等 4~5 秒。实测 boot→URL 可用 4.1~9.2 秒，这就是那段等待的来源。
+     *
+     * 引擎真正的退出只有两个入口：
+     *   1. 用户在通知栏点「停止引擎」
+     *   2. 看门狗发现它自己崩了（那是故障，不是主动停止）
+     */
     override fun onDestroy() {
         DeviceBridge.stop()
-        EngineController.stop()
         super.onDestroy()
     }
 
-    /** 任务从最近列表划掉时也要清理，否则引擎残留占着端口。 */
+    /**
+     * 任务从最近列表划掉：同样不杀引擎。
+     *
+     * 只停掉与 UI 绑定的部分（设备桥的连接），引擎进程留着。
+     */
     override fun onTaskRemoved(rootIntent: Intent?) {
-        EngineController.stop()
+        DeviceBridge.stop()
         super.onTaskRemoved(rootIntent)
     }
 }

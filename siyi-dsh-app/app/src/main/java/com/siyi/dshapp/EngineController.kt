@@ -94,6 +94,13 @@ object EngineController {
             stage("引擎已在运行 pid=" + pidOf(processRef.get()) + "，复用")
             return
         }
+        // 本进程没有引擎句柄，但引擎可能是**上一个 App 进程**留下的常驻进程。
+        // 这种情况直接接管，用户就是 0 等待（方案 B 的核心）。
+        if (adoptExistingEngine(ctx)) {
+            stage("接管到常驻引擎 pid=" + pidOf(processRef.get()) + "，跳过启动")
+            onStatus("引擎已就绪")
+            return
+        }
         if (!starting.compareAndSet(false, true)) {
             stage("启动流程正在进行中，跳过重复启动")
             return
@@ -104,6 +111,66 @@ object EngineController {
             starting.set(false)
         }
     }
+
+    /**
+     * 接管上一个 App 进程留下的常驻引擎。
+     *
+     * 方案 B 的关键：引擎常驻，App 退出时不杀它。下次打开 App 时进程内的
+     * processRef 是空的（静态字段随进程一起没了），但引擎进程还活着。
+     *
+     * 这里靠三件事认出它：
+     *   1. pid 文件里有它的 pid
+     *   2. 那个 pid 还在（/proc/<pid> 存在）
+     *   3. 端口 3180 正在监听且能连上（说明它服务正常）
+     *
+     * 认出来之后把 URL 找回来。怎么找？引擎每次启动都会往 stdout 打
+     * 带 token 的地址，但那是上一次进程的 stdout，已经拿不到了。
+     * 所以这里用最稳的办法：直接问引擎要一个带新 token 的地址 ——
+     * 读 /sdcard/思忆集/app/engine-stdout.log 里最后一条 dsh web: 行。
+     * 那个文件是 App 写的，跨进程也读得到。
+     *
+     * @return 是否接管成功
+     */
+    private fun adoptExistingEngine(ctx: Context): Boolean {
+        val pids = readPidFile(ctx)
+        if (pids.isEmpty()) return false
+        val alive = pids.filter { isAlive(it) }
+        if (alive.isEmpty()) {
+            // pid 都死了，文件是陈旧的，清掉避免下次误判
+            clearPidFile(ctx)
+            return false
+        }
+        if (!isListening()) return false   // 进程在但服务没起来，不算接管
+
+        val url = lastAdvertisedUrl()
+        if (url == null) {
+            // 认得出进程但拿不到地址：只能重新起一个，旧的清掉
+            stage("常驻引擎 pid=" + alive.joinToString(",") + " 在，但拿不到地址，重新启动")
+            for (pid in alive) runCatching { android.os.Process.killProcess(pid) }
+            clearPidFile(ctx)
+            return false
+        }
+        // 接管成功：登记 pid，状态置 READY
+        processRef.set(null)   // 句柄不属于本进程，但 pid 文件已够用
+        stateRef.set(State(Phase.READY, url = url))
+        stage("已接管常驻引擎 url=" + url)
+        return true
+    }
+
+    /**
+     * 从 stdout 日志里取引擎最后公布的地址。
+     * 那是 App 自己写的文件，跨进程可读。
+     */
+    private fun lastAdvertisedUrl(): String? = runCatching {
+        val f = File("/sdcard/思忆集/app/engine-stdout.log")
+        if (!f.exists()) return null
+        var found: String? = null
+        f.forEachLine { line ->
+            val m = Regex("dsh web: (http://\\S+)").find(line)
+            if (m != null) found = m.groupValues[1]
+        }
+        found
+    }.getOrNull()
 
     /** 停止引擎。 */
     fun stop() {
@@ -341,11 +408,31 @@ object EngineController {
      * 只取第一行并去掉空白，兼容用户用文本编辑器保存的情况。
      */
     private fun readGatewayKey(): String? = runCatching {
-        val f = File("/sdcard/思忆集/app/gateway.key")
-        if (!f.exists()) return null
-        val v = f.readText().lineSequence().firstOrNull()?.trim()
-        if (v.isNullOrEmpty()) null else v
+        // 优先读私有目录：共享存储里任何 App 都能读，密钥不该放那儿。
+        // 私有目录里的文件在「清除应用数据」时会一起没了，所以同时兼容
+        // 共享存储的老位置（读到了就顺手搬过来）。
+        val priv = File(ctxFiles(), "gateway.key")
+        if (priv.exists()) {
+            val v = priv.readText().lineSequence().firstOrNull()?.trim()
+            if (!v.isNullOrEmpty()) return v
+        }
+        val shared = File("/sdcard/思忆集/app/gateway.key")
+        if (!shared.exists()) return null
+        val v = shared.readText().lineSequence().firstOrNull()?.trim()
+        if (v.isNullOrEmpty()) return null
+        // 迁移到私有目录
+        runCatching {
+            priv.parentFile?.mkdirs()
+            priv.writeText(v + "\n")
+            shared.delete()
+            AppLog.write("boot.log", "网关密钥已迁移到私有目录")
+        }
+        v
     }.getOrNull()
+
+    /** App 私有目录。 */
+    private fun ctxFiles(): java.io.File = appCtx?.filesDir
+        ?: java.io.File("/data/data/com.siyi.dshapp/files")
 
     /** 引擎的 HTTP 端口是否还在响应（连接能否建立）。与 ROM 实现无关，必定有效。 */
     private fun isListening(): Boolean = runCatching {

@@ -62,6 +62,7 @@ object Capabilities {
         add("device_storage", "files", "共享存储用量。", empty)
         add("device_app_info", "apps", "本应用信息：版本、数据目录、引擎是否运行。", empty)
         add("device_bridge_status", "system", "能力桥状态。", empty)
+        add("device_gateway_status", "system", "本机网关与各模型渠道的可用性（余额不足/未登录/限流会被分类出来）。", empty)
         // 剪贴板
         add("device_clipboard_get", "clipboard", "读取系统剪贴板文本。", empty)
         add("device_clipboard_set", "clipboard", "写文本到系统剪贴板。", schema("text" to "string"), "write")
@@ -141,6 +142,7 @@ object Capabilities {
         "device_storage" -> storageStatus(ctx)
         "device_app_info" -> appInfo(ctx)
         "device_bridge_status" -> bridgeStatus(ctx)
+        "device_gateway_status" -> gatewayStatus()
         else -> null
     }
 
@@ -447,6 +449,30 @@ object Capabilities {
             .put("version", pi.versionName ?: "?")
             .put("data_dir", ctx.filesDir.path)
             .put("engine_running", EngineController.isRunning())
+            .toString(2)
+    }
+
+    /**
+     * 本机网关与渠道状态。
+     *
+     * 之前网关欠费、掉登录，App 完全不知道，用户只能看到「模型报错」。
+     * 这个工具把真实状态分类出来，AI 能自己判断该换哪个模型、还是告诉用户去充值。
+     */
+    private fun gatewayStatus(): String {
+        val r = GatewayStatus.probe()
+        return JSONObject()
+            .put("gateway_up", r.gatewayUp)
+            .put("gateway_port", GatewayStatus.GATEWAY_PORT)
+            .put("usable_models", org.json.JSONArray(r.usable))
+            .put("channels", org.json.JSONArray().apply {
+                for (c in r.channels) {
+                    put(JSONObject()
+                        .put("model", c.model)
+                        .put("ok", c.ok)
+                        .put("reason", c.reason)
+                        .put("detail", c.detail))
+                }
+            })
             .toString(2)
     }
 

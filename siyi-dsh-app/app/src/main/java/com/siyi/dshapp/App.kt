@@ -15,6 +15,17 @@ class App : Application() {
     override fun onCreate() {
         super.onCreate()
         installCrashHandler()
+        // 自检钩子：写入一个标记文件，方便用「崩溃捕获是否真的落盘」
+        // 这件事在别处验证不了 —— 只有真崩一次才知道。
+        // 触发方式：adb shell am broadcast -a com.siyi.dshapp.TEST_CRASH
+        runCatching {
+            registerReceiver(object : android.content.BroadcastReceiver() {
+                override fun onReceive(c: android.content.Context?, i: android.content.Intent?) {
+                    // 抛一个真实异常，走完整的未捕获异常路径
+                    throw IllegalStateException("思忆集崩溃捕获自检（这是故意抛的）")
+                }
+            }, android.content.IntentFilter("com.siyi.dshapp.TEST_CRASH"), android.content.Context.RECEIVER_NOT_EXPORTED)
+        }
     }
 
     /**

@@ -78,6 +78,50 @@ class MainActivity : AppCompatActivity() {
     private var photoUri: Uri? = null
     private var textForWeb: String? = null
 
+    /**
+     * 运行时权限申请器。
+     *
+     * 之前 App 从没申请过任何运行时权限（实测五个全是 granted=false），
+     * 于是 device_notify / device_location / device_take_photo /
+     * device_voice_input 这些工具会静默失败 —— 用户以为功能坏了，
+     * 其实是没授权。
+     */
+    private val permLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { granted ->
+        val denied = granted.filterValues { !it }.keys
+        if (denied.isNotEmpty()) {
+            // 不弹第二次系统框打扰用户，但把结果记下来，
+            // 工具调用时能明确回报「缺权限」而不是「未知错误」。
+            android.util.Log.i("SiyiWeb", "权限被拒: " + denied.joinToString(","))
+        }
+        android.util.Log.i("SiyiWeb", "权限结果: " + granted.toString())
+    }
+
+    /**
+     * 首次启动时申请运行时权限。
+     *
+     * 策略：一次性把四项都提上去，由系统弹窗逐项询问，用户可以只勾一部分。
+     * 不做「用到才问」是因为这些能力都由 AI 主动触发，
+     * 等到用到时再问会显得突兀，而且很多用户会直接拒绝。
+     */
+    private fun requestRuntimePermissions() {
+        val need = mutableListOf<String>()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            need.add(android.Manifest.permission.POST_NOTIFICATIONS)
+        }
+        need.add(android.Manifest.permission.ACCESS_FINE_LOCATION)
+        need.add(android.Manifest.permission.ACCESS_COARSE_LOCATION)
+        need.add(android.Manifest.permission.CAMERA)
+        need.add(android.Manifest.permission.RECORD_AUDIO)
+        val missing = need.filter {
+            checkSelfPermission(it) != android.content.pm.PackageManager.PERMISSION_GRANTED
+        }
+        if (missing.isEmpty()) return
+        android.util.Log.i("SiyiWeb", "申请运行时权限: " + missing.joinToString(","))
+        runCatching { permLauncher.launch(missing.toTypedArray()) }
+    }
+
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -290,6 +334,8 @@ class MainActivity : AppCompatActivity() {
 
         setupInteraction()
         handleShare(intent)
+        // 权限要在界面已经起来之后再申请，否则第一次弹窗会盖在空白页上。
+        handler.postDelayed({ requestRuntimePermissions() }, 1200)
         runCatching { startForegroundService(Intent(this, EngineService::class.java)) }
         // 首次启动时引导用户加白名单，否则后台一冻结就白屏
         handler.postDelayed({ ensureBackgroundSurvival() }, 2500)

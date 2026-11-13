@@ -88,6 +88,33 @@ object PatchOverlay {
             }
             runCatching { mark.writeText(fp) }
             AppLog.write("boot.log", "补丁 " + t.name + " 已重放: ok=" + ok + " fail=" + fail)
+            // 前端 chunk 是 immutable 长缓存：改了文件，浏览器仍可能拿旧的。
+            // 检测到补丁指纹变了就清一次 WebView 的 HTTP Cache，
+            // 否则用户会以为「补丁没生效」。
+            clearWebViewCache(ctx)
+        }
+    }
+
+    /**
+     * 清掉 WebView 的 HTTP 缓存。
+     *
+     * 前端 chunk 带着 cache-control: immutable，浏览器会长期缓存。
+     * 补丁改了前端文件（软键盘、抽屉这类）之后不清缓存，
+     * 用户看到的还是旧版本，会以为补丁没生效。
+     *
+     * 只删缓存目录内容，不删目录本身；删不掉也不影响启动。
+     */
+    private fun clearWebViewCache(ctx: Context) {
+        runCatching {
+            val root = File(ctx.cacheDir, "WebView")
+            if (!root.isDirectory) return
+            var count = 0
+            root.walkTopDown().forEach { f ->
+                if (f.isDirectory && f.name == "HTTP Cache") {
+                    f.listFiles()?.forEach { it.delete(); count++ }
+                }
+            }
+            if (count > 0) AppLog.write("boot.log", "已清理 WebView 缓存 " + count + " 项")
         }
     }
 

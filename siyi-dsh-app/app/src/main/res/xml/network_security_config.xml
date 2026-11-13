@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  网络安全策略。
+
+  之前 application 上是 android:usesCleartextTraffic="true"，
+  等于对**所有**域名放开明文 HTTP。成熟产品应该限定范围：
+  本机回环（引擎 web UI 3180、网关 8427）必须用 http，
+  其它域名一律要求 https。
+
+  cleartextTrafficPermitted="false" 表示默认禁止明文，
+  domain-config 里逐个放开真正需要 http 的本机地址。
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+
+    <!-- 本机回环：引擎 Web UI 与本机模型网关 -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">127.0.0.1</domain>
+        <domain includeSubdomains="false">localhost</domain>
+        <!-- Android 模拟器访问宿主机 -->
+        <domain includeSubdomains="false">10.0.2.2</domain>
+    </domain-config>
+</network-security-config>

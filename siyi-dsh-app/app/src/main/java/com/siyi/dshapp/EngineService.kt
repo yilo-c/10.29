@@ -87,7 +87,7 @@ class EngineService : Service() {
             android.app.PendingIntent.FLAG_UPDATE_CURRENT or
                 (if (Build.VERSION.SDK_INT >= 23) android.app.PendingIntent.FLAG_IMMUTABLE else 0)
         )
-        return Notification.Action.Builder(
+        return NotificationCompat.Action.Builder(
             android.R.drawable.ic_menu_close_clear_cancel, "停止引擎", pi
         ).build()
     }

@@ -123,7 +123,7 @@ object GatewayStatus {
         return when {
             code == 402 || "insufficient_balance" in t || "balance" in t ->
                 Channel(model, false, "balance", "余额不足")
-            code == 401 || code == 403 || "credential" in t || "log in" in t || "no usable credential" in t ->
+            code == 401 || code == 403 || "credential" in t || "log in" in t ->
                 Channel(model, false, "auth", "未登录或凭据失效")
             code == 429 || "rate" in t || "限流" in t ->
                 Channel(model, false, "rate_limited", "被限流")

@@ -494,11 +494,21 @@ object EngineController {
      * 只能按 cmdline 特征找：同时包含 libdshnode.so、bin.js 和 --port 3180。
      */
     private fun findEnginePid(): Int = runCatching {
+        // ⚠ 不能只靠读 /proc/<pid>/cmdline：untrusted_app 域读不到别的进程的，
+        //   实测这里扫出来是空的。退路是 /proc/<pid>/exe 这个软链 ——
+        //   它的目标就是 libdshnode.so，同样能认出引擎，而且软链目标通常可读。
         File("/proc").listFiles()
             ?.filter { it.isDirectory && it.name.all(Char::isDigit) }
             ?.firstOrNull { dir ->
+                val pid = dir.name.toIntOrNull() ?: return@firstOrNull false
+                if (pid == android.os.Process.myPid()) return@firstOrNull false
+                val exe = runCatching {
+                    java.nio.file.Files.readSymbolicLink(File(dir, "exe").toPath()).toString()
+                }.getOrNull()
+                if (exe != null && exe.contains("libdshnode.so")) return@firstOrNull true
+                // 兜底：cmdline 能读就读它（有些 ROM 对同 uid 放宽）
                 val cmd = runCatching { File(dir, "cmdline").readText() }.getOrNull() ?: return@firstOrNull false
-                cmd.contains("libdshnode.so") && cmd.contains("bin.js") && cmd.contains("--port " + WEB_PORT)
+                cmd.contains("bin.js") && cmd.contains("--port " + WEB_PORT)
             }
             ?.name?.toIntOrNull() ?: -1
     }.getOrDefault(-1)

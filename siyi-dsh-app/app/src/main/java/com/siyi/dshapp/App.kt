@@ -15,16 +15,19 @@ class App : Application() {
     override fun onCreate() {
         super.onCreate()
         installCrashHandler()
-        // 自检钩子：写入一个标记文件，方便用「崩溃捕获是否真的落盘」
-        // 这件事在别处验证不了 —— 只有真崩一次才知道。
-        // 触发方式：adb shell am broadcast -a com.siyi.dshapp.TEST_CRASH
-        runCatching {
-            registerReceiver(object : android.content.BroadcastReceiver() {
-                override fun onReceive(c: android.content.Context?, i: android.content.Intent?) {
-                    // 抛一个真实异常，走完整的未捕获异常路径
-                    throw IllegalStateException("思忆集崩溃捕获自检（这是故意抛的）")
-                }
-            }, android.content.IntentFilter("com.siyi.dshapp.TEST_CRASH"), android.content.Context.RECEIVER_NOT_EXPORTED)
+        // 自检钩子：验证「崩溃捕获是否真的落盘」—— 这件事只有真崩一次才知道。
+        //
+        // ⚠ 用文件而不是广播触发。广播要在 Manifest 里注册 receiver 并导出，
+        //   那会给外部开一个能主动让 App 崩溃的入口，是安全风险。
+        //   改成监视一个哨兵文件：外部（adb / 测试脚本）创建它即可触发。
+        val sentinel = java.io.File(filesDir, "test-crash.flag")
+        if (sentinel.exists()) {
+            // 启动时发现哨兵：先删掉，避免崩溃重启后无限循环
+            runCatching { sentinel.delete() }
+            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                // 抛真实异常，走完整的未捕获异常路径
+                throw IllegalStateException("思忆集崩溃捕获自检（这是故意抛的）")
+            }, 1500)
         }
     }
 

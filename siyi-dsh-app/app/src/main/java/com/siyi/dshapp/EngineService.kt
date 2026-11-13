@@ -80,7 +80,7 @@ class EngineService : Service() {
      * 引擎常驻意味着它会一直跑，所以必须给用户一个明确的关闭入口，
      * 否则就是「关不掉的常驻进程」——成熟产品不能这样。
      */
-    private fun buildStopAction(): Notification.Action {
+    private fun buildStopAction(): NotificationCompat.Action {
         val intent = Intent(this, EngineService::class.java).setAction(ACTION_STOP)
         val pi = android.app.PendingIntent.getService(
             this, 1, intent,

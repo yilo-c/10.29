@@ -101,8 +101,11 @@ object GatewayStatus {
             if (code in 200..299) {
                 // 200 但内容为空也算不可用 —— 有些渠道把 token 全烧在思考上
                 val content = try {
-                    JSONObject(text).optJSONObject("choices")?.optJSONObject(0)
-                        ?.optJSONObject("message")?.optString("content").orEmpty().trim()
+                    JSONObject(text).optJSONArray("choices")?.let { arr ->
+                            if (arr.length() == 0) null
+                            else arr.optJSONObject(0)?.optJSONObject("message")
+                                ?.optString("content").orEmpty().trim()
+                        } ?: ""
                 } catch (_: Throwable) { "" }
                 if (content.isEmpty()) {
                     Channel(model, false, "empty", "返回 200 但内容为空")

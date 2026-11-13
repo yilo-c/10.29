@@ -53,9 +53,10 @@
 - id: agent-default-model
   config:
     provider: local
-    # 钉在 minimax：其余渠道长期限流或掉凭据，默认走 loomy 时每轮都要先失败
-    # 一次、再靠 8427 的兜底链落到 minimax，白等 2~3 秒。
-    model: minimax/MiniMax-M3.1-Flash
+    # 2026-11-13 实测：minimax 已欠费(402)，ban 在它上面等于开箱即不能用。
+    # loomy/qwen3.8-flash 直连 8426 能稳定返回正文，工具调用也正常，
+    # 所以默认换成它；其余渠道由 8427 的兜底链兜着。
+    model: loomy/qwen3.8-flash
 
 # ── 设备能力桥 ────────────────────────────────────────────────
 # App 侧 EngineService 通过 DSH_BRIDGE_FD 传入 socketpair 的一端，

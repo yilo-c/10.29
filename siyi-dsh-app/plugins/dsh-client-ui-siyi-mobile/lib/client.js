@@ -206,14 +206,13 @@ window.__ModuleLoader__.load({
     exports.apply = apply
     exports.inject = inject
 
-    // 立即执行：不依赖 cordis 调用 apply。
-    // 纯 DOM 副作用，重复执行无副作用（样式用固定 id，属性用 setAttribute）。
-    try {
-      installStyles()
-      installCollapse()
-    } catch (e) {
-      // 浏览器环境异常时静默，不影响主流程
-    }
+    // 只走 apply 这一条路径。
+    //
+    // 这里原先还有一段「模块加载时立即执行 installStyles/installCollapse」，
+    // 注释说是为了防 apply 不被调用。但那段副作用没有 disposer：
+    // 插件卸载时 ctx.effect 只回收 apply 里注册的那一份，顶层这份会留在 DOM 上。
+    // dsh-plugin-dev check 的 redline-effect-registration 就是查这类写法。
+    // 宿主一定会调 apply，这层保险没有收益，只有泄漏。
 
     return module.exports
   },

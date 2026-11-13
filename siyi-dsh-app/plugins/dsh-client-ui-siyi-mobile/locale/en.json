@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Siyi Mobile Layout",
+    "description": "Fixes the squeezed two-column settings panel and per-character CJK wrapping on narrow screens."
+  }
+}

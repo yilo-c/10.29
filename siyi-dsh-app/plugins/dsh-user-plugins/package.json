@@ -8,5 +8,13 @@
     "cordis": {
       "id": "siyi-user-plugins"
     }
-  }
+  },
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
+  "files": [
+    "lib"
+  ],
+  "packageManager": "pnpm@11.7.0",
+  "license": "MIT"
 }

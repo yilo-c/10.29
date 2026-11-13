@@ -12,7 +12,10 @@
       "default": "./lib/client.js"
     },
     "./package.json": "./package.json",
-    "./locale/*.json": "./locale/*.json"
+    "./locale/*.json": "./locale/*.json",
+    "./icon": {
+      "default": "./icon.svg"
+    }
   },
   "dsh": {
     "client": {
@@ -23,10 +26,16 @@
       ]
     }
   },
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
   "files": [
-    "lib/index.js",
-    "lib/client.js",
-    "locale/*.json"
+    "lib",
+    "locale",
+    "README.md",
+    "README-zh.md",
+    "icon.svg"
   ],
+  "packageManager": "pnpm@11.7.0",
   "license": "MIT"
 }

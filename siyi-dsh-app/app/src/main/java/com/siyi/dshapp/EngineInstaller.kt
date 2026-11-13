@@ -37,7 +37,12 @@ object EngineInstaller {
         ensureEngine(ctx)?.let { return it }
         ensureProfile(ctx)?.let { return it }
         unifyAndroidPackages(ctx)?.let { return it }
-        return ensureBinLinks(ctx)
+        ensureBinLinks(ctx)?.let { return it }
+        // 关键：解压完成后立刻重放共享存储里的补丁。
+        // 应用更新时上面几步会用 APK 资源整体重写 node_modules，
+        // 手工打过的补丁会全没；这里把它们盖回去，从此更新不再需要重打。
+        PatchOverlay.apply(ctx)
+        return null
     }
 
     /** filesDir/bin 目录：放 node 与 rg 的可执行软链，供 shell 工具与 glob 使用。 */

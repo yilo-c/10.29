@@ -293,10 +293,10 @@ class MainActivity : AppCompatActivity() {
                         val why = "页面加载失败：${err?.description ?: "未知错误"}"
                         if (retries < 5 && EngineController.state().url != null) {
                             retries++
-                            showWaiting("$why\n第 $retries 次重试…")
+                            showError("$why\n第 $retries 次重试…")
                             handler.postDelayed({ retryLoad(why) }, 1500L * retries)
                         } else {
-                            showWaiting(why)
+                            showError(why)
                         }
                     }
                 }
@@ -397,7 +397,7 @@ class MainActivity : AppCompatActivity() {
         if (!isEnginePage()) return
         val url = EngineController.state().url ?: return
         if (EngineController.state().error != null) return
-        showWaiting(why)
+        showError(why)
         loadUrl(url)
         handler.postDelayed({ probeRendered() }, 2000)
         handler.postDelayed({ probeRendered() }, 7000)
@@ -634,7 +634,7 @@ class MainActivity : AppCompatActivity() {
                     // 2) 引擎正在重连/失败 → 明确告诉用户，并继续等
                     st.phase == EngineController.Phase.FAILED -> {
                         navigated = false
-                        showWaiting("引擎正在自动重试…\n\n" + (st.error ?: ""))
+                        showError("引擎正在自动重试…\n\n" + (st.error ?: ""))
                         handler.postDelayed(this, 2000)
                     }
                     // 3) 首次启动中
@@ -695,15 +695,27 @@ class MainActivity : AppCompatActivity() {
     private fun showWaiting(msg: String) {
         if (msg == lastMsg) return
         lastMsg = msg
-        // 骨架屏就绪时：文字层保持透明、不盖住骨架占位，仅在底层真正白屏（无骨架）时才整屏显示。
+        // 骨架屏就绪时：正常等待阶段让骨架占位顶着，不再盖文字层（视觉无读条）。
+        // 出错等情况走 showError()，那里会强制显示文字。
         if (skeletonReady) {
-            waitView.setBackgroundColor(0x00000000)
-            waitView.alpha = 0.0f
             waitView.visibility = View.GONE
             return
         }
         waitView.visibility = View.VISIBLE
         waitView.text = msg
+    }
+
+    /**
+     * 出错/需要用户知道的状态：强制显示文字层（骨架屏模式下也要盖住骨架）。
+     * 否则引擎真的失败时，用户只会看到永远转的骨架，看不到原因。
+     */
+    private fun showError(msg: String) {
+        if (msg == lastMsg) return
+        lastMsg = msg
+        waitView.setBackgroundColor(0xFF151517.toInt())
+        waitView.alpha = 1.0f
+        waitView.text = msg
+        waitView.visibility = View.VISIBLE
     }
 
     override fun onResume() {

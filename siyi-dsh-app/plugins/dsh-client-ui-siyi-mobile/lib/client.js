@@ -14,6 +14,28 @@
 //
 // 3) 通用弹窗宽度上限 380px / 440px 太窄
 //
+// ── 2026-11-14 折叠几何修正（关键）────────────────────────────
+// 上一版的选择器写的是 [class*="_frame_"] / [class*="_centerCol_"]，
+// 但这版 DSH 的 CSS Modules 类名是「前缀_hash_ + 名字」，实际是全小写拼接：
+//   pI_x6G_frame  pI_x6G_centerCol  pI_x6G_sidebarCol
+// 「_frame_」这种前后都带下划线的写法一个都匹配不上（实测 frame 的
+// padding-top 仍是 40px，centerCol 的 y 起点也是 40px）。
+// 于是 --dsh-windows-titlebar-height: 40px 生效了，但压掉顶部留白的规则失效，
+// 屏幕上就出现「侧边栏没了、顶部却空出一条 40px 白带」的残留；折叠按钮是
+// position:fixed、top:(40-28)/2=6px，正好卡在这条白带里，看着就是「太高、
+// 贴到状态栏」。这就是用户看到的图一/图二。
+//
+// 现在的做法：
+//   a) 选择器改成后缀匹配 [class$="_frame"] / [class$="_centerCol"]，
+//      前缀 hash 变了也不影响；
+//   b) 把 --dsh-windows-titlebar-height 压到 0，连同它派生的
+//      --dsh-frame-top-clearance / --dsh-frame-chrome-top 一起归零，
+//      白带彻底消失，其它插件也不再自作聪明留 40px；
+//   c) 折叠按钮和「新建会话」按钮改成显式 top，不再依赖那个变量算
+//      (H-28)/2（H=0 会算成 -14px，按钮直接被顶出视口）；
+//      top:8px 是相对 WebView 视口的，App 侧已经把状态栏高度做成了
+//      WebView 的 padding，所以 8px 落在状态栏下方。
+//
 // 实现要点：属性必须用 MutationObserver 持续保持。
 // React 在挂载/重渲染时会整体重置 <html> 的属性，一次 setAttribute 会在
 // 几百毫秒后被清掉（实测：设置后 attrNow=true，3 秒后 attrLater=false）。
@@ -32,44 +54,57 @@ window.__ModuleLoader__.load({
     var CSS = [
       // ── 1. 隐藏左侧折叠轨道（collapsedWidth 变 0 后的副作用修正）──
       //
-      // 关键：--dsh-windows-titlebar-height 不能压成 0。
-      // 左侧折叠按钮的样式是：
-      //   .hHd-Xa_toggle { top: calc((var(--dsh-windows-titlebar-height) - 28px) / 2);
-      //                    position: fixed; left: 12px }
-      // 代入 0 得 top = -14px，按钮被顶到视口上方，正好被状态栏盖住。
-      // 右侧按钮不走 fixed，所以在文档流里被 WebView padding 正常推下来 —— 这就是
-      // 「右边好、左边坏」的全部原因。
-      //
-      // WebView 已由 App 侧加了状态栏高度的 padding（实测 118px），
-      // 所以这里给一个让按钮落在视口内的取值：top = (40 - 28)/2 = 6px。
+      // 顶部留白全部归零：白带、圆角、拖拽伪元素三个副作用一并清掉。
+      // 注意 --dsh-frame-top-clearance / --dsh-frame-chrome-top 是由
+      // --dsh-windows-titlebar-height 派生的，压 0 之后其它插件（会话头部、
+      // 弹层）也不会再给顶部留 40px。
       'html[' + ATTR + '] {',
-      '  --dsh-windows-titlebar-height: 40px !important;',
+      '  --dsh-windows-titlebar-height: 0px !important;',
+      '  --dsh-frame-top-clearance: 0px !important;',
+      '  --dsh-frame-chrome-top: 0px !important;',
       '}',
-      // 兜底：直接钉住折叠按钮位置，不依赖上面那个变量参与计算
-      'html[' + ATTR + '] .hHd-Xa_toggle {',
-      '  top: 6px !important;',
+      // 折叠态的两个按钮：Windows 标题栏里它们是 position:fixed，
+      // top 由 (--dsh-windows-titlebar-height - 28px)/2 算出来。
+      // 变量归零后会得到 -14px（被顶到视口外、看起来被状态栏盖住），
+      // 所以这里直接钉死 top，不再参与那个计算。
+      // 只对折叠态生效：展开态必须留在文档流里，否则会压在品牌图标上。
+      'html[' + ATTR + '] .hHd-Xa_root.hHd-Xa_collapsed .hHd-Xa_toggle {',
+      '  top: 8px !important;',
       '  left: 12px !important;',
       '}',
-      // 去掉圆角与顶部拖拽条
-      'html[' + ATTR + '] [class*="_frame_"] {',
+      'html[' + ATTR + '] .hHd-Xa_root.hHd-Xa_collapsed .hHd-Xa_newSession {',
+      '  top: 8px !important;',
+      '  left: 48px !important;',
+      '}',
+      // 展开态：把官方 Windows 规则给的 position:fixed 撤销，回到文档流。
+      'html[' + ATTR + '] .hHd-Xa_root:not(.hHd-Xa_collapsed) .hHd-Xa_toggle {',
+      '  position: static !important;',
+      '  top: auto !important;',
+      '  left: auto !important;',
+      '}',
+      'html[' + ATTR + '] .hHd-Xa_root:not(.hHd-Xa_collapsed) .hHd-Xa_newSession {',
+      '  position: relative !important;',
+      '  top: auto !important;',
+      '  left: auto !important;',
+      '}',
+      // frame：去掉 Windows 标题栏的预留高度与圆角。
+      // 类名是「hash_frame」形式，用后缀匹配，前缀变了也不受影响。
+      'html[' + ATTR + '] [class$="_frame"] {',
       '  --dsh-windows-content-radius: 0px !important;',
       '  padding-top: 0 !important;',
+      '  background: transparent !important;',
       '}',
-      'html[' + ATTR + '] [class*="_frame_"]::before { display: none !important }',
-      'html[' + ATTR + '] [class*="_centerCol_"] { border-radius: 0 !important }',
-      // 轨道列：关闭态完全消失（不占 grid 列位）。
-      // 折叠时 DSH 给第一列算出 0px，这里让列本身也不渲染，双保险。
-      // 展开时 DSH 把第一列算成 264px 并挤压主内容 —— 用绝对定位让侧边栏
-      // 浮在上层、主内容保持全宽（覆盖式抽屉，不挤压）。
+      'html[' + ATTR + '] [class$="_frame"]::before { display: none !important }',
+      'html[' + ATTR + '] [class$="_centerCol"] { border-radius: 0 !important }',
+      // 折叠态侧栏容器自身也不留内边距（Windows 下是 padding:0，
+      // 但保险起见写死，避免 hash 变体里又冒出 18px 顶部内边距）。
+      'html[' + ATTR + '] .hHd-Xa_root.hHd-Xa_collapsed { padding: 0 !important }',
       // sidebarCol：折叠态宽度已是 0（collapsedWidth=0 由属性触发），
       // 这里只确保溢出内容不漏出来，绝不动 position —— 在 grid 子项上
       // 用 absolute 会破坏 DSH 的布局计算，导致白屏。
-      'html[' + ATTR + '] body .pI_x6G_sidebarCol {',
+      'html[' + ATTR + '] [class$="_sidebarCol"] {',
       '  overflow: hidden !important;',
       '}',
-      // 展开态：DSH 给 frame 的第一列一个正值（--dsh-windows-sidebar-width > 0）
-      // 就让侧边栏滑入可见
-
 
 
       // ── 2. 设置面板窄屏适配 ──
@@ -116,8 +151,6 @@ window.__ModuleLoader__.load({
       'html[' + ATTR + '] body {',
       '  padding-bottom: env(safe-area-inset-bottom, 0px) !important;',
       '}',
-
-
       '}',
     ].join('\n')
 
@@ -135,10 +168,6 @@ window.__ModuleLoader__.load({
       }
     }
 
-    /**
-     * 给 <html> 加 data-windows-titlebar，让 DSH 把折叠轨道宽度算成 0。
-     * 返回卸载函数（移除属性）。
-     */
     /**
      * 给 <html> 加 data-windows-titlebar，让 DSH 把折叠轨道宽度算成 0。
      *
@@ -190,49 +219,88 @@ window.__ModuleLoader__.load({
       }
     }
 
+    // ── 页面级安装（幂等单例）──────────────────────────────
+    //
+    // 这一段必须在模块体里执行：apply(ctx) 的调用时机由宿主决定，而宿主的
+    // 客户端作用域会在 apply 返回后立刻关闭，补丁不能依赖它存活。
+    var siyiInstalled = false
+    function install() {
+      if (typeof document === 'undefined') return
+      if (siyiInstalled) return
+      siyiInstalled = true
+      installStyles()
+      installCollapse()
+    }
+
+    // 诊断面板：只在 URL 带 siyi-debug 时出现，平时完全不渲染。
+    try {
+      if (typeof location !== 'undefined' && location.hash.indexOf('siyi-debug') >= 0) {
+        var mkBox = function () {
+          var d = document.getElementById('siyi-debug-box')
+          if (!d) {
+            d = document.createElement('div')
+            d.id = 'siyi-debug-box'
+            d.style.cssText = 'position:fixed;z-index:2147483647;top:120px;left:0;right:0;' +
+              'background:#d00;color:#fff;font:10px monospace;padding:4px;' +
+              'white-space:pre-wrap;text-align:left'
+            document.body.appendChild(d)
+          }
+          var root = document.documentElement
+          var pick = function (sel) {
+            var e = document.querySelector(sel)
+            if (!e) return sel + '=none'
+            var r = e.getBoundingClientRect()
+            var cs = getComputedStyle(e)
+            return sel + ' x=' + Math.round(r.left) + ' y=' + Math.round(r.top) +
+              ' w=' + Math.round(r.width) + ' h=' + Math.round(r.height) + ' pos=' + cs.position
+          }
+          var frame = document.querySelector('[class$="_frame"]')
+          var lines = [
+            'attr=' + root.hasAttribute(ATTR)
+            + ' style=' + document.querySelectorAll('style#' + STYLE_ID).length
+            + ' vw=' + window.innerWidth + ' vh=' + window.innerHeight,
+            pick('.hHd-Xa_toggle'),
+            pick('.hHd-Xa_newSession'),
+            pick('[class$="_frame"]'),
+            pick('[class$="_sidebarCol"]'),
+            pick('[class$="_centerCol"]'),
+            'framePadTop=' + (frame ? getComputedStyle(frame).paddingTop : '-'),
+            'cols=' + (frame ? getComputedStyle(frame).gridTemplateColumns : '-'),
+          ]
+          d.textContent = lines.join('\n')
+        }
+        setInterval(mkBox, 500)
+        mkBox()
+      }
+    } catch (e) {}
+
+
     var inject = []
 
+    /**
+     * 宿主调用入口。
+     *
+     * 这里只做两件事：把补丁再装一次（幂等）、把「已安装」的旗子挂到页面作用域。
+     *
+     * 为什么不把拆除写进 ctx.effect：
+     * 实测本版宿主的客户端插件作用域是「打开 → 调用 apply → 立刻关闭」，
+     * apply 返回后几毫秒内 effect 的回收函数就被执行了。如果把移除样式/属性的
+     * 逻辑挂在 effect 上，补丁会被自己拆掉——表现正是「进页面时侧边栏没了，
+     * 过一会儿又冒回来 56px」，顶部还留一条 40px 白带。
+     * 布局补丁是全页面级的（不属于某个组件），所以它跟页面同生命周期、不跟
+     * 插件作用域。移除只发生在页面卸载时（style 和属性随文档一起消失）。
+     */
     function apply(ctx) {
-      // 工厂里已经装过一次，这里再装一次是幂等的（按固定 id 判重）。
-      var disposeStyle = installStyles()
-      var disposeAttr = installCollapse()
-      var early = window.__siyiMobileDispose
-      if (ctx && typeof ctx.effect === 'function') {
-        ctx.effect(function () {
-          try { if (early) early() } catch (_) {}
-          disposeStyle()
-          disposeAttr()
-          try { delete window.__siyiMobileDispose } catch (_) {}
-        })
-      }
+      install()
+      // 保留 ctx 引用以避免未使用参数告警；不注册任何可拆除的贡献。
+      void ctx
     }
 
     exports.apply = apply
     exports.inject = inject
 
-    // 工厂函数内立即执行一次。
-    //
-    // 为什么需要：apply(ctx) 的调用时机由宿主决定，实测在思忆集里
-    // 补丁生效过一次之后就不再生效（<html> 上始终没有 data-windows-titlebar，
-    // 左侧图标栏宽度停在 56px）。而 client.js 的工厂函数是**加载即执行**的，
-    // 这个时机确定可靠。
-    //
-    // 与上一版的区别：那次是「在 apply 之外裸执行、没有 disposer」，
-    // 会被 dsh-plugin-dev 判为生命周期泄漏。这次把 dispose 挂到
-    // window 上，apply 被调用时转交给 ctx.effect 回收；
-    // 即使 apply 永不调用，DOM 上也只留一个 style 和一个属性，
-    // 不会累积（ensure 是幂等的，按固定 id 判重）。
-    try {
-      var earlyStyle = installStyles()
-      var earlyAttr = installCollapse()
-      // 留给 apply 转交；挂 window 是为了跨调用可见
-      window.__siyiMobileDispose = function () {
-        try { earlyStyle() } catch (_) {}
-        try { earlyAttr() } catch (_) {}
-      }
-    } catch (e) {
-      // 浏览器环境异常时静默，不影响主流程
-    }
+    // 模块求值时立刻安装：这一步是补丁能不能生效的关键，见 install() 上方注释。
+    try { install() } catch (_) {}
 
     return module.exports
   },

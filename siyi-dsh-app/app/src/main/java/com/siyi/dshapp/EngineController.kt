@@ -353,48 +353,87 @@ object EngineController {
             // UI 会拿着已经死掉的地址反复刷新 → 白屏且不自愈。
             supervise(ctx, p)
 
-            // 从 stdout 日志文件里抓 token（stdout 已重定向到文件，没有管道可读）
-            val logFile = File(LOG_DIR, "engine-stdout.log").also { it.parentFile?.mkdirs() }
-            Thread {
-                runCatching {
-                    logFile.bufferedReader().use { br: BufferedReader ->
-                        br.forEachLine { line ->
-                            AppLog.write("engine-stdout.log", line)
-                            val m = Regex("token=([A-Za-z0-9_-]+)").find(line)
-                            if (m != null) {
-                                val url = "http://127.0.0.1:$WEB_PORT/?token=${m.groupValues[1]}"
-                                stateRef.set(State(Phase.READY, url = url))
-                                restartCount.set(0)   // 成功就绪，重启计数归零
-                                onStatus("就绪，可打开界面")
-                            }
-                        }
-                    }
-                }
-            }.start()
-
-            // 监控 stderr 日志文件里的失败信号
-            Thread {
-                val errLog = File(LOG_DIR, "engine-stderr.log").also { it.parentFile?.mkdirs() }
-                runCatching {
-                    errLog.bufferedReader().use { br ->
-                        br.forEachLine { line ->
-                            AppLog.write("engine-stderr.log", line)
-                            // 只有「启动失败」才是致命信号；普通的 "Error:" 多半是
-                            // 某个插件自己的告警（比如模型渠道 502），拿来判定整体
-                            // 失败会把能用的引擎判死，界面就卡在错误页不再重试。
-                            if (line.contains("startup failed", true)) {
-                                // 已经拿到带 token 的地址就说明服务其实起来了，
-                                // 这条失败来自被淘汰的那次尝试，不能覆盖可用状态。
-                                if (stateRef.get().phase != Phase.READY) {
-                                    stateRef.set(State(Phase.FAILED, error = line.take(200)))
-                                    onStatus("启动异常: " + line.take(60))
-                                }
-                            }
-                        }
-                    }
-                }
-            }.start()
+            // 轮询 stdout 文件找 token。
+            //
+            // 不能用 bufferedReader().forEachLine()：那是「读一遍就到头」的快照，
+            // 而引擎是**追加写**这个文件，读完之后新追加的内容永远读不到，
+            // 于是 180 秒超时判定失败 —— 这正是刚把 App 改坏的那一版。
+            // 也不能再 AppLog.write 回同一文件，那会自我追加成死循环。
+            watchStdoutForToken()
+            watchStderrForFailure()
         }.onFailure { fail("启动失败: ${it.message}", onStatus) }
+    }
+
+    /**
+     * 轮询 stdout 文件找带 token 的地址。
+     *
+     * 引擎启动时会把 stdout 重定向到这个文件。每次只读 pos 之后的新增内容，
+     * 所以既抓得到 token，也不会重复处理。
+     */
+    private fun watchStdoutForToken() {
+        Thread {
+            val f = File(LOG_DIR, "engine-stdout.log")
+            f.parentFile?.mkdirs()
+            var pos = 0L
+            var elapsed = 0L
+            while (!stopping.get() && elapsed < START_TIMEOUT_MS) {
+                Thread.sleep(500)
+                elapsed += 500
+                if (stateRef.get().phase == Phase.READY) return@Thread
+                runCatching {
+                    if (!f.exists()) return@runCatching
+                    val len = f.length()
+                    if (len < pos) pos = 0
+                    if (len <= pos) return@runCatching
+                    java.io.RandomAccessFile(f, "r").use { raf ->
+                        raf.seek(pos)
+                        val buf = ByteArray((len - pos).toInt().coerceAtMost(1 shl 20))
+                        val n = raf.read(buf)
+                        if (n <= 0) return@runCatching
+                        pos += n
+                        val chunk = String(buf, 0, n, Charsets.UTF_8)
+                        val m = Regex("token=([A-Za-z0-9_-]+)").find(chunk)
+                        if (m != null) {
+                            val url = "http://127.0.0.1:" + WEB_PORT + "/?token=" + m.groupValues[1]
+                            stateRef.set(State(Phase.READY, url = url))
+                            restartCount.set(0)
+                            statusSink?.invoke("就绪，可打开界面")
+                            stage("从 stdout 抓到 token，状态置为 READY")
+                        }
+                    }
+                }
+            }
+        }.apply { isDaemon = true; start() }
+    }
+
+    /** 轮询 stderr 文件，只看「启动失败」这类致命信号。 */
+    private fun watchStderrForFailure() {
+        Thread {
+            val f = File(LOG_DIR, "engine-stderr.log")
+            f.parentFile?.mkdirs()
+            var pos = 0L
+            while (!stopping.get()) {
+                Thread.sleep(1000)
+                runCatching {
+                    if (!f.exists()) return@runCatching
+                    val len = f.length()
+                    if (len < pos) pos = 0
+                    if (len <= pos) return@runCatching
+                    java.io.RandomAccessFile(f, "r").use { raf ->
+                        raf.seek(pos)
+                        val buf = ByteArray((len - pos).toInt().coerceAtMost(1 shl 20))
+                        val n = raf.read(buf)
+                        if (n <= 0) return@runCatching
+                        pos += n
+                        val chunk = String(buf, 0, n, Charsets.UTF_8)
+                        if (chunk.contains("startup failed", true) && stateRef.get().phase != Phase.READY) {
+                            stateRef.set(State(Phase.FAILED, error = "引擎启动失败"))
+                            statusSink?.invoke("引擎启动失败，正在重试…")
+                        }
+                    }
+                }
+            }
+        }.apply { isDaemon = true; start() }
     }
 
     private fun fail(msg: String, onStatus: (String) -> Unit) {

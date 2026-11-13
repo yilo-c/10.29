@@ -99,6 +99,29 @@ window.__ModuleLoader__.load({
       // 折叠态侧栏容器自身也不留内边距（Windows 下是 padding:0，
       // 但保险起见写死，避免 hash 变体里又冒出 18px 顶部内边距）。
       'html[' + ATTR + '] .hHd-Xa_root.hHd-Xa_collapsed { padding: 0 !important }',
+      // 折叠态：会话标题要让开左上角两个悬浮按钮。
+      //
+      // 官方机制是给 .titleRow 加 padding-inline-start =
+      //   max(0px, calc(var(--dsh-frame-leading-clearance, 0px) - 20px))
+      // 而这个变量只在 [data-platform=darwin] 下被赋值（折叠 160 / 全屏 84），
+      // Android 上它就是 0 —— 于是标题内边距是 0，直接顶到最左边，
+      // 被 toggle(12~40) 和 newSession(48~76) 两个 fixed 按钮压住。
+      //
+      // 这里按同一机制补值。实测标题起点 ≈ 30（基础内边距）+ padding，
+      // padding = clearance - 20。按钮占到 76px，要让标题落在 ~80px：
+      //   padding 50 → clearance 70
+      // 取值宁小勿大：留白多一分，标题就少显示一分。
+      // 只管折叠态：展开时侧栏本身占 280px，标题不需要额外让位。
+      'html[' + ATTR + '] [class$="_frame"][data-sidebar-collapsed] {',
+      '  --dsh-frame-leading-clearance: 70px !important;',
+      '}',
+      // 再挤一点宽度给标题：子智能体标签在窄屏上很占地方
+      //（"1 个子智能体" + 箭头约 90px），缩一号；标题簇间距也收紧。
+      'html[' + ATTR + '] [class$="_crumbSubagent"] {',
+      '  font-size: 11px !important;',
+      '  padding: 2px 6px !important;',
+      '}',
+      'html[' + ATTR + '] [class$="_titleCluster"] { gap: 6px !important }',
       // sidebarCol：折叠态宽度已是 0（collapsedWidth=0 由属性触发），
       // 这里只确保溢出内容不漏出来，绝不动 position —— 在 grid 子项上
       // 用 absolute 会破坏 DSH 的布局计算，导致白屏。
@@ -230,6 +253,103 @@ window.__ModuleLoader__.load({
       siyiInstalled = true
       installStyles()
       installCollapse()
+      installTitleTap()
+    }
+
+    /**
+     * 点会话标题 → 弹出完整标题。
+     *
+     * 为什么需要：窄屏下标题行同时要塞「标题 + 子智能体标签 + 菜单 + 右侧图标」，
+     * 标题必然被 CSS 截断成「本地网…」。DOM 里的文本其实是完整的，
+     * 只是视觉上 overflow:hidden，所以点一下把 textContent 原样弹出来即可。
+     *
+     * 用捕获阶段的事件委托，不绑死节点：React 重渲染会换掉整个标题 DOM，
+     * 绑在元素上的监听会一起没；绑在 document 上就不会。
+     */
+    function installTitleTap() {
+      if (typeof document === 'undefined') return
+      if (window.__siyiTitleTap) return
+      window.__siyiTitleTap = true
+
+      var pop = null
+
+      var closePop = function () {
+        if (pop && pop.parentNode) pop.parentNode.removeChild(pop)
+        pop = null
+      }
+
+      /**
+       * 在标题正下方弹出完整标题。
+       *
+       * 样式全部走 DSH 自己的设计令牌，跟随主题（浅色/深色自动一致），
+       * 不用硬编码颜色——上一版写死 #26262b 深色卡片，在浅色界面里非常突兀。
+       */
+      var showPop = function (text, anchor) {
+        closePop()
+        var r = anchor.getBoundingClientRect()
+        var top = Math.round(r.bottom + 6)
+        // 屏幕下半部分就翻到上方，避免贴底被裁
+        var below = top + 120 < window.innerHeight
+        pop = document.createElement('div')
+        pop.id = 'siyi-title-pop'
+        pop.textContent = text
+        var css = [
+          'position:fixed',
+          'z-index:2147483000',
+          'left:12px',
+          'max-width:min(calc(100vw - 24px),420px)',
+          'box-sizing:border-box',
+          'padding:10px 14px',
+          'background:var(--dsw-alias-bg-layer-2,var(--dsw-alias-bg-base,#fff))',
+          'color:var(--dsw-alias-label-primary,#1a1a1a)',
+          'border:1px solid var(--dsw-alias-border-l2,rgba(0,0,0,.10))',
+          'border-radius:var(--dsw-radius-md,10px)',
+          'box-shadow:0 8px 24px rgba(0,0,0,.14)',
+          'font-size:14px',
+          'line-height:1.55',
+          'font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif',
+          'white-space:pre-wrap',
+          'word-break:break-word',
+          'user-select:text'
+        ]
+        if (below) css.push('top:' + top + 'px')
+        else css.push('bottom:' + Math.round(window.innerHeight - r.top + 6) + 'px')
+        pop.style.cssText = css.join(';')
+        document.body.appendChild(pop)
+      }
+
+      document.addEventListener('click', function (ev) {
+        var t = ev.target
+        // 点在弹层内部：交给浏览器（可选中文本），不关也不拦
+        if (pop && pop.contains(t)) return
+
+        // 找到标题 crumb（排除分隔符和子智能体标签，后者有自己的行为）
+        var el = t
+        var hops = 0
+        while (el && el !== document.body && hops < 8) {
+          var cn = (el.getAttribute && el.getAttribute('class')) || ''
+          if (typeof cn === 'string' && cn.indexOf('_crumb') >= 0 &&
+              cn.indexOf('_crumbSubagent') < 0 && cn.indexOf('_crumbSep') < 0) {
+            var txt = (el.textContent || '').trim()
+            if (txt) {
+              ev.preventDefault()
+              ev.stopPropagation()
+              // 再点一次 = 收起（toggle），可控
+              if (pop) closePop()
+              else showPop(txt, el)
+            }
+            return
+          }
+          el = el.parentElement
+          hops++
+        }
+
+        // 点在任何别处 = 收起
+        if (pop) closePop()
+      }, true)
+
+      // 页面尺寸变化（旋转/分屏）时收起，避免弹层停在错误位置
+      window.addEventListener('resize', function () { closePop() })
     }
 
     // 诊断面板：只在 URL 带 siyi-debug 时出现，平时完全不渲染。

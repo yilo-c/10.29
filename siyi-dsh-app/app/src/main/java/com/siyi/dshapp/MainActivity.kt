@@ -50,7 +50,7 @@ class MainActivity : AppCompatActivity() {
     private var loadAt = 0L
     /** 当前 WebView 里加载的是哪个地址。引擎重启后 token 会变，靠它识别。 */
     private var loadedUrl: String? = null
-    private val startAt = System.currentTimeMillis()
+    private var startAt = System.currentTimeMillis()
 
     // 文件选择 / 交互回调
     private var filePathCallback: ValueCallback<Array<Uri>>? = null
@@ -623,7 +623,13 @@ class MainActivity : AppCompatActivity() {
         if (web.canGoBack()) web.goBack() else super.onBackPressed()
     }
 
+    /** poll 是自递归的（url 为空/失败时会再排下一次）。
+     *  不加闸门的话 onResume 里再调一次 poll 就会叠出第二条循环。 */
+    private var polling = false
+
     private fun poll() {
+        if (polling) return
+        polling = true
         handler.postDelayed(object : Runnable {
             override fun run() {
                 val st = EngineController.state()
@@ -637,6 +643,8 @@ class MainActivity : AppCompatActivity() {
                         retries = 0
                         showWaiting("引擎已就绪，正在加载界面…")
                         loadUrl(url)
+                        // 已经交出去加载了，本轮循环结束，放开闸门
+                        polling = false
                     }
                     // 2) 引擎正在重连/失败 → 明确告诉用户，并继续等
                     st.phase == EngineController.Phase.FAILED -> {
@@ -650,6 +658,8 @@ class MainActivity : AppCompatActivity() {
                         showWaiting("正在启动引擎…\n已等待 $s 秒（首次需解压资源，可能数十秒）")
                         handler.postDelayed(this, 1500)
                     }
+                    // 4) 已就绪且已加载 → 这个循环的使命完成，退出
+                    else -> polling = false
                 }
             }
         }, 800)
@@ -745,6 +755,14 @@ class MainActivity : AppCompatActivity() {
             handler.postDelayed({ probeRendered() }, 2000)
             handler.postDelayed({ probeRendered() }, 6500)
             handler.postDelayed({ forceReloadIfBlank() }, 12000)
+        } else {
+            // 引擎已经死了/还没起来（后台被系统回收）。
+            // 之前这里什么都不做——界面会永远停在"正在启动引擎…"，
+            // 因为 poll() 只在启动时跑一轮就停了，没人再拉起引擎。
+            // 这里明确重新发起一次启动，并让 poll 继续盯着。
+            runCatching { startForegroundService(Intent(this, EngineService::class.java)) }
+            startAt = System.currentTimeMillis()
+            poll()
         }
     }
 

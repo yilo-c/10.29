@@ -39,6 +39,8 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var web: WebView
     private lateinit var waitView: TextView
+    /** 是否启用本地骨架屏（assets/skeleton.html 存在时为 true）。 */
+    private var skeletonReady = false
     private val handler = Handler(Looper.getMainLooper())
     private var navigated = false
     private var lastMsg = ""
@@ -141,6 +143,13 @@ class MainActivity : AppCompatActivity() {
             setBackgroundColor(0xFF151517.toInt())
             setPadding(48, 48, 48, 48)
         }
+        // 骨架屏：加载真实界面前先盖一层本地静态占位（与 DSH 主界面同色系），
+        // 视觉上无白屏、无读条，READY 后再 loadUrl 换真页。
+        // 仅当 assets 带 skeleton.html 时启用，缺文件退化回纯色 waitView。
+        skeletonReady = runCatching {
+            assets.open("skeleton.html").bufferedReader().use { it.readText() }
+        }.getOrNull() != null
+        if (skeletonReady) web.loadUrl("file:///android_asset/skeleton.html")
 
         web = WebView(this).apply {
             settings.javaScriptEnabled = true
@@ -343,6 +352,8 @@ class MainActivity : AppCompatActivity() {
         addContentView(waitView, ViewGroup.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.MATCH_PARENT))
+        // 骨架屏就绪时，初始不显示纯色文字层，让 web 里的骨架占位直接可见。
+        if (skeletonReady) waitView.visibility = View.GONE
 
         // 挂载完成后再请求一次，双保险
         web.post { ViewCompat.requestApplyInsets(web) }
@@ -627,7 +638,7 @@ class MainActivity : AppCompatActivity() {
                     // 3) 首次启动中
                     url == null -> {
                         val s = (System.currentTimeMillis() - startAt) / 1000
-                        showWaiting("正在启动引擎…\n已等待 $s 秒（首次需解压 400MB 资源，可能数分钟）")
+                        showWaiting("正在启动引擎…\n已等待 $s 秒（首次需解压资源，可能数十秒）")
                         handler.postDelayed(this, 1500)
                     }
                 }
@@ -682,6 +693,13 @@ class MainActivity : AppCompatActivity() {
     private fun showWaiting(msg: String) {
         if (msg == lastMsg) return
         lastMsg = msg
+        // 骨架屏就绪时：文字层保持透明、不盖住骨架占位，仅在底层真正白屏（无骨架）时才整屏显示。
+        if (skeletonReady) {
+            waitView.setBackgroundColor(0x00000000)
+            waitView.alpha = 0.0f
+            waitView.visibility = View.GONE
+            return
+        }
         waitView.visibility = View.VISIBLE
         waitView.text = msg
     }

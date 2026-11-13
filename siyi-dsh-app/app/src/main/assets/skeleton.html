@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html,body { height:100%; background:#151517; color:#9BA7B4;
+    font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif; }
+  .app { display:flex; flex-direction:column; height:100%; }
+  .top { height:56px; display:flex; align-items:center; padding:0 12px; gap:12px; }
+  .ic { width:28px; height:28px; border-radius:8px; background:#26262b; }
+  .spacer { flex:1; }
+  .body { flex:1; display:flex; flex-direction:column; gap:14px; padding:18px 16px; }
+  .row { display:flex; gap:10px; align-items:flex-end; }
+  .row.me { flex-direction:row-reverse; }
+  .av { width:30px; height:30px; border-radius:50%; background:#26262b; flex:none; }
+  .bub { height:42px; border-radius:14px; background:#202024; }
+  .b1 { width:62%; } .b2 { width:48%; } .b3 { width:74%; } .b4 { width:40%; }
+  .input { margin:10px 12px 18px; height:46px; border-radius:23px;
+    background:#202024; border:1px solid #2c2c33; display:flex; align-items:center; padding:0 18px; }
+  .send { margin-left:auto; width:30px; height:30px; border-radius:50%; background:#2c2c33; }
+  .sh { background:linear-gradient(90deg,#202024 25%,#2a2a30 37%,#202024 63%);
+    background-size:400% 100%; animation:sh 1.4s ease infinite; }
+  @keyframes sh { 0%{background-position:100% 0} 100%{background-position:-100% 0} }
+</style>
+</head>
+<body>
+  <div class="app">
+    <div class="top">
+      <div class="ic sh"></div>
+      <div class="spacer"></div>
+      <div class="ic sh"></div>
+    </div>
+    <div class="body">
+      <div class="row"><div class="av sh"></div><div class="bub b1 sh"></div></div>
+      <div class="row me"><div class="av sh"></div><div class="bub b2 sh"></div></div>
+      <div class="row"><div class="av sh"></div><div class="bub b3 sh"></div></div>
+      <div class="row me"><div class="av sh"></div><div class="bub b4 sh"></div></div>
+    </div>
+    <div class="input sh"><div class="send"></div></div>
+  </div>
+</body>
+</html>

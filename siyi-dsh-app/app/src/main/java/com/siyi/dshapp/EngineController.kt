@@ -79,8 +79,14 @@ object EngineController {
     /** 当前状态。 */
     fun state(): State = stateRef.get()
 
-    /** 引擎是否在跑。 */
-    fun isRunning(): Boolean = processRef.get()?.isAlive == true
+    /**
+     * 引擎是否在跑。
+     *
+     * ⚠ 不能只看 processRef：setsid 之后引擎不是本进程的直接子进程，
+     * 句柄会很快失效（isAlive 变 false），但引擎其实活着。
+     * 所以判据是**端口是否在监听** —— 这才是引擎的真实状态。
+     */
+    fun isRunning(): Boolean = isListening()
 
     /**
      * 确保引擎在跑。**唯一**的启动入口。
@@ -179,17 +185,30 @@ object EngineController {
         val p = processRef.get()
         processRef.set(null)
         stateRef.set(State(Phase.IDLE))
-        if (p == null) return
-        // destroyForcibly() 原生就是 SIGKILL，不需要自己拿 pid 去 kill。
-        // 引擎不响应 SIGTERM 时会变成孤儿占着 3180，这里必须真的杀掉。
-        runCatching {
-            p.destroy()
-            if (!p.waitFor(2, java.util.concurrent.TimeUnit.SECONDS)) {
-                stage("SIGTERM 无效，改用 destroyForcibly（SIGKILL）")
-                p.destroyForcibly()
-                p.waitFor(3, java.util.concurrent.TimeUnit.SECONDS)
+        val c = appCtx
+        // setsid 之后 p 只是 setsid 的句柄，杀它对真正的引擎无效。
+        // 统一按 pid 文件里登记的真实 pid 清理。
+        val real = findEnginePid()
+        if (real > 1) {
+            stage("停止引擎 pid=" + real)
+            runCatching { android.os.Process.killProcess(real) }
+            var waited = 0
+            while (waited < 20 && isAlive(real)) { Thread.sleep(100); waited++ }
+            if (isAlive(real)) {
+                stage("SIGTERM 无效，SIGKILL pid=" + real)
+                runCatching {
+                    ProcessBuilder("kill", "-9", real.toString())
+                        .start().waitFor(1, java.util.concurrent.TimeUnit.SECONDS)
+                }
+            }
+        } else if (p != null) {
+            // 没有登记 pid（刚启动就停），退回杀句柄
+            runCatching {
+                p.destroy()
+                if (!p.waitFor(2, java.util.concurrent.TimeUnit.SECONDS)) p.destroyForcibly()
             }
         }
+        if (c != null) clearPidFile(c)
     }
 
     // ── 内部实现 ────────────────────────────────────────────────────────────
@@ -218,7 +237,19 @@ object EngineController {
         if (!binJs.exists()) { fail("引擎缺失: ${binJs.path}", onStatus); return }
 
         onStatus("启动 web 服务…")
+        // ⚠ 用 setsid 脱离进程组。
+        //
+        // Android 的 force-stop / 杀包会按 uid 清理**同 uid 的所有进程**，
+        // 包括引擎子进程。所以「App 退出但引擎继续跑」在普通 spawn 下做不到。
+        //
+        // setsid 让引擎进入**新会话**，PPID 变成 1（被 init 收养），
+        // 实测 App 被 force-stop 后它仍然存活（验证过：setsid sleep 200
+        // 在 force-stop 后 PPID=1 依然在跑）。
+        //
+        // 于是引擎成了真正的常驻服务：App 退出它继续跑，
+        // 下次打开 App 直接接管，0 等待 —— 这是方案 B 的核心。
         val cmd = listOf(
+            "/system/bin/setsid",
             nodeBin.absolutePath, "--expose-internals", binJs.absolutePath,
             "--profile", "web", "--port", WEB_PORT.toString(), "--no-open"
         )
@@ -293,7 +324,18 @@ object EngineController {
             val p = pb.start()
             stage("engine started, alive=" + p.isAlive)
             processRef.set(p)
-            writePidFile(ctx, pidOf(p))
+            // setsid 之后拿不到真实 pid（句柄指向的是 setsid 本身），
+            // 所以稍等一下扫 /proc 找到真正的引擎进程再登记。
+            Thread {
+                Thread.sleep(600)
+                val real = findEnginePid()
+                if (real > 1) {
+                    writePidFile(ctx, real)
+                    stage("引擎 pid=" + real + "（已脱离 App 进程）")
+                } else {
+                    stage("警告：找不到脱离后的引擎 pid")
+                }
+            }.start()
             if (bridgeEnv != null) DeviceBridge.start(ctx)
             // 挂上监督：引擎崩了要有人知道，否则状态永远停在 READY，
             // UI 会拿着已经死掉的地址反复刷新 → 白屏且不自愈。
@@ -364,8 +406,18 @@ object EngineController {
     private fun freePort(ctx: Context, port: Int): Boolean {
         if (!isPortInUse(port)) { stage("port " + port + " 空闲"); return true }
         stage("port " + port + " 被占用，尝试清理")
-        val orphans = readPidFile(ctx).filter { it != pidOf(processRef.get()) }
-        stage("port " + port + " pid文件里的引擎: " + orphans.joinToString(","))
+        // ⚠ 常驻引擎时代，pid 文件里登记的可能正是**正在提供服务**的那个引擎，
+        // 杀掉它等于自己掐断自己。所以先看端口：端口还在监听说明它活着，
+        // 不能动；只有「进程在但端口不响应」才是该清的残留。
+        val orphans = readPidFile(ctx).filter { pid ->
+            if (pid == pidOf(processRef.get())) return@filter false
+            // 端口在监听 → 有引擎在服务，动它就是自断
+            if (isListening()) return@filter false
+            // 端口没人听但进程还在 → 残留，杀掉
+            !isAlive(pid)
+        }
+        stage("port " + port + " pid文件里的引擎: " + readPidFile(ctx).joinToString(",")
+            + " 待清理: " + orphans.joinToString(","))
         for (pid in orphans) {
             stage("kill 残留引擎 pid=" + pid)
             // 先 SIGTERM 再 SIGKILL：node 引擎不一定响应 SIGTERM，
@@ -433,6 +485,23 @@ object EngineController {
     /** App 私有目录。 */
     private fun ctxFiles(): java.io.File = appCtx?.filesDir
         ?: java.io.File("/data/data/com.siyi.dshapp/files")
+
+    /**
+     * 扫描 /proc 找出真正的引擎进程 pid。
+     *
+     * setsid 之后 ProcessBuilder 拿到的句柄指向 setsid 自己，
+     * 而 setsid 会立刻 exec 成引擎 —— 但 Java 侧拿不到 exec 后的 pid。
+     * 只能按 cmdline 特征找：同时包含 libdshnode.so、bin.js 和 --port 3180。
+     */
+    private fun findEnginePid(): Int = runCatching {
+        File("/proc").listFiles()
+            ?.filter { it.isDirectory && it.name.all(Char::isDigit) }
+            ?.firstOrNull { dir ->
+                val cmd = runCatching { File(dir, "cmdline").readText() }.getOrNull() ?: return@firstOrNull false
+                cmd.contains("libdshnode.so") && cmd.contains("bin.js") && cmd.contains("--port " + WEB_PORT)
+            }
+            ?.name?.toIntOrNull() ?: -1
+    }.getOrDefault(-1)
 
     /** 引擎的 HTTP 端口是否还在响应（连接能否建立）。与 ROM 实现无关，必定有效。 */
     private fun isListening(): Boolean = runCatching {
@@ -584,9 +653,15 @@ object EngineController {
                 if (fails < 5) continue
 
                 stage("引擎无响应（连续5次），判定已退出")
-                if (processRef.get() !== p) { stage("已不是当前引擎，忽略"); return@Thread }
-                // 顺手把可能的残留进程清掉，避免下一轮撞端口
-                runCatching { p.destroyForcibly() }
+                // setsid 之后 p 是 setsid 的句柄，杀它没用；
+                // 要按 pid 文件里登记的真实引擎 pid 清理，否则残留进程会占着端口。
+                val c0 = appCtx ?: ctx
+                val real = findEnginePid()
+                if (real > 1) {
+                    stage("清理无响应的引擎 pid=" + real)
+                    runCatching { android.os.Process.killProcess(real) }
+                }
+                clearPidFile(c0)
                 processRef.set(null)
                 stateRef.set(State(Phase.FAILED, error = "引擎无响应，正在重启…"))
                 statusSink?.invoke("引擎无响应，正在重启…")

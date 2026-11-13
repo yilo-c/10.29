@@ -408,6 +408,13 @@ class MainActivity : AppCompatActivity() {
         loadAt = System.currentTimeMillis()
         loadedUrl = url
         web.loadUrl(url)
+        // 骨架页是过渡用的，不该留在历史里：否则用户按返回键会退回骨架屏，
+        // 表现为「一返回就变灰块」。真页加载完成后清一次历史。
+        if (skeletonReady && url.startsWith("http")) {
+            handler.postDelayed({
+                runCatching { web.clearHistory() }
+            }, 1500)
+        }
         handler.postDelayed({ probeRendered() }, 6000)
         handler.postDelayed({ probeRendered() }, 13000)
     }

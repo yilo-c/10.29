@@ -245,9 +245,19 @@ class MainActivity : AppCompatActivity() {
                     handler.postDelayed({ probeRendered() }, 800)
                     handler.postDelayed({ probeRendered() }, 2500)
                     handler.postDelayed({ probeRendered() }, 5000)
-                    // 诊断：确认布局补丁是否真的把 data-windows-titlebar 加上了。
-                    // 这个属性决定左侧图标栏宽度算 0 还是 56px。
-                    for (d in longArrayOf(1500L, 4000L, 8000L)) {
+                    // 布局补丁是「一次性执行」的代码：它在页面加载时把
+                    // data-windows-titlebar 加到 <html> 上，DSH 据此把左侧图标栏
+                    // 宽度算成 0。
+                    //
+                    // ⚠ 引擎常驻后页面不会重新加载（URL 没变），如果首屏那次
+                    //   补丁没跑成，之后永远不会重试 —— 表现就是侧边栏又冒出来。
+                    //
+                    // 所以这里在每次页面加载完成后，主动确认一次属性在不在；
+                    // 不在就补上（等价于重跑补丁的 ensure）。
+                    handler.postDelayed({ ensureLayoutPatch() }, 1200)
+                    handler.postDelayed({ ensureLayoutPatch() }, 4000)
+                    // 诊断：确认补丁状态
+                    for (d in longArrayOf(1500L, 8000L)) {
                         handler.postDelayed({ dumpLayoutState() }, d)
                     }
                 }
@@ -387,6 +397,32 @@ class MainActivity : AppCompatActivity() {
         web.loadUrl(url)
         handler.postDelayed({ probeRendered() }, 6000)
         handler.postDelayed({ probeRendered() }, 13000)
+    }
+
+    /**
+     * 确保布局补丁已生效：<html> 上必须有 data-windows-titlebar。
+     *
+     * DSH 的布局逻辑是
+     *   collapsedWidth = darwin || html.hasAttribute("data-windows-titlebar") ? 0 : 56
+     * 属性在 → 左侧图标栏宽度 0（完全隐藏，侧边栏变成点按钮才滑出的抽屉）
+     * 属性不在 → 宽度 56px，那条图标轨道就一直杵在屏幕左边。
+     *
+     * 正常情况下补丁自己会加好这个属性。这里是兜底：常驻引擎让页面不再重载，
+     * 首屏没生效就永远不生效，所以由 App 主动补一次。
+     */
+    private fun ensureLayoutPatch() {
+        if (!isEnginePage()) return
+        web.evaluateJavascript(
+            "(function(){" +
+            "  var r=document.documentElement;" +
+            "  if(!r.hasAttribute('data-windows-titlebar')) r.setAttribute('data-windows-titlebar','');" +
+            "  return r.hasAttribute('data-windows-titlebar');" +
+            "})()"
+        ) { v ->
+            if (v != null && v.contains("true")) {
+                android.util.Log.i("SiyiLayout", "已确保 data-windows-titlebar 存在")
+            }
+        }
     }
 
     /**
@@ -661,6 +697,9 @@ class MainActivity : AppCompatActivity() {
             loadUrl(url)
         } else if (url != null) {
             // 从后台回来：引擎可能刚被解冻，页面也可能被系统回收了内容。
+            // 常驻引擎下页面不会重载，布局补丁若首屏没生效就永远不生效，
+            // 所以每次回前台都补一次。
+            handler.postDelayed({ ensureLayoutPatch() }, 800)
             // 先体检一次（2 秒），不行再重挂（6.5 秒），最后兜底整页重载（12 秒）。
             retries = 0
             loadAt = System.currentTimeMillis()

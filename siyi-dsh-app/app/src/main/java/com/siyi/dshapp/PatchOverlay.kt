@@ -69,9 +69,16 @@ object PatchOverlay {
             val fp = fingerprint(files)
             val mark = File(ctx.filesDir, ".patch-" + t.name)
             val prev = if (mark.exists()) runCatching { mark.readText() }.getOrDefault("") else ""
-            if (prev == fp) {
+            if (prev == fp && targetsMatch(dst, files)) {
                 AppLog.write("boot.log", "补丁 " + t.name + " 无变化，跳过（" + files.size + " 个文件）")
                 continue
+            }
+            // 指纹相同但目标对不上（文件被删、被覆盖、或被别的流程改过）时，
+            // 照样要重放。之前的实现只看指纹，目标文件缺失也不管，
+            // 结果补丁「看起来在」但实际没生效 —— 这正是 llm-service-lite
+            // 的工具名合并一直没生效的原因。
+            if (prev == fp) {
+                AppLog.write("boot.log", "补丁 " + t.name + " 指纹相同但目标不一致，重新重放")
             }
             var ok = 0
             var fail = 0
@@ -134,6 +141,37 @@ object PatchOverlay {
         walk(root, "")
         return out
     }
+
+    /**
+     * 目标文件是否已经与补丁源一致（按大小+内容摘要比对）。
+     *
+     * 只比大小不够：不同内容可能同样大小；只比 mtime 也不行 ——
+     * 解压会把所有文件时间刷成同一个值。
+     * 这里比「大小 + 内容的 CRC32」，够快也够准。
+     */
+    private fun targetsMatch(dst: File, files: List<Pair<String, File>>): Boolean {
+        for ((rel, src) in files) {
+            val out = File(dst, rel)
+            if (!out.exists()) return false
+            if (out.length() != src.length()) return false
+            if (crc32(out) != crc32(src)) return false
+        }
+        return true
+    }
+
+    /** 文件内容的 CRC32。 */
+    private fun crc32(f: File): Long = runCatching {
+        java.util.zip.CRC32().apply {
+            f.inputStream().use { ins ->
+                val buf = ByteArray(64 * 1024)
+                while (true) {
+                    val n = ins.read(buf)
+                    if (n <= 0) break
+                    update(buf, 0, n)
+                }
+            }
+        }.value
+    }.getOrDefault(-1L)
 
     /** 指纹：文件数 + 总字节数 + 最新修改时间。内容变了或文件增删都会变。 */
     private fun fingerprint(files: List<Pair<String, File>>): String {

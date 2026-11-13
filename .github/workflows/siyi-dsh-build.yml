@@ -194,7 +194,7 @@ jobs:
           # 之前拼成 2026111243136691423（19 位）会直接溢出，
           # 所以改成 日期*100 + 运行号后两位 = 2026111200 ~ 2026111299。
           VC=$(( $(date -u +%Y%m%d) * 100 + GITHUB_RUN_NUMBER % 100 ))
-          VN="0.34.$GITHUB_RUN_NUMBER"
+          VN="1.0.0"
           echo "SIYI_VERSION_CODE=$VC" >> $GITHUB_ENV
           echo "SIYI_VERSION_NAME=$VN" >> $GITHUB_ENV
           echo "versionCode=$VC versionName=$VN"

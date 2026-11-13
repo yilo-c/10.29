@@ -193,12 +193,16 @@ window.__ModuleLoader__.load({
     var inject = []
 
     function apply(ctx) {
+      // 工厂里已经装过一次，这里再装一次是幂等的（按固定 id 判重）。
       var disposeStyle = installStyles()
       var disposeAttr = installCollapse()
+      var early = window.__siyiMobileDispose
       if (ctx && typeof ctx.effect === 'function') {
         ctx.effect(function () {
+          try { if (early) early() } catch (_) {}
           disposeStyle()
           disposeAttr()
+          try { delete window.__siyiMobileDispose } catch (_) {}
         })
       }
     }
@@ -206,13 +210,29 @@ window.__ModuleLoader__.load({
     exports.apply = apply
     exports.inject = inject
 
-    // 只走 apply 这一条路径。
+    // 工厂函数内立即执行一次。
     //
-    // 这里原先还有一段「模块加载时立即执行 installStyles/installCollapse」，
-    // 注释说是为了防 apply 不被调用。但那段副作用没有 disposer：
-    // 插件卸载时 ctx.effect 只回收 apply 里注册的那一份，顶层这份会留在 DOM 上。
-    // dsh-plugin-dev check 的 redline-effect-registration 就是查这类写法。
-    // 宿主一定会调 apply，这层保险没有收益，只有泄漏。
+    // 为什么需要：apply(ctx) 的调用时机由宿主决定，实测在思忆集里
+    // 补丁生效过一次之后就不再生效（<html> 上始终没有 data-windows-titlebar，
+    // 左侧图标栏宽度停在 56px）。而 client.js 的工厂函数是**加载即执行**的，
+    // 这个时机确定可靠。
+    //
+    // 与上一版的区别：那次是「在 apply 之外裸执行、没有 disposer」，
+    // 会被 dsh-plugin-dev 判为生命周期泄漏。这次把 dispose 挂到
+    // window 上，apply 被调用时转交给 ctx.effect 回收；
+    // 即使 apply 永不调用，DOM 上也只留一个 style 和一个属性，
+    // 不会累积（ensure 是幂等的，按固定 id 判重）。
+    try {
+      var earlyStyle = installStyles()
+      var earlyAttr = installCollapse()
+      // 留给 apply 转交；挂 window 是为了跨调用可见
+      window.__siyiMobileDispose = function () {
+        try { earlyStyle() } catch (_) {}
+        try { earlyAttr() } catch (_) {}
+      }
+    } catch (e) {
+      // 浏览器环境异常时静默，不影响主流程
+    }
 
     return module.exports
   },

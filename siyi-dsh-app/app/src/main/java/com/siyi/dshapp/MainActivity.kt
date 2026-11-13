@@ -245,6 +245,11 @@ class MainActivity : AppCompatActivity() {
                     handler.postDelayed({ probeRendered() }, 800)
                     handler.postDelayed({ probeRendered() }, 2500)
                     handler.postDelayed({ probeRendered() }, 5000)
+                    // 诊断：确认布局补丁是否真的把 data-windows-titlebar 加上了。
+                    // 这个属性决定左侧图标栏宽度算 0 还是 56px。
+                    for (d in longArrayOf(1500L, 4000L, 8000L)) {
+                        handler.postDelayed({ dumpLayoutState() }, d)
+                    }
                 }
                 /**
                  * 非引擎页面的导航一律交给系统浏览器。
@@ -382,6 +387,28 @@ class MainActivity : AppCompatActivity() {
         web.loadUrl(url)
         handler.postDelayed({ probeRendered() }, 6000)
         handler.postDelayed({ probeRendered() }, 13000)
+    }
+
+    /**
+     * 诊断：把布局相关的 DOM 状态写进日志。
+     *
+     * 关心三件事：
+     *   attr       — <html> 上有没有 data-windows-titlebar（决定图标栏宽度）
+     *   styleTag   — 补丁注入的 <style id=siyi-mobile-layout> 在不在
+     *   railW      — 左侧图标栏实际渲染宽度
+     */
+    private fun dumpLayoutState() {
+        web.evaluateJavascript(
+            "(function(){" +
+            "  var r=document.documentElement;" +
+            "  var attr=r.hasAttribute('data-windows-titlebar');" +
+            "  var st=!!document.getElementById('siyi-mobile-layout');" +
+            "  var col=document.querySelector('[class*=\"sidebarCol\"]');" +
+            "  var w=col?Math.round(col.getBoundingClientRect().width):-1;" +
+            "  return 'attr='+attr+' styleTag='+st+' railW='+w+" +
+            "         ' viewport='+window.innerWidth;" +
+            "})()"
+        ) { v -> android.util.Log.i("SiyiLayout", "状态 " + v) }
     }
 
     /** 用 JS 检查 React 是否已挂载内容；一直没有内容就当作白屏重挂。 */

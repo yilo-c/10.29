@@ -112,7 +112,7 @@ object PatchOverlay {
     private fun fingerprint(files: List<Pair<String, File>>): String {
         var size = 0L
         var newest = 0L
-        for (_, f) in files {
+        for ((_, f) in files) {
             size += f.length()
             if (f.lastModified() > newest) newest = f.lastModified()
         }

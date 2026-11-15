@@ -71,6 +71,15 @@ object EngineController {
     /** 自动重启上限：超过就停手，避免崩溃循环把电池和存储写爆。 */
     private const val MAX_RESTARTS = 3
 
+    /** 用户覆盖层：放 sdcard，覆盖安装不会被动。 */
+    private val USER_PATCH = File("/sdcard/思忆集/config/user-patch.yml")
+
+    /** 本次启动是否真的带上了 --patch（只有带上才可能因为用户层坏掉而起不来）。 */
+    private val patchActive = AtomicBoolean(false)
+
+    /** 用户层被判死过一次之后，本进程生命周期内不再加载，避免反复启动反复失败。 */
+    private val userPatchDisabled = AtomicBoolean(false)
+
     /** 启动超时：从拉起进程到打出带 token 地址的最长等待。 */
     private const val START_TIMEOUT_MS = 180_000L
 
@@ -248,20 +257,48 @@ object EngineController {
         //
         // 于是引擎成了真正的常驻服务：App 退出它继续跑，
         // 下次打开 App 直接接管，0 等待 —— 这是方案 B 的核心。
-        // 用户 patch 层：放 /sdcard 下，覆盖安装不会被动。
+        // ── 用户覆盖层 ──────────────────────────────────────────────────────
         // 叠加顺序是「bundle 层 -> profile 的 cordis.patch.yml -> --patch 覆盖层」，
-        // 所以这里能覆盖 APK 内的默认 provider 与默认模型，且优先级最高。
-        // 文件不存在时跳过：--patch 指向不存在的文件会让引擎直接报错退出。
-        val userPatch = File("/sdcard/思忆集/config/user-patch.yml")
-        val cmd = mutableListOf(
-            "/system/bin/setsid",
-            nodeBin.absolutePath, "--expose-internals", binJs.absolutePath,
-            "--profile", "web", "--port", WEB_PORT.toString(), "--no-open"
-        )
-        if (userPatch.isFile) {
-            cmd.add("--patch")
-            cmd.add(userPatch.absolutePath)
+        // 所以这里能覆盖 APK 内置的默认模型，且优先级最高；文件在 /sdcard，
+        // 覆盖安装不会被动，配置因此能跨版本留存。
+        //
+        // ⚠ 两个坑，285 版就是死在这里（装完直接打不开）：
+        //
+        // 坑一：位置。dsh 启动器只认自己那批 flag，**第一个不认识的 token 之后
+        //   全部原样交给内层应用**。所以 --patch 必须写在 --port/--no-open 之前；
+        //   写成 `--port 3180 --no-open --patch x.yml` 会被 web 应用当成它自己的参数，
+        //   报 `error: unknown option '--patch'` 立即退出 —— 界面永远白屏。
+        //
+        // 坑二：内容。APK 内的 profile-patch.yml 已经挂好了 provider 和全部插件，
+        //   覆盖层再 insert 一遍会出现同 id 的第二份条目，引擎以
+        //   「invalid config / startup failed」整树启动失败。所以只允许「整行覆盖」。
+        //
+        // 兜底：静态校验不过就跳过；过了还是起不来，看门狗会把文件改名成
+        //   .rejected 并在不带它的情况下重启，保证不会出现「装完打不开」。
+        val patchArgs = mutableListOf<String>()
+        if (!userPatchDisabled.get() && USER_PATCH.isFile) {
+            val reject = userPatchRejectReason(USER_PATCH)
+            if (reject != null) {
+                stage("跳过 user-patch.yml：" + reject + "，本次只用 APK 内置配置")
+            } else {
+                patchArgs.add("--patch")
+                patchArgs.add(USER_PATCH.absolutePath)
+                patchActive.set(true)
+                stage("使用 user-patch.yml: " + USER_PATCH.absolutePath)
+            }
         }
+
+        val cmd = mutableListOf<String>()
+        cmd.add("/system/bin/setsid")
+        cmd.add(nodeBin.absolutePath)
+        cmd.add("--expose-internals")
+        cmd.add(binJs.absolutePath)
+        // ↓ 以下是启动器自己的 flag，必须排在任何内层参数之前
+        cmd.add("--profile"); cmd.add("web")
+        cmd.addAll(patchArgs)
+        // ↓ 以下两个属于内层 web 应用，一旦出现，后面的东西它全收
+        cmd.add("--port"); cmd.add(WEB_PORT.toString())
+        cmd.add("--no-open")
         val pb = ProcessBuilder(cmd)
         pb.directory(engine)
         // stdout/stderr 直接重定向到文件，而不是靠 App 进程去读管道。
@@ -435,6 +472,20 @@ object EngineController {
                         if (n <= 0) return@runCatching
                         pos += n
                         val chunk = String(buf, 0, n, Charsets.UTF_8)
+                        // 带 --patch 时出现这几类报错，说明是用户层把引擎打死的：
+                        //   unknown option '--patch'        → 参数位置错了，内层应用收到了它
+                        //   startup failed / failed to parse → 用户层条目让整树校验失败
+                        // 先判死用户层，再让下面的重启逻辑不带它重来一次。
+                        if (patchActive.get()) {
+                            if (chunk.contains("unknown option", true)) {
+                                disableUserPatch("引擎不认 --patch 参数")
+                            } else if (chunk.contains("startup failed", true) ||
+                                chunk.contains("failed to parse", true) ||
+                                chunk.contains("must be a top-level YAML array", true)
+                            ) {
+                                disableUserPatch("用户层配置加载失败")
+                            }
+                        }
                         if (chunk.contains("startup failed", true) && stateRef.get().phase != Phase.READY) {
                             stateRef.set(State(Phase.FAILED, error = "引擎启动失败"))
                             statusSink?.invoke("引擎启动失败，正在重试…")
@@ -443,6 +494,46 @@ object EngineController {
                 }
             }
         }.apply { isDaemon = true; start() }
+    }
+
+    /**
+     * 静态校验用户覆盖层。返回 null 表示可用，否则返回拒绝原因。
+     *
+     * 只挡已知的两种「装完打不开」，不做完整 YAML 解析：
+     *   1. 能读、非空；
+     *   2. 顶层是数组（引擎要求 patch 文件是 `- ...` 列表，否则直接抛错退出）；
+     *   3. 不含 insert: / cordis:group —— 这会把已经存在的条目再挂一遍。
+     * 真正的语法错误交给引擎报错，再由看门狗降级（改名 + 不带它重启）。
+     */
+    private fun userPatchRejectReason(f: File): String? {
+        val text = runCatching { f.readText() }.getOrNull() ?: return "读不出来"
+        if (text.isBlank()) return "空文件"
+        val firstLine = text.lineSequence()
+            .map { it.substringBefore("#").trim() }
+            .firstOrNull { it.isNotEmpty() } ?: return "只有注释"
+        if (!firstLine.startsWith("-")) return "顶层必须是 YAML 数组（以 - 开头）"
+        val bad = text.lineSequence()
+            .map { it.substringBefore("#").trim() }
+            .firstOrNull { it.startsWith("insert:") || it.contains("cordis:group") }
+        if (bad != null) return "含 insert / cordis:group，会造成条目重复（" + bad + "）"
+        return null
+    }
+
+    /**
+     * 判死用户覆盖层：改名保全现场，下次启动不再带它。
+     * 只在本次启动确实带过 --patch 时动作，所以不会误伤正常配置。
+     */
+    private fun disableUserPatch(reason: String) {
+        if (!patchActive.compareAndSet(true, false)) return
+        userPatchDisabled.set(true)
+        stage("user-patch.yml 导致引擎启动失败（" + reason + "）：改名 .rejected，改为只用 APK 内置配置")
+        runCatching {
+            val bak = File(USER_PATCH.absolutePath + ".rejected")
+            if (bak.exists()) bak.delete()
+            if (USER_PATCH.isFile && !USER_PATCH.renameTo(bak)) {
+                stage("警告：改名为 .rejected 失败，目录不可写")
+            }
+        }
     }
 
     private fun fail(msg: String, onStatus: (String) -> Unit) {

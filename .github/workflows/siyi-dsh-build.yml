@@ -172,11 +172,31 @@ jobs:
           # session-persistence-jsonl 的 npm 原版在 Android 上分别报 flock / link 错误。
           mkdir -p "$WS/engine-native"
           unzip -q -o "$WS/dsh.apk" "assets/engine.zip" -d "$WS/engine-native"
-          unzip -q -o "$WS/engine-native/assets/engine.zip" -d "$WS/engine-native" "node_modules/@deepseek-ai/dsh-app-boot/*" "node_modules/@deepseek-ai/node-addon-system/*" "node_modules/@deepseek-ai/dsh-session-persistence-jsonl/*" "node_modules/@img/sharp-wasm32/*" "node_modules/@emnapi/runtime/*"
+          unzip -q -o "$WS/engine-native/assets/engine.zip" -d "$WS/engine-native" "node_modules/@deepseek-ai/dsh-app-boot/*" "node_modules/@deepseek-ai/node-addon-system/*" "node_modules/@deepseek-ai/dsh-session-persistence-jsonl/*" "node_modules/@img/sharp-wasm32/*" "node_modules/@emnapi/runtime/*" "node_modules/@deepseek-ai/dsh-attachment-local/*" "node_modules/@deepseek-ai/dsh-tools/*" "node_modules/@deepseek-ai/dsh-commands/*" "node_modules/@deepseek-ai/dsh-spill-local/*" "node_modules/@deepseek-ai/dsh-tool-fs-search/*" "node_modules/@deepseek-ai/dsh-http-proxy/*" "node_modules/@deepseek-ai/dsh-plugin-market/*"
           for pkg in dsh-app-boot node-addon-system dsh-session-persistence-jsonl; do
             rm -rf "node_modules/@deepseek-ai/$pkg"
             cp -r "$WS/engine-native/node_modules/@deepseek-ai/$pkg" "node_modules/@deepseek-ai/$pkg"
             echo "unified $pkg"
+          done
+          # ── A10 引擎侧的 Android 补丁包必须同步进 profile 树（2026-11-15）──
+          # 官方 engine.zip 里的这 7 个包带 DSH-Android 补丁，npm 原版没有。
+          # loadProfileDirectory 解析 bundle 时先查安装锚点、再查 profile 目录，
+          # 而 profile 是独立 pnpm 安装，命中的是 npm 原版 —— 于是运行期加载的
+          # 是没补丁的那份。最典型的是 dsh-attachment-local：
+          #   ensureDurableHome 从 DSH_HOME 一路 fsync 到 /，
+          #   Android 上 /data/user/0 是 0771 system:system，打不开就抛 EACCES，
+          #   这个裸 Error 在 session-controller 里被包成
+          #   RemoteError("session/agent-busy", "prompt rejected")
+          #   —— 用户看到的就是「发图片报 prompt rejected (session/agent-busy)」。
+          # 另外 link() 在 Android 应用私有目录下也不可用，要靠 copy+rename 兜底。
+          # 这里统一用引擎侧的定制版覆盖 profile 树，与 A1-A7 同一套路。
+          for pkg in dsh-attachment-local dsh-tools dsh-commands dsh-spill-local dsh-tool-fs-search dsh-http-proxy dsh-plugin-market; do
+            SRC="$WS/engine-native/node_modules/@deepseek-ai/$pkg/lib/index.js"
+            DST="node_modules/@deepseek-ai/$pkg/lib/index.js"
+            test -f "$SRC" || { echo "engine-native 缺 $pkg"; exit 1; }
+            test -f "$DST" || { echo "profile 树缺 $pkg"; exit 1; }
+            cp "$SRC" "$DST"
+            echo "A10 synced $pkg"
           done
           # 思忆集移动端布局插件：修正窄屏设置面板的两栏挤压与中文逐字换行。
           # 客户端插件清单只扫描 cordis 树里的 entry，所以除了复制进 node_modules，
@@ -252,6 +272,16 @@ jobs:
               console.log('A7 sharp ok:', m.format, m.width + 'x' + m.height, b.length + 'B');
             }).catch(e => { console.error('A7 sharp 失败:', e.message); process.exit(1) });
           " ) || { echo "A7 sharp 校验失败"; exit 1; }
+
+          # A10 校验：Android 补丁包必须真的进了 profile 树。
+          # dsh-attachment-local 的 syncDirectory 要有 EACCES 兜底，link 要有 copy 兜底；
+          # 这两处缺任何一个，发图片就会退回「prompt rejected (session/agent-busy)」。
+          test "$(grep -c 'DSH-Android' "$PROF/@deepseek-ai/dsh-attachment-local/lib/index.js")" -ge 2 || { echo "A10 attachment-local 未同步"; exit 1; }
+          grep -q 'copyFile as __dshCopyFile' "$PROF/@deepseek-ai/dsh-attachment-local/lib/index.js" || { echo "A10 attachment-local link 兜底缺失"; exit 1; }
+          for pkg in dsh-tools dsh-commands dsh-spill-local dsh-tool-fs-search dsh-http-proxy dsh-plugin-market; do
+            test "$(grep -c 'DSH-Android' "$PROF/@deepseek-ai/$pkg/lib/index.js")" -ge 1 || { echo "A10 $pkg 未同步"; exit 1; }
+          done
+          echo "A10 七项 Android 补丁包校验通过"
 
 
 

@@ -172,7 +172,7 @@ jobs:
           # session-persistence-jsonl 的 npm 原版在 Android 上分别报 flock / link 错误。
           mkdir -p "$WS/engine-native"
           unzip -q -o "$WS/dsh.apk" "assets/engine.zip" -d "$WS/engine-native"
-          unzip -q -o "$WS/engine-native/assets/engine.zip" -d "$WS/engine-native" "node_modules/@deepseek-ai/dsh-app-boot/*" "node_modules/@deepseek-ai/node-addon-system/*" "node_modules/@deepseek-ai/dsh-session-persistence-jsonl/*"
+          unzip -q -o "$WS/engine-native/assets/engine.zip" -d "$WS/engine-native" "node_modules/@deepseek-ai/dsh-app-boot/*" "node_modules/@deepseek-ai/node-addon-system/*" "node_modules/@deepseek-ai/dsh-session-persistence-jsonl/*" "node_modules/@img/sharp-wasm32/*" "node_modules/@emnapi/runtime/*"
           for pkg in dsh-app-boot node-addon-system dsh-session-persistence-jsonl; do
             rm -rf "node_modules/@deepseek-ai/$pkg"
             cp -r "$WS/engine-native/node_modules/@deepseek-ai/$pkg" "node_modules/@deepseek-ai/$pkg"
@@ -220,6 +220,21 @@ jobs:
           cp "$WS/$APP_DIR/patches/llm-deepseek/index.js" \
              "$PROF/@deepseek-ai/dsh-llm-deepseek/lib/index.js"
 
+          # A7 sharp wasm：图片处理。官方 web-profile 里 sharp 只装 linux-x64 平台包，
+          #    Android 上抛 Could not load the "sharp" module using the android-arm64 runtime，
+          #    表现为「上传图片点发送报 prompt rejected (session/agent-busy)」。
+          #    npm 上没有 android-arm64 的 sharp 平台包（已查 registry，404），
+          #    只能从官方 engine.zip 里抽 wasm 版覆盖进来（上面已扩解压范围）。
+          SHARP_SRC="$WS/engine-native/node_modules/@img/sharp-wasm32"
+          EMNAPI_SRC="$WS/engine-native/node_modules/@emnapi/runtime"
+          test -d "$SHARP_SRC" || { echo "找不到 engine 里的 sharp-wasm32"; exit 1; }
+          test -d "$EMNAPI_SRC" || { echo "找不到 engine 里的 @emnapi/runtime"; exit 1; }
+          mkdir -p "$PROF/@img" "$PROF/@emnapi"
+          cp -r "$SHARP_SRC" "$PROF/@img/"
+          cp -r "$EMNAPI_SRC" "$PROF/@emnapi/"
+          test -f "$PROF/@img/sharp-wasm32/lib/sharp-wasm32-0.35.5.node.wasm" || { echo "sharp wasm 文件缺失"; exit 1; }
+          echo "A7 sharp wasm 已覆盖"
+
           # 四项校验，任一缺失就让 CI 失败，避免「构建成功但功能倒退」
           test "$(grep -c siyiTransportDetail "$PROF/@snnh/dsh-llm-service-lite/lib/index.js")" -gt 0 || { echo "A2 service-lite 未生效"; exit 1; }
           test "$(grep -c collapseNarrowSidebar "$PROF/@deepseek-ai/dsh-client-ui-layout/lib/client.js")" -gt 0 || { echo "A3 layout 未生效"; exit 1; }
@@ -227,6 +242,17 @@ jobs:
           test "$(grep -rl 'platform === "android"' "$PROF/@deepseek-ai/dsh-subprocess-local/lib/" | wc -l)" -gt 0 || { echo "A5 subprocess-local 未生效"; exit 1; }
           test "$(wc -c < "$PROF/node-pty/prebuilds/android-arm64/pty.node")" -gt 100000 || { echo "A1 pty.node 缺失"; exit 1; }
           echo "A 组四项校验通过"
+          # A7 校验：sharp 必须能真正处理图片（生成 1x1 png 并读回元数据）
+          # 注意 cwd 必须是 profiles/web，这样 require('sharp') 才解析到刚覆盖的包
+          ( cd "$WS/$APP_DIR/profile-build/profiles/web" && node -e "
+            const s = require('sharp');
+            s({create:{width:1,height:1,channels:3,background:'#fff'}}).png().toBuffer().then(async b => {
+              if (!b.length) { console.error('sharp 输出为空'); process.exit(1) }
+              const m = await s(b).metadata();
+              console.log('A7 sharp ok:', m.format, m.width + 'x' + m.height, b.length + 'B');
+            }).catch(e => { console.error('A7 sharp 失败:', e.message); process.exit(1) });
+          " ) || { echo "A7 sharp 校验失败"; exit 1; }
+
 
 
           echo "包数: $(ls node_modules/@deepseek-ai | wc -l)"

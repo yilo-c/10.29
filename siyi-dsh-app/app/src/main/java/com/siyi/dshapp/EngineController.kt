@@ -248,11 +248,20 @@ object EngineController {
         //
         // 于是引擎成了真正的常驻服务：App 退出它继续跑，
         // 下次打开 App 直接接管，0 等待 —— 这是方案 B 的核心。
-        val cmd = listOf(
+        // 用户 patch 层：放 /sdcard 下，覆盖安装不会被动。
+        // 叠加顺序是「bundle 层 -> profile 的 cordis.patch.yml -> --patch 覆盖层」，
+        // 所以这里能覆盖 APK 内的默认 provider 与默认模型，且优先级最高。
+        // 文件不存在时跳过：--patch 指向不存在的文件会让引擎直接报错退出。
+        val userPatch = File("/sdcard/思忆集/config/user-patch.yml")
+        val cmd = mutableListOf(
             "/system/bin/setsid",
             nodeBin.absolutePath, "--expose-internals", binJs.absolutePath,
             "--profile", "web", "--port", WEB_PORT.toString(), "--no-open"
         )
+        if (userPatch.isFile) {
+            cmd.add("--patch")
+            cmd.add(userPatch.absolutePath)
+        }
         val pb = ProcessBuilder(cmd)
         pb.directory(engine)
         // stdout/stderr 直接重定向到文件，而不是靠 App 进程去读管道。

@@ -62,6 +62,52 @@
               - id: buddy/hy4free
                 contextWindow: 1000000
                 maxTokens: 16384
+          # ── 思忆集 A9：Trae 本机网关（2026-11-15）──────────────
+          # 端口 8317，不需要密钥（实测带与不带 Authorization 都返回 200）。
+          # 官方 web-profile 不带这个 provider，装完默认只能用 8427 或 deepseek-account。
+          # contextWindow 只有前四个是网关报的真实值，其余网关返回 0，按 131072 保守填（推测值）。
+          trae:
+            displayName: Trae 本机网关
+            interfaceType: openai-chat-completions
+            baseURL: http://127.0.0.1:8317/v1
+            apiKey: unset
+            includeUsage: true
+            retryPolicy:
+              mode: normal
+              maxRetries: 8
+              backoff:
+                initialDelayMs: 1000
+                maxDelayMs: 30000
+                jitterRatio: 0.1
+            streamIdleTimeoutMs: 60000
+            models:
+              - id: Doubao-Seed-2.1-Turbo
+                contextWindow: 256000
+                maxTokens: 32768
+              - id: Doubao-Seed-Code
+                contextWindow: 256000
+                maxTokens: 32768
+              - id: deepseek-v4.1-flash
+                contextWindow: 1048576
+                maxTokens: 65536
+              - id: DeepSeek-V4-Pro-Official
+                contextWindow: 1048576
+                maxTokens: 65536
+              - id: glm-5.3-flashx
+                contextWindow: 131072
+                maxTokens: 16384
+              - id: kimi-k3.1-pro
+                contextWindow: 131072
+                maxTokens: 16384
+              - id: minimax-m3.1-flash
+                contextWindow: 131072
+                maxTokens: 16384
+              - id: qwen3.8-flash
+                contextWindow: 131072
+                maxTokens: 16384
+              - id: step-5-preview
+                contextWindow: 131072
+                maxTokens: 16384
 - id: agent-default-model
   config:
     provider: deepseek-account

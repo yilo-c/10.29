@@ -31,6 +31,18 @@
             # 模型调用会 401，界面会明确提示「本机网关未配置密钥」。
             apiKey: !!js "process.env.SIYI_GATEWAY_KEY || 'unset'"
             includeUsage: true
+            # ── 思忆集补丁 C4/C5：断流兜底（2026-11-15） ──
+            # retryPolicy 必须写在每个 provider 配置下，这是 dsh-llm-retry 的约定。
+            # 默认 maxRetries 5 / 初始 500ms / 上限 10000ms，五次不到 40 秒；
+            # 这里放长到 8 次、上限 30 秒。streamIdleTimeoutMs 从 300000 降到 60000。
+            retryPolicy:
+              mode: normal
+              maxRetries: 8
+              backoff:
+                initialDelayMs: 1000
+                maxDelayMs: 30000
+                jitterRatio: 0.1
+            streamIdleTimeoutMs: 60000
             models:
               - id: loomy/qwen3.8-flash
                 contextWindow: 1000000
@@ -52,11 +64,9 @@
                 maxTokens: 16384
 - id: agent-default-model
   config:
-    provider: local
-    # 2026-11-13 实测：minimax 已欠费(402)，ban 在它上面等于开箱即不能用。
-    # loomy/qwen3.8-flash 直连 8426 能稳定返回正文，工具调用也正常，
-    # 所以默认换成它；其余渠道由 8427 的兜底链兜着。
-    model: loomy/qwen3.8-flash
+    provider: deepseek-account
+    model: deepseek-flash
+    reasoningEffort: high
 
 # ── 设备能力桥 ────────────────────────────────────────────────
 # App 侧 EngineService 通过 DSH_BRIDGE_FD 传入 socketpair 的一端，
@@ -162,3 +172,17 @@
 - insert:
     - id: siyi-user-plugins
       name: 'dsh-user-plugins'
+
+# ── 思忆集补丁 C4/C5：DeepSeek 账号直连也要有断流兜底（2026-11-15） ──
+# 这个 provider 的 Config 展开自 deepSeekConfigFields，
+# 里面含 retryPolicy 与 streamIdleTimeoutMs，所以能配。
+- id: llm-deepseek-account
+  config:
+    retryPolicy:
+      mode: normal
+      maxRetries: 8
+      backoff:
+        initialDelayMs: 1000
+        maxDelayMs: 30000
+        jitterRatio: 0.1
+    streamIdleTimeoutMs: 60000

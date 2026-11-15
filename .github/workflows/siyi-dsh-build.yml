@@ -122,7 +122,19 @@ jobs:
           echo "补丁校验 terminal android 分支: $T"
           test "$T" -gt 0 || { echo "terminal 补丁未生效"; exit 1; }
 
-          # 4) 重新打包
+          # 4) 思忆集 A1：node-pty 整套覆盖（engine 侧）。
+          #    官方 engine.zip 里没有 node-pty，终端起不来报
+          #    "Cannot find module './prebuilds/android-arm64/pty.node'"。
+          #    这里把仓库里打好的最小集（含 android-arm64/pty.node 原生件）覆盖进去。
+          PTY_SRC=$(readlink -f "$GITHUB_WORKSPACE/$APP_DIR/patches/node-pty")
+          test -d "$PTY_SRC" || { echo "找不到 patches/node-pty"; exit 1; }
+          PTY_DST="$W/node_modules/node-pty"
+          mkdir -p "$PTY_DST"
+          cp -r "$PTY_SRC/." "$PTY_DST/"
+          test -f "$PTY_DST/prebuilds/android-arm64/pty.node" || { echo "pty.node 缺失"; exit 1; }
+          echo "已覆盖 engine/node_modules/node-pty"
+
+          # 5) 重新打包
           cd "$W"
           rm -f "$ZIP"
           zip -q -r "$ZIP" . > /dev/null
@@ -130,7 +142,7 @@ jobs:
           rm -rf "$W"
           echo "engine.zip 大小: $(stat -c%s "$ZIP") 字节"
 
-          # 5) 双项校验，任一未生效就失败
+          # 6) 三项校验，任一未生效就失败
           V=$(unzip -p "$ZIP" 'node_modules/@dsh-android/plugin-account/index.js' | grep -c existingWebServer || true)
           echo "补丁校验 account existingWebServer: $V"
           test "$V" -gt 0 || { echo "plugin-account 补丁未生效"; exit 1; }
@@ -138,6 +150,11 @@ jobs:
           D=$(unzip -p "$ZIP" 'node_modules/@dsh-android/plugin-device/index.js' | grep -c DSH_BRIDGE_SOCK || true)
           echo "补丁校验 device DSH_BRIDGE_SOCK: $D"
           test "$D" -gt 0 || { echo "plugin-device 补丁未生效"; exit 1; }
+
+          P=$(unzip -p "$ZIP" 'node_modules/node-pty/prebuilds/android-arm64/pty.node' | wc -c || true)
+          echo "补丁校验 engine pty.node 字节: $P"
+          test "$P" -gt 100000 || { echo "engine pty.node 缺失或过小"; exit 1; }
+
 
       - name: Build web profile
         run: |
@@ -176,6 +193,41 @@ jobs:
           # 两个插件会去 spawn bash，而 Android 只有 /system/bin/sh，
           # 所有 shell 工具都会报 spawn bash EACCES。
           node "$WS/$APP_DIR/patches/fix-android-bash.mjs" "$WS/$APP_DIR/profile-build/profiles/web"
+          # ── 思忆集 A 组：把设备上跑通的补丁固化进 web-profile.zip ──
+          # 这些文件原先只在设备侧 PatchOverlay 重放，重建时会被 npm 原版冲掉。
+          # 现在随 APK 一起分发，装完即带，不再依赖手工补文件。
+          PROF="$WS/$APP_DIR/profile-build/profiles/web/node_modules"
+
+          # A1 node-pty（profile 侧，与 engine 侧同一份最小集）
+          mkdir -p "$PROF/node-pty"
+          cp -r "$WS/$APP_DIR/patches/node-pty/." "$PROF/node-pty/"
+          test -f "$PROF/node-pty/prebuilds/android-arm64/pty.node" || { echo "profile pty.node 缺失"; exit 1; }
+
+          # A2 service-lite：工具名修复 + 断流真因 + 快速失败
+          cp "$WS/$APP_DIR/patches/service-lite/index.js" \
+             "$PROF/@snnh/dsh-llm-service-lite/lib/index.js"
+          # A3 选会话后侧栏自动收起
+          cp "$WS/$APP_DIR/patches/client-ui-layout/client.js" \
+             "$PROF/@deepseek-ai/dsh-client-ui-layout/lib/client.js"
+          # A4 点终端弹软键盘
+          cp "$WS/$APP_DIR/patches/sidebar-terminal/client.terminal.js" \
+             "$PROF/@deepseek-ai/dsh-client-ui-sidebar-terminal/lib/client.terminal.js"
+          # A5 subprocess-local：用官方脚本递归扫，避免写死带 hash 的文件名
+          node "$WS/$APP_DIR/patches/fix-terminal-android.mjs" "$PROF"
+          echo "A1-A5 profile 侧覆盖完成"
+
+          # C3 deepseek 传输失败带真因（与 A2 同一批补丁，一起固化）
+          cp "$WS/$APP_DIR/patches/llm-deepseek/index.js" \
+             "$PROF/@deepseek-ai/dsh-llm-deepseek/lib/index.js"
+
+          # 四项校验，任一缺失就让 CI 失败，避免「构建成功但功能倒退」
+          test "$(grep -c siyiTransportDetail "$PROF/@snnh/dsh-llm-service-lite/lib/index.js")" -gt 0 || { echo "A2 service-lite 未生效"; exit 1; }
+          test "$(grep -c collapseNarrowSidebar "$PROF/@deepseek-ai/dsh-client-ui-layout/lib/client.js")" -gt 0 || { echo "A3 layout 未生效"; exit 1; }
+          test "$(grep -c 思忆集补丁：软键盘 "$PROF/@deepseek-ai/dsh-client-ui-sidebar-terminal/lib/client.terminal.js")" -gt 0 || { echo "A4 软键盘未生效"; exit 1; }
+          test "$(grep -rl 'platform === "android"' "$PROF/@deepseek-ai/dsh-subprocess-local/lib/" | wc -l)" -gt 0 || { echo "A5 subprocess-local 未生效"; exit 1; }
+          test "$(wc -c < "$PROF/node-pty/prebuilds/android-arm64/pty.node")" -gt 100000 || { echo "A1 pty.node 缺失"; exit 1; }
+          echo "A 组四项校验通过"
+
 
           echo "包数: $(ls node_modules/@deepseek-ai | wc -l)"
           echo "client-ui: $(ls node_modules/@deepseek-ai | grep -c client-ui || true)"
@@ -189,7 +241,7 @@ jobs:
       - name: Build debug APK
         run: |
           cd "$APP_DIR"
-          # versionCode 用日期+运行号递增，避免部分 ROM 因 versionCode 不变而拒绝覆盖。
+          # versionCode 用日期+运行号��增，避免部分 ROM 因 versionCode 不变而拒绝覆盖。
           # ⚠ 必须是 int32：Android 的 versionCode 上限 2147483647。
           # 之前拼成 2026111243136691423（19 位）会直接溢出，
           # 所以改成 日期*100 + 运行号后两位 = 2026111200 ~ 2026111299。
@@ -255,7 +307,7 @@ jobs:
           # 由维护者下载后提交进仓库，之后所有版本复用同一把。
           KS="$GITHUB_WORKSPACE/$APP_DIR/keystore/debug.keystore"
           # 指纹必须是这把：设备上已安装的版本就是用它签的。
-          # 换任何一把都会导致覆盖安装失败（INSTALL_FAILED_UPDATE_INCOMPATIBLE，-7）。
+          # 换任何一把都会导致覆盖安装失败（INSTALL_FAILED_UPDATE_INCOMPATIBLE，-7��。
           KS_SHA=83a7e5148bd2bfd6360b90cb2cc2676787a334b7a3b366355858f273da3c80ed
           if [ ! -f "$KS" ]; then
             echo "::error::仓库里没有 keystore/debug.keystore，拒绝随机生成（换了钥匙就装不上了）"
@@ -280,7 +332,7 @@ jobs:
           "$BT/apksigner" verify "$APK" && echo "签名校验通过"
 
       # keystore 只在首次生成时存在；无条件尝试上传，没有文件时静默跳过。
-      # 用 hashFiles 做 if 条件在 job 早期会返回空，所以改用 if-no-files-found: ignore。
+      # 用 hashFiles 做 if 条件在 job 早��会返回空，所以改用 if-no-files-found: ignore。
       - name: Upload keystore
         uses: actions/upload-artifact@v4
         with:

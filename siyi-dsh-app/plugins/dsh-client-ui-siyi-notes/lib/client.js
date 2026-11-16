@@ -124,7 +124,7 @@ window.__ModuleLoader__.load({
     }
 
     // ── D2 列表 ─────────────────────────────────────────────────────
-    function ListView({ onOpen, onGraph, onNew, toast }) {
+    function ListView({ onOpen, onGraph, onMonth, onTasks, onNew, toast }) {
       const [items, setItems] = useState([])
       const [loading, setLoading] = useState(true)
       const [q, setQ] = useState('')
@@ -163,6 +163,8 @@ window.__ModuleLoader__.load({
             value: q, onChange: (e) => setQ(e.target.value),
           }),
           h('button', { className: 'siyi-notes-btn', onClick: onNew }, '新建'),
+          h('button', { className: 'siyi-notes-btn', onClick: onMonth, title: '月历' }, '日历'),
+          h('button', { className: 'siyi-notes-btn', onClick: onTasks, title: '待办清单' }, '待办'),
           h('button', { className: 'siyi-notes-btn', onClick: onGraph, title: '知识图谱' }, '图谱'),
         ),
         h('div', { className: 'siyi-notes-tabs' },
@@ -439,6 +441,293 @@ window.__ModuleLoader__.load({
       )
     }
 
+    // ── E1 月历视图 ─────────────────────────────────────────────────
+    //
+    // 只做月网格 + 每日待办 + 逾期标红，不搬 desk-notes 那套
+    // （它依赖 astrology、黄历、八字一大堆，跟这里没关系）。
+    //
+    // due 的来源是 task 笔记的 frontmatter，格式 YYYY-MM-DD，有空值，
+    // 所以按日期分桶时要跳过 null。
+    function MonthView({ onBack, onOpen, toast }) {
+      const today = new Date()
+      const [ym, setYm] = useState({ y: today.getFullYear(), m: today.getMonth() })
+      const [tasks, setTasks] = useState([])
+      const [selDay, setSelDay] = useState(null)
+      const [loading, setLoading] = useState(true)
+
+      const load = useCallback(async () => {
+        setLoading(true)
+        try {
+          // done=1 拿全部，月历上要能看到已完成（淡色），只有未完成才标红
+          const r = await api('/tasks?done=1')
+          setTasks(r.items || [])
+        } catch (e) { toast('待办读取失败：' + e.message) }
+        finally { setLoading(false) }
+      }, [])
+
+      useEffect(() => { load() }, [load])
+
+      const byDay = useMemo(() => {
+        const map = new Map()
+        for (const t of tasks) {
+          if (!t.due) continue
+          const k = String(t.due).slice(0, 10)
+          if (!map.has(k)) map.set(k, [])
+          map.get(k).push(t)
+        }
+        return map
+      }, [tasks])
+
+      const grid = useMemo(() => {
+        const first = new Date(ym.y, ym.m, 1)
+        const startDow = first.getDay()
+        const daysInMonth = new Date(ym.y, ym.m + 1, 0).getDate()
+        const cells = []
+        for (let i = 0; i < startDow; i++) cells.push(null)
+        for (let d = 1; d <= daysInMonth; d++) {
+          cells.push({ d, key: ym.y + '-' + String(ym.m + 1).padStart(2, '0') + '-' + String(d).padStart(2, '0') })
+        }
+        while (cells.length % 7 !== 0) cells.push(null)
+        return cells
+      }, [ym])
+
+      const todayKey = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0')
+      const selTasks = selDay ? (byDay.get(selDay.key) || []) : []
+
+      const prevMonth = () => setYm(v => v.m === 0 ? { y: v.y - 1, m: 11 } : { y: v.y, m: v.m - 1 })
+      const nextMonth = () => setYm(v => v.m === 11 ? { y: v.y + 1, m: 0 } : { y: v.y, m: v.m + 1 })
+
+      const overdueCount = useMemo(() => {
+        let n = 0
+        for (const [k, list] of byDay) {
+          if (k >= todayKey) continue
+          n += list.filter(t => t.status !== 'done').length
+        }
+        return n
+      }, [byDay, todayKey])
+
+      const WEEK = ['日', '一', '二', '三', '四', '五', '六']
+
+      return h('div', { className: 'siyi-notes-root' },
+        h('div', { className: 'siyi-notes-editor-head' },
+          h('button', { className: 'siyi-notes-btn', onClick: onBack }, '返回'),
+          h('button', { className: 'siyi-notes-btn', onClick: prevMonth }, '‹'),
+          h('span', { style: { fontSize: 13, fontWeight: 600, minWidth: 76, textAlign: 'center' } },
+            ym.y + ' 年 ' + (ym.m + 1) + ' 月'),
+          h('button', { className: 'siyi-notes-btn', onClick: nextMonth }, '›'),
+          overdueCount > 0 ? h('span', {
+            style: { marginLeft: 'auto', fontSize: 11, color: '#dc2626' },
+          }, '逾期 ' + overdueCount) : null,
+        ),
+        h('div', {
+          style: {
+            display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', flex: 'none',
+            borderBottom: '.5px solid var(--dsw-alias-border-l3)',
+          },
+        }, WEEK.map(w => h('div', {
+          key: w,
+          style: { textAlign: 'center', fontSize: 10, padding: '4px 0', color: 'var(--dsw-alias-label-tertiary)' },
+        }, w))),
+        h('div', {
+          style: {
+            display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gridAutoRows: '1fr',
+            flex: 'none', borderBottom: '.5px solid var(--dsw-alias-border-l3)',
+          },
+        }, grid.map((c, i) => {
+          if (!c) return h('div', { key: 'e' + i })
+          const list = byDay.get(c.key) || []
+          const openN = list.filter(t => t.status !== 'done').length
+          const isToday = c.key === todayKey
+          const isSel = selDay && selDay.key === c.key
+          const isPast = c.key < todayKey
+          return h('div', {
+            key: c.key,
+            onClick: () => setSelDay(isSel ? null : c),
+            style: {
+              position: 'relative', minHeight: 40, padding: '3px 1px',
+              display: 'flex', flexDirection: 'column', alignItems: 'center',
+              cursor: 'pointer',
+              background: isSel ? 'var(--dsw-alias-bg-layer-3)' : 'transparent',
+              border: isToday ? '.5px solid var(--dsw-alias-label-secondary)' : 'none',
+              borderRadius: isToday ? 6 : 0,
+            },
+          },
+            h('span', {
+              style: {
+                fontSize: 12, lineHeight: 1.5,
+                fontWeight: isToday ? 700 : 400,
+                color: isPast && openN > 0 ? '#dc2626' : 'var(--dsw-alias-label-primary)',
+              },
+            }, c.d),
+            openN > 0 ? h('span', {
+              style: {
+                fontSize: 9, lineHeight: 1, marginTop: 1,
+                padding: '1px 4px', borderRadius: 6,
+                background: isPast ? 'rgba(220,38,38,.15)' : 'var(--dsw-alias-bg-layer-3)',
+                color: isPast ? '#dc2626' : 'var(--dsw-alias-label-secondary)',
+              },
+            }, openN) : null,
+          )
+        })),
+        h('div', { className: 'siyi-notes-list' },
+          selDay ? h('div', {
+            style: {
+              padding: '6px 12px', fontSize: 11,
+              color: 'var(--dsw-alias-label-tertiary)',
+              borderBottom: '.5px solid var(--dsw-alias-border-l3)',
+            },
+          }, selDay.key + ' · ' + (selTasks.length ? selTasks.length + ' 项' : '无待办'))
+            : h('div', {
+              style: {
+                padding: '6px 12px', fontSize: 11,
+                color: 'var(--dsw-alias-label-tertiary)',
+              },
+            }, loading ? '读取中…' : '点日期查看当天待办'),
+          (selDay ? selTasks : tasks.filter(t => !t.due)).map(t => h('div', {
+            key: t.id, className: 'siyi-notes-item', onClick: () => onOpen(t.id),
+          },
+            h('div', {
+              className: 'siyi-notes-item-title',
+              style: t.status === 'done' ? { textDecoration: 'line-through', opacity: .55 } : null,
+            }, t.title),
+            h('div', { className: 'siyi-notes-item-meta' },
+              h('span', null, ({ open: '未完成', done: '已完成', archived: '已归档' })[t.status] || t.status),
+              t.due ? h('span', null, t.due) : h('span', null, '无截止'),
+            ),
+          )),
+        ),
+      )
+    }
+
+    // ── E2 待办视图 ─────────────────────────────────────────────────
+    //
+    // 增删改都在这里。新建走 save 接口（kind=task，status=open），
+    // 完成是改 status 为 done，不删文件 —— 保留痕迹，月历上能显示已完成。
+    function TaskView({ onBack, onOpen, toast }) {
+      const [items, setItems] = useState([])
+      const [loading, setLoading] = useState(true)
+      const [showDone, setShowDone] = useState(false)
+      const [draft, setDraft] = useState(null)   // { title, due }
+      const [busy, setBusy] = useState(false)
+
+      const load = useCallback(async () => {
+        setLoading(true)
+        try {
+          const r = await api('/tasks' + (showDone ? '?done=1' : ''))
+          setItems(r.items || [])
+        } catch (e) { toast('待办读取失败：' + e.message) }
+        finally { setLoading(false) }
+      }, [showDone])
+
+      useEffect(() => { load() }, [load])
+
+      const save = async (payload) => {
+        if (busy) return
+        setBusy(true)
+        try {
+          const r = await saveNote(payload)
+          if (!r.ok) throw new Error(r.error || '保存失败')
+          toast(payload.status === 'done' ? '已完成' : '已保存')
+          await load()
+        } catch (e) { toast('保存失败：' + e.message) }
+        finally { setBusy(false) }
+      }
+
+      const todayKey = (() => {
+        const d = new Date()
+        return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0')
+      })()
+
+      const submitDraft = async () => {
+        if (!draft || !draft.title.trim()) return
+        await save({
+          kind: 'task',
+          title: draft.title.trim(),
+          status: 'open',
+          due: draft.due || null,
+          body: draft.title.trim(),
+        })
+        setDraft(null)
+      }
+
+      return h('div', { className: 'siyi-notes-root' },
+        h('div', { className: 'siyi-notes-editor-head' },
+          h('button', { className: 'siyi-notes-btn', onClick: onBack }, '返回'),
+          h('button', {
+            className: 'siyi-notes-btn' + (showDone ? ' on' : ''),
+            onClick: () => setShowDone(v => !v),
+          }, showDone ? '含已完成' : '只看未完成'),
+          h('button', {
+            className: 'siyi-notes-btn',
+            style: { marginLeft: 'auto' },
+            onClick: () => setDraft({ title: '', due: '' }),
+          }, '＋ 待办'),
+        ),
+        draft ? h('div', {
+          style: {
+            padding: '8px 10px', flex: 'none',
+            borderBottom: '.5px solid var(--dsw-alias-border-l3)',
+            display: 'flex', flexDirection: 'column', gap: 6,
+          },
+        },
+          h('input', {
+            className: 'siyi-notes-search',
+            placeholder: '待办内容',
+            autoFocus: true,
+            value: draft.title,
+            onChange: (e) => setDraft({ ...draft, title: e.target.value }),
+            onKeyDown: (e) => { if (e.key === 'Enter') submitDraft() },
+          }),
+          h('div', { style: { display: 'flex', gap: 6, alignItems: 'center' } },
+            h('input', {
+              className: 'siyi-notes-search',
+              type: 'date',
+              value: draft.due,
+              onChange: (e) => setDraft({ ...draft, due: e.target.value }),
+            }),
+            h('button', { className: 'siyi-notes-btn', onClick: submitDraft, disabled: busy }, '添加'),
+            h('button', { className: 'siyi-notes-btn', onClick: () => setDraft(null) }, '取消'),
+          ),
+        ) : null,
+        h('div', { className: 'siyi-notes-list' },
+          loading ? h('div', { className: 'siyi-notes-empty' }, '读取中…')
+            : items.length === 0 ? h('div', { className: 'siyi-notes-empty' }, '没有待办')
+              : items.map(t => {
+                const done = t.status === 'done'
+                const overdue = !done && t.due && String(t.due).slice(0, 10) < todayKey
+                return h('div', { key: t.id, className: 'siyi-notes-item' },
+                  h('div', { style: { display: 'flex', alignItems: 'flex-start', gap: 8 } },
+                    h('button', {
+                      onClick: () => save({ id: t.id, status: done ? 'open' : 'done' }),
+                      disabled: busy,
+                      style: {
+                        flex: 'none', width: 20, height: 20, marginTop: 1,
+                        borderRadius: '50%', cursor: 'pointer',
+                        border: '.5px solid ' + (done ? 'var(--dsw-alias-label-tertiary)' : 'var(--dsw-alias-label-secondary)'),
+                        background: done ? 'var(--dsw-alias-bg-layer-3)' : 'transparent',
+                        color: 'var(--dsw-alias-label-secondary)', fontSize: 11, lineHeight: 1, padding: 0,
+                      },
+                    }, done ? '✓' : ''),
+                    h('div', { style: { flex: 1, minWidth: 0 } },
+                      h('div', {
+                        className: 'siyi-notes-item-title',
+                        onClick: () => onOpen(t.id),
+                        style: done ? { textDecoration: 'line-through', opacity: .55 } : { cursor: 'pointer' },
+                      }, t.title),
+                      h('div', { className: 'siyi-notes-item-meta' },
+                        t.due ? h('span', {
+                          style: overdue ? { color: '#dc2626' } : null,
+                        }, (overdue ? '逾期 ' : '') + t.due) : h('span', null, '无截止'),
+                        (t.tags || []).slice(0, 2).map(x => h('span', { key: x, className: 'siyi-notes-tag' }, '#' + x)),
+                      ),
+                    ),
+                  ),
+                )
+              }),
+        ),
+      )
+    }
+
     // ── 主容器 ──────────────────────────────────────────────────────
     function NotesApp() {
       const [view, setView] = useState('list')
@@ -457,15 +746,31 @@ window.__ModuleLoader__.load({
       const open = (nid) => { setId(nid); setView('edit') }
       const back = () => { setView('list'); setId(null) }
       const graph = () => setView('graph')
+      const month = () => setView('month')
+      const tasks = () => setView('tasks')
 
-      return h('div', { style: { position: 'relative', height: '100%', minHeight: 0 } },
-        view === 'list' ? h(ListView, {
+      let body
+      if (view === 'list') {
+        body = h(ListView, {
           onOpen: open,
           onGraph: graph,
+          onMonth: month,
+          onTasks: tasks,
           onNew: () => { setId(null); setView('edit') },
           toast,
-        }) : view === 'graph' ? h(GraphView, { onBack: back, onOpen: open, toast })
-          : h(EditorView, { id, onBack: back, toast }),
+        })
+      } else if (view === 'graph') {
+        body = h(GraphView, { onBack: back, onOpen: open, toast })
+      } else if (view === 'month') {
+        body = h(MonthView, { onBack: back, onOpen: open, toast })
+      } else if (view === 'tasks') {
+        body = h(TaskView, { onBack: back, onOpen: open, toast })
+      } else {
+        body = h(EditorView, { id, onBack: back, toast })
+      }
+
+      return h('div', { style: { position: 'relative', height: '100%', minHeight: 0 } },
+        body,
         toastMsg ? h('div', { className: 'siyi-notes-toast' }, toastMsg) : null,
       )
     }

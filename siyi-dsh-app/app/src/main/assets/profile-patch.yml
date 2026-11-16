@@ -66,8 +66,8 @@
           # 端口 8317，不需要密钥（实测带与不带 Authorization 都返回 200）。
           # 官方 web-profile 不带这个 provider，装完默认只能用 8427 或 deepseek-account。
           # contextWindow 只有前四个是网关报的真实值，其余网关返回 0，按 131072 保守填（推测值）。
-          trae:
-            displayName: Trae 本机网关
+          trae-ide:
+            displayName: Trae IDE 本机网关
             interfaceType: openai-chat-completions
             baseURL: http://127.0.0.1:8317/v1
             apiKey: unset
@@ -232,3 +232,52 @@
         maxDelayMs: 30000
         jitterRatio: 0.1
     streamIdleTimeoutMs: 60000
+- id: llm-pi-ai
+  name: "@deepseek-ai/dsh-llm-pi-ai"
+  config:
+    providers:
+      free:
+        apiKeyEnv: FREE_API_KEY
+        api: openai-completions
+        baseURL: http://127.0.0.1:8427/v1
+        models:
+          - id: buddy/deepseek-v4.1-flash
+            name: DeepSeek-V4.1-Flash · x0.11
+            contextWindow: 1000000
+            input:
+              - text
+              - image
+- id: subagent-model-selection-settings
+  name: "@deepseek-ai/dsh-tool-subagent/model-selection-settings"
+  config:
+    enabled: true
+    allowedModels:
+      - provider: local
+        model: buddy/hy4free
+
+# ── 插件：trae-cn-provider + dsh-get-it-for-free（2026-11-15）──────
+# 两个包已在 node_modules，并由 PatchOverlay 持久化到
+# /sdcard/思忆集/patches/profile/，APK 升级后自动重放。
+#
+# ⚠ trae-ide 改名：原 provider id 叫 trae，与 get-it-for-free 内嵌
+# channel-pack 注册的 trae 撞名。dsh-llm.registerAdapter 是 all-or-nothing，
+# 撞名会抛 DUPLICATE_ADAPTER，而 pack 用 registerAdapterIdempotent 把该错
+# 吞掉 —— 结果是 pack 的 28 个 trae 模型被静默丢弃（实测只剩 9 个）。
+# 改名后两者共存：trae=pack 账号池（能用），trae-ide=本机 8317（额度 0）。
+- insert:
+    - id: trae-cn
+      name: 'trae-cn-provider'
+      config:
+        credentialSource: oauth
+        edition: cn
+        requestStyle: chat_v3
+        appVersionCode: 20260901
+        displayName: 'Trae CN'
+        loginCommand: trae-login
+        settingsNs: trae-cn-provider
+        mountOpenAIEndpoint: true
+        openAIPath: /trae-cn
+- insert:
+    - id: get-it-for-free
+      name: 'dsh-get-it-for-free'
+      config: {}

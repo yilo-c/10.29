@@ -164,7 +164,25 @@ jobs:
           cp "$APP_DIR/app/src/main/assets/profile-template.json" "$PDIR/package.json"
           cp "$APP_DIR/app/src/main/assets/profile-patch.yml" "$PDIR/cordis.patch.yml"
           cd "$PDIR"
-          npx --yes pnpm@11.28.9 add "@deepseek-ai/dsh-base@${DSH_PKG_VERSION}" "@deepseek-ai/dsh-web-app@${DSH_PKG_VERSION}" "@snnh/dsh-llm-service-lite@0.2.1" --config.node-linker=hoisted --config.package-import-method=copy --config.ignore-scripts=true
+          # ── 网关模型 + 两个 LLM 插件（2026-11-16 固化）─────────────────
+          # trae-cn-provider：Trae CN 原生 provider（浏览器 OAuth 登录）。
+          # dsh-get-it-for-free：CodeArts/WorkBuddy/Qoder/TRAE/Raccoon/
+          #   LobsterAI/MiniMax/Loomy 等免费签到渠道，账号登录 + 模型池同步。
+          # 两个包都在 npm 上，版本与设备上正在运行的一致，锁死避免漂移。
+          # ⚠ 版本必须与 profile-patch.yml 里 insert 的配置配套：
+          #   trae-cn 的 appVersionCode 决定上游返回多少模型，
+          #   get-it-for-free 的 channel-pack 决定 channel 列表。
+          npx --yes pnpm@11.28.9 add \
+            "@deepseek-ai/dsh-base@${DSH_PKG_VERSION}" \
+            "@deepseek-ai/dsh-web-app@${DSH_PKG_VERSION}" \
+            "@snnh/dsh-llm-service-lite@0.2.1" \
+            "trae-cn-provider@0.2.10" \
+            "dsh-get-it-for-free@3.0.28" \
+            --config.node-linker=hoisted --config.package-import-method=copy --config.ignore-scripts=true
+          # 两项前置校验：包必须在、入口必须能解析，否则后面的配置引用会静默失效。
+          test -f node_modules/trae-cn-provider/lib/index.js || { echo "trae-cn-provider 未安装"; exit 1; }
+          test -f node_modules/dsh-get-it-for-free/index.js || { echo "dsh-get-it-for-free 未安装"; exit 1; }
+          echo "LLM 插件已装: $(node -p "require('./node_modules/trae-cn-provider/package.json').version") / $(node -p "require('./node_modules/dsh-get-it-for-free/package.json').version")"
           WS="${GITHUB_WORKSPACE:-$PWD}"
           echo "WS=$WS"
           # Android 适配：三个关键包必须用引擎 APK 内的定制版

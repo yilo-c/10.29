@@ -1,0 +1,6 @@
+# 思忆集笔记面板：只有浏览器半身，宿主侧不需要注册任何服务
+# （数据由 /sdcard/思忆集/plugins/siyi-vault.js 通过 webServer 提供）。
+- insert:
+    - id: siyi-notes
+      name: 'dsh-client-ui-siyi-notes'
+      config: {}

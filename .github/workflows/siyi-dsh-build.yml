@@ -222,6 +222,16 @@ jobs:
           rm -rf "node_modules/dsh-client-ui-siyi-mobile"
           cp -r "$WS/$APP_DIR/plugins/dsh-client-ui-siyi-mobile" "node_modules/dsh-client-ui-siyi-mobile"
           echo "plugin installed: $(ls node_modules/dsh-client-ui-siyi-mobile/lib)"
+          # 思忆集笔记面板（D2/D3/D4）：列表、编辑、知识图谱。
+          # 客户端半身，数据走 /siyi-vault 接口 —— 那个接口由用户插件
+          # /sdcard/思忆集/plugins/siyi-vault.js 通过 webServer 挂载。
+          # 同 siyi-mobile：客户端插件清单只扫 cordis 树的 entry，
+          # 所以除了复制进 node_modules，还必须在 assets/profile-patch.yml 里 insert。
+          rm -rf "node_modules/dsh-client-ui-siyi-notes"
+          cp -r "$WS/$APP_DIR/plugins/dsh-client-ui-siyi-notes" "node_modules/dsh-client-ui-siyi-notes"
+          test -f "node_modules/dsh-client-ui-siyi-notes/lib/client.js" || { echo "siyi-notes client.js 缺失"; exit 1; }
+          test -f "node_modules/dsh-client-ui-siyi-notes/lib/index.js" || { echo "siyi-notes index.js 缺失"; exit 1; }
+          echo "siyi-notes installed: $(ls node_modules/dsh-client-ui-siyi-notes/lib)"
           # 用户插件动态加载器：让 App 免 CI 自己加能力
           rm -rf "node_modules/dsh-user-plugins"
           cp -r "$WS/$APP_DIR/plugins/dsh-user-plugins" "node_modules/dsh-user-plugins"

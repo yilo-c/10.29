@@ -281,3 +281,11 @@
     - id: get-it-for-free
       name: 'dsh-get-it-for-free'
       config: {}
+
+# ── 插件：思忆集笔记面板（2026-11-17，D2/D3/D4）──────────────
+# 浏览器半身，宿主侧不需要注册服务：数据走 /siyi-vault 接口，
+# 那个接口由 /sdcard/思忆集/plugins/siyi-vault.js 挂在 webServer 上。
+- insert:
+    - id: siyi-notes
+      name: 'dsh-client-ui-siyi-notes'
+      config: {}

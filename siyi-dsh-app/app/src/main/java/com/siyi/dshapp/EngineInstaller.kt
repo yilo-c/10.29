@@ -170,15 +170,30 @@ object EngineInstaller {
         //   表现正是「一升级侧栏全是未命名」。标题虽然还能从会话日志重建，
         //   但列表接口只读缓存、不会主动重算，所以要逐个打开会话才慢慢恢复。
         //   顺带把登录凭据一起保住，否则每次升级都要重新登录。
-        val keepDirs = listOf("sessions", "storages")
-        val keepFiles = listOf(".credentials.yaml", ".anonymous-user-id")
+        //
+        // ⚠⚠ 289 之前这里还是「白名单」思路，同样的坑又踩了一次：
+        //   白名单只写了 sessions/storages，于是下面这些用户数据每次升级都被删——
+        //     attachments/     会话里上传的图片和文件（实测已积 461KB 真实用户内容）
+        //     get-it-for-free/ 免费渠道的账号登录态与会话映射
+        //     channel-pack/    签到账本与 token 台账
+        //     openai-gateway/  本机网关 api-key（删了 8427 直接不可用）
+        //     llm-deepseek/    deepseek 账号状态
+        //   白名单的根本问题是「默认删」——以后任何插件新建的状态目录都会
+        //   在用户不知情时被清掉。现在反过来：除了明确可重建的几项，
+        //   其余顶层条目一律保留。
+        //
+        // 必须排除的只有两类：
+        //   1. profiles/ —— 这就是本次要重新解压的目标（宁可多留也不留它）
+        //   2. cache/ logs/ —— 纯缓存和日志，删掉自动重建，留着只会占用空间
+        // 标记文件 .profile-v3 不用特意排除：它在还原之后才写入新指纹。
+        val rebuildable = setOf("profiles", "cache", "logs")
         // parentFile 可能为 null（home 是相对路径时），回退到 cacheDir 下的暂存区
         val stashRoot = home.parentFile ?: ctx.cacheDir
         val stash = ArrayList<File>()
-        for (name in keepDirs + keepFiles) {
-            val src = File(home, name)
-            if (!src.exists()) continue
-            val tmp = File(stashRoot, ".siyi-keep-" + name)
+        val all = home.listFiles() ?: emptyArray()
+        for (src in all) {
+            if (src.name in rebuildable) continue
+            val tmp = File(stashRoot, ".siyi-keep-" + src.name)
             deleteRecursively(tmp)
             if (src.renameTo(tmp)) stash.add(tmp)
         }

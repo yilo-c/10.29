@@ -83,6 +83,44 @@ object EngineController {
     /** 启动超时：从拉起进程到打出带 token 地址的最长等待。 */
     private const val START_TIMEOUT_MS = 180_000L
 
+    // ── 存活判定参数（288 版重做，说明见文件末 supervise）─────────────────
+    //
+    // 286 及之前是「连续 5 次探测失败就判死」，间隔 2 秒 —— 只有 6 秒。
+    // 实测这台机器上引擎冷启动要 30 秒以上（会话越大越久：当前会话
+    // 7.5MB 压缩 / 24.5MB 解压 / 一万多条事件，恢复要重新解压加建索引），
+    // 于是启动保护期一过就开始计数，10 秒内必被判死，形成
+    // 「启动 → 误判 → 杀掉 → 再启动」的死循环。用户看到的就是界面
+    // 突然「任务已停止」，然后自己刷新重进。
+    //
+    // 现在把三种情况分开：
+    //   1. 进程没了（/proc/<pid> 消失）→ 真死，立刻重启；
+    //   2. 进程还在、CPU 还在涨       → 在干活，继续等；
+    //   3. 进程还在、CPU 不动、端口不通 → 才怀疑卡死，且要等够久。
+    /** 探测间隔。 */
+    private const val PROBE_INTERVAL_MS = 2000L
+
+    /** 单次 TCP 连接超时。本机回环 800ms 足够。 */
+    private const val PROBE_TIMEOUT_MS = 800
+
+    /** 启动保护期：这段时间端口不通只记日志、绝不计数。 */
+    private const val START_GRACE_MS = 90_000L
+
+    /** 端口持续不通多久才允许考虑重启（进程已消失时不受此限）。 */
+    private const val UNREACHABLE_JUDGE_MS = 20_000L
+
+    /** 进程还在但 CPU 长期不动时的最长容忍时间，超过才动手杀。 */
+    private const val HARD_DEAD_MS = 60_000L
+
+    /**
+     * 稳定多久才算「这次启动真的成功」。
+     *
+     * 之前一拿到 token 就把 restartCount 清零，于是「起来 → 崩 → 再起来 → 再崩」
+     * 的抖动永远攒不到 MAX_RESTARTS，重启上限形同虚设
+     * （实测 20:39 与 20:42 两轮风暴里计数每次都是从 1 重新开始）。
+     * 改成连续稳定满这么久才清零，抖动就会被计入上限并最终停下来。
+     */
+    private const val STABLE_RESET_MS = 60_000L
+
     // ── 对外 API ────────────────────────────────────────────────────────────
 
     /** 当前状态。 */
@@ -197,10 +235,16 @@ object EngineController {
         val c = appCtx
         // setsid 之后 p 只是 setsid 的句柄，杀它对真正的引擎无效。
         // 统一按 pid 文件里登记的真实 pid 清理。
-        val real = findEnginePid()
+        //
+        // 注意要扫出**全部**引擎再逐个杀：异常重启可能留下多个，
+        // 只杀一个会剩下残余进程占着 3180，下次启动报 EADDRINUSE。
+        val all = findMainEnginePids()
+        val real = all.firstOrNull() ?: findEnginePid()
+        for (pid in all) {
+            stage("停止引擎 pid=" + pid)
+            runCatching { android.os.Process.killProcess(pid) }
+        }
         if (real > 1) {
-            stage("停止引擎 pid=" + real)
-            runCatching { android.os.Process.killProcess(real) }
             var waited = 0
             while (waited < 20 && isAlive(real)) { Thread.sleep(100); waited++ }
             if (isAlive(real)) {
@@ -442,7 +486,11 @@ object EngineController {
                         if (m != null) {
                             val url = "http://127.0.0.1:" + WEB_PORT + "/?token=" + m.groupValues[1]
                             stateRef.set(State(Phase.READY, url = url))
-                            restartCount.set(0)
+                            // ⚠ 这里**不再**把 restartCount 清零。
+                            // 之前一拿到 token 就清零，导致「起来→崩→再起来→再崩」
+                            // 这种抖动永远攒不到 MAX_RESTARTS，重启上限形同虚设
+                            // （实测 20:39 与 20:42 两轮风暴里计数每次都从 1 重新开始）。
+                            // 现在改由存活看门狗在「连续稳定 60 秒」之后清零。
                             statusSink?.invoke("就绪，可打开界面")
                             stage("从 stdout 抓到 token，状态置为 READY")
                         }
@@ -472,19 +520,20 @@ object EngineController {
                         if (n <= 0) return@runCatching
                         pos += n
                         val chunk = String(buf, 0, n, Charsets.UTF_8)
-                        // 带 --patch 时出现这几类报错，说明是用户层把引擎打死的：
-                        //   unknown option '--patch'        → 参数位置错了，内层应用收到了它
-                        //   startup failed / failed to parse → 用户层条目让整树校验失败
-                        // 先判死用户层，再让下面的重启逻辑不带它重来一次。
-                        if (patchActive.get()) {
-                            if (chunk.contains("unknown option", true)) {
-                                disableUserPatch("引擎不认 --patch 参数")
-                            } else if (chunk.contains("startup failed", true) ||
-                                chunk.contains("failed to parse", true) ||
-                                chunk.contains("must be a top-level YAML array", true)
-                            ) {
-                                disableUserPatch("用户层配置加载失败")
-                            }
+                        // ── 用户层自动降级（288 收紧）──────────────────────
+                        //
+                        // 286 的写法「只要 stderr 出现 startup failed / failed to parse
+                        // 就把 user-patch.yml 改名 .rejected」是一个**误伤源**：
+                        // 实测 20:38 那次引擎其实正在正常启动（11:38:41 端口已 listening=true），
+                        // 1 秒后就被这段逻辑判死、把一份完全合法的配置改名成了 .rejected。
+                        // 结果是用户配置被丢掉、默认模型回退，而且用户根本不知道为什么。
+                        //
+                        // 现在只保留一个**确定性**信号：引擎明确说它不认识 --patch。
+                        // 那才是「参数位置错了」的铁证，且与配置文件内容无关。
+                        // 配置内容导致的启动失败交给下面「引擎确实没起来」的判断去处理，
+                        // 不再靠字符串猜。
+                        if (patchActive.get() && chunk.contains("unknown option", true)) {
+                            disableUserPatch("引擎不认 --patch 参数")
                         }
                         if (chunk.contains("startup failed", true) && stateRef.get().phase != Phase.READY) {
                             stateRef.set(State(Phase.FAILED, error = "引擎启动失败"))
@@ -658,7 +707,9 @@ object EngineController {
                 }.getOrNull()
                 if (exe != null && exe.contains("libdshnode.so")) return@firstOrNull true
                 // 兜底：cmdline 能读就读它（有些 ROM 对同 uid 放宽）
-                val cmd = runCatching { File(dir, "cmdline").readText() }.getOrNull() ?: return@firstOrNull false
+                // ⚠ 参数之间是 NUL 不是空格，必须先替换，否则 "--port 3180" 永远匹配不上。
+                val cmd = runCatching { File(dir, "cmdline").readText() }.getOrNull()
+                    ?.replace('\u0000', ' ') ?: return@firstOrNull false
                 cmd.contains("bin.js") && cmd.contains("--port " + WEB_PORT)
             }
             ?.name?.toIntOrNull() ?: -1
@@ -667,10 +718,68 @@ object EngineController {
     /** 引擎的 HTTP 端口是否还在响应（连接能否建立）。与 ROM 实现无关，必定有效。 */
     private fun isListening(): Boolean = runCatching {
         java.net.Socket().use { sock ->
-            sock.connect(java.net.InetSocketAddress("127.0.0.1", WEB_PORT), 1500)
+            sock.connect(java.net.InetSocketAddress("127.0.0.1", WEB_PORT), PROBE_TIMEOUT_MS)
             true
         }
     }.getOrDefault(false)
+
+    /**
+     * 判断某个 pid 是不是「主引擎进程」。
+     *
+     * 为什么要按 cmdline 再筛一遍：引擎跑起来之后会派生短命子进程，
+     * 它们的 exe 同样指向 libdshnode.so。如果只看 exe，
+     * findEnginePid 可能扫到一个马上退出的子进程，看门狗就会误判「引擎已死」。
+     * 主进程的特征是 cmdline 里同时有 bin.js、--profile 和 --port <我们的端口>。
+     *
+     * ⚠ /proc/<pid>/cmdline 的参数之间是 **NUL 字节**，不是空格。
+     * 实测原始内容是
+     *   ...libdshnode.so\0--expose-internals\0...bin.js\0--profile\0web\0--port\03180\0--no-open\0
+     * 所以直接 contains("--port 3180") 永远匹配不上（这是个真实踩过的坑）。
+     * 这里先把 NUL 换成空格再比对。
+     * 另外有些实现会把末尾的 NUL 也写进去，split 之后会有空串，用 filter 去掉。
+     *
+     * cmdline 读不到时不能直接判「不是」：某些 ROM 收紧 /proc 权限，
+     * 读不到是权限问题而不是进程不存在。那种情况下退回看 exe 软链，
+     * 宁可误认为「活着」（继续观察），也不能误判「已死」（会误杀）。
+     */
+    private fun isMainEngine(pid: Int): Boolean {
+        val raw = runCatching { File("/proc/$pid/cmdline").readText() }.getOrNull()
+        val cmd = raw?.replace('\u0000', ' ')?.trim()
+        if (!cmd.isNullOrEmpty()) {
+            return cmd.contains("bin.js") && cmd.contains("--profile") && cmd.contains("--port " + WEB_PORT)
+        }
+        // cmdline 不可读：只要求 exe 指向 libdshnode.so
+        return runCatching {
+            java.nio.file.Files.readSymbolicLink(File("/proc/$pid/exe").toPath())
+                .toString().contains("libdshnode.so")
+        }.getOrDefault(false)
+    }
+
+    /** 指定 pid 是否还活着且仍是主引擎。 */
+    private fun enginePidAlive(pid: Int): Boolean =
+        pid > 1 && File("/proc/$pid").exists() && isMainEngine(pid)
+
+    /**
+     * 找「主引擎进程」的 pid，找不到返回 -1。
+     *
+     * 与 findEnginePid 的区别：这里坚持用 cmdline 特征
+     * （同时含 bin.js、--profile、--port <我们的端口>）再确认一遍。
+     * findEnginePid 只看 exe 指向 libdshnode.so，会匹配到引擎派生的短命子进程；
+     * 看门狗拿它当存活判据就会误判「引擎已死」。
+     * cmdline 读不到时返回 -1，由调用方按「未知」处理（继续等，不杀）。
+     */
+    private fun findMainEnginePid(): Int = findMainEnginePids().firstOrNull() ?: -1
+
+    /** 找出全部主引擎进程的 pid（异常重启可能留下多个）。 */
+    private fun findMainEnginePids(): List<Int> = runCatching {
+        File("/proc").listFiles()
+            ?.filter { it.isDirectory && it.name.all(Char::isDigit) }
+            ?.mapNotNull { it.name.toIntOrNull() }
+            ?.filter { pid ->
+                pid != android.os.Process.myPid() && enginePidAlive(pid)
+            }
+            ?: emptyList()
+    }.getOrDefault(emptyList())
 
     private fun isPortInUse(port: Int): Boolean {
         val hex = port.toString(16).padStart(4, '0').uppercase()
@@ -749,6 +858,27 @@ object EngineController {
     private fun isAlive(pid: Int): Boolean =
         runCatching { File("/proc/" + pid).exists() }.getOrDefault(false)
 
+    /**
+     * 读一个进程累计占用的 CPU 时间（jiffies，utime + stime）。
+     *
+     * 用途：区分「引擎在干活」和「引擎僵住」。
+     * 解压大会话、建索引时 CPU 一直在涨；真卡死的进程 CPU 是停的。
+     * 同 uid 的 /proc/<pid>/stat 实测可读，读不到就返回 -1（当作未知，保守不杀）。
+     *
+     * stat 的格式是「pid (comm) state ppid ...」，comm 里可能带空格和括号，
+     * 所以必须从最后一个 ')' 之后开始切分，不能直接 split(" ")。
+     */
+    private fun cpuTicks(pid: Int): Long = runCatching {
+        if (pid <= 1) return -1L
+        val raw = File("/proc/$pid/stat").readText()
+        val tail = raw.substringAfterLast(") ")
+        val fields = tail.trim().split(WHITESPACE)
+        // tail 从 state(第3列) 开始：state=0, ppid=1, ..., utime=11, stime=12
+        val utime = fields.getOrNull(11)?.toLongOrNull() ?: return -1L
+        val stime = fields.getOrNull(12)?.toLongOrNull() ?: return -1L
+        utime + stime
+    }.getOrDefault(-1L)
+
     /** 启动阶段诊断，追加到 /sdcard/思忆集/app/boot.log。 */
     private fun stage(msg: String) {
         runCatching {
@@ -771,12 +901,31 @@ object EngineController {
      *   3. 非主动停止的情况下自动重启，带指数退避和次数上限
      */
     private fun supervise(ctx: Context, p: Process) {
-        // 启动超时看门狗
+        // 启动超时看门狗。
+        //
+        // ⚠ 不能再用 p.isAlive()：这台机器上它永远返回 true（见下方存活看门狗注释），
+        // 于是「引擎早就崩了」也要空等到 180 秒。改成看真实 pid 是否还在 /proc 里。
+        // 另外这里只改状态、不杀进程 —— 杀进程是存活看门狗的职责，
+        // 两边都动手会互相打架（一边判超时、一边刚重启完）。
         Thread {
-            val deadline = System.currentTimeMillis() + START_TIMEOUT_MS
+            val startedAt = System.currentTimeMillis()
+            val deadline = startedAt + START_TIMEOUT_MS
+            var seen = false
             while (System.currentTimeMillis() < deadline) {
-                if (!p.isAlive()) return@Thread          // 已退出，交给下面的死亡检测
                 if (stateRef.get().phase == Phase.READY) return@Thread  // 已就绪
+                val real = findMainEnginePid()
+                if (real > 1) {
+                    seen = true
+                } else if (seen) {
+                    // 锁定过之后又消失，说明确实退出了；交给存活看门狗立刻重启，
+                    // 不必在这里空等到 180 秒。
+                    stage("启动超时看门狗：主引擎进程已消失，提前结束等待")
+                    return@Thread
+                } else if (System.currentTimeMillis() - startedAt > START_GRACE_MS) {
+                    // 保护期都过了还一次没扫到，视为启动失败。
+                    stage("启动超时看门狗：保护期内始终未出现主引擎进程")
+                    return@Thread
+                }
                 Thread.sleep(1000)
             }
             // 只有「当前这个进程」仍代表引擎时才判超时。
@@ -790,46 +939,160 @@ object EngineController {
 
         // 存活看门狗：用 HTTP 探测，不用 Process 的任何方法。
         //
-        // 为什么：Android 的 Process.waitFor() / isAlive() 都依赖一个内部
-        // 「退出通知」线程（ProcessManager.waitForProcessExit）。实测在这台机器上
-        // 那个线程不工作，引擎被 kill -9 之后 waitFor 永久阻塞、isAlive 永远为 true，
-        // 看门狗一声不响，白屏永远不会自愈。
-        // 引擎的职责就是提供 HTTP 服务，端口不响应 == 它已经没用了，直接判死。
+        // ── 存活看门狗（288 重做）──────────────────────────────────────────
+        //
+        // 为什么不再用 Process 的任何方法：Android 的 Process.waitFor() /
+        // isAlive() 都依赖内部「退出通知」线程（ProcessManager.waitForProcessExit），
+        // 实测这台机器上那个线程不工作，引擎被 kill -9 之后 waitFor 永久阻塞、
+        // isAlive 永远为 true，看门狗一声不响，白屏不会自愈。所以判据是
+        // HTTP 端口 + /proc/<pid> 是否存在。
+        //
+        // 286 及之前的算法有一个致命缺陷：只要端口不通就累加计数，
+        // 连续 5 次（2 秒一次，仅 6 秒）就判死并 kill。而引擎冷启动、
+        // 解压大会话、建索引都要几十秒，于是「启动中」被当成「已死」，
+        // 杀掉再启动、启动再被杀，界面上表现为突然停止并自行刷新。
+        //
+        // 现在的判据（互相独立）：
+        //   A. 进程消失（/proc/<pid> 不存在）      → 真死，立即重启，不等；
+        //   B. 进程在、CPU 在涨                     → 在干活，不判死；
+        //   C. 进程在、CPU 不动、端口不通           → 先等 20 秒，
+        //      仍不通且 CPU 停滞累计超过 60 秒才动手杀。
+        // 启动保护期从 30 秒放宽到 90 秒，保护期内完全不计数。
         Thread {
-            stage("看门狗已挂上（HTTP 探测）")
-            var fails = 0
+            stage("看门狗已挂上（HTTP 探测 + /proc 存活 + CPU 活跃度）")
             val spawnedAt = System.currentTimeMillis()
+            var unreachableSince = 0L          // 端口开始不通的时刻，0 表示当前通
+            var lastCpu = -1L                  // 上一次读到的 CPU 累计时间
+            var lastCpuChangeAt = spawnedAt    // CPU 最后一次变化的时刻
+            var judged = false                 // 是否已判死
+            var sawProcess = false             // 是否成功锁定过引擎 pid
+            var trackedPid = -1                // 锁定后的主引擎 pid，-1 表示尚未锁定
+            var missedPidProbes = 0            // 连续扫不到主引擎 pid 的次数
+            var stableSince = 0L               // 端口持续稳定的起点，0 表示当前不稳定
+
             while (!stopping.get()) {
-                Thread.sleep(2000)
-                val listening = isListening()
+                Thread.sleep(PROBE_INTERVAL_MS)
+                val now = System.currentTimeMillis()
                 val phase = stateRef.get().phase
-                stage("探测 listening=" + listening + " phase=" + phase + " fails=" + fails)
-                if (listening) { fails = 0; continue }
-                if (phase != Phase.READY && System.currentTimeMillis() - spawnedAt < 30000L) {
-                    fails = 0
+                val listening = isListening()
+
+                // 先看有没有锁定主引擎 pid。锁定之后只认这一个，
+                // 免得被引擎派生的短命子进程（exe 同样指向 libdshnode.so）带偏。
+                if (trackedPid <= 1) trackedPid = findMainEnginePid()
+                var real = trackedPid
+                if (real > 1 && !File("/proc/$real").exists()) real = -1
+
+                // ── 情况 A：进程没了 ──────────────────────────────────────
+                // setsid 之后 processRef 的句柄很快失效，不能拿它判断，
+                // 只能按扫出来的真实 pid 判。
+                //
+                // ⚠ 三个保守条件，缺一不可，否则会误杀：
+                //   1. 端口也必须不通。端口还在响应说明服务活着，
+                //      此时「扫不到 pid」只是 /proc 权限或扫描抖动，不算死。
+                //   2. 要连续两次都扫不到（missedPidProbes >= 2）。
+                //   3. 保护期内从未扫到过就不判死。
+                if (real <= 1) {
+                    trackedPid = -1
+                    if (listening) {
+                        missedPidProbes = 0
+                        unreachableSince = 0L
+                        stage("探测 listening=true 但未锁定 pid，按存活处理")
+                        continue
+                    }
+                    if (!sawProcess && now - spawnedAt < START_GRACE_MS) {
+                        stage("探测 尚未锁定引擎 pid（启动 " + ((now - spawnedAt) / 1000) + "s），继续等")
+                        continue
+                    }
+                    missedPidProbes++
+                    if (missedPidProbes < 2) {
+                        stage("探测 连续第 " + missedPidProbes + " 次扫不到主引擎 pid 且端口不通，再确认一次")
+                        continue
+                    }
+                    stage("探测 listening=$listening phase=$phase 主引擎进程已消失，判定真死")
+                    judged = true
+                    clearPidFile(appCtx ?: ctx)
+                    processRef.set(null)
+                    stateRef.set(State(Phase.FAILED, error = "引擎进程已退出，正在重启…"))
+                    statusSink?.invoke("引擎进程已退出，正在重启…")
+                    break
+                }
+                sawProcess = true
+                missedPidProbes = 0
+
+                // ── 情况 B：端口通 ────────────────────────────────────────
+                if (listening) {
+                    unreachableSince = 0L
+                    lastCpu = cpuTicks(real)
+                    lastCpuChangeAt = now
+                    // 连续稳定满 60 秒才认为这次启动真的成功，清掉重启计数。
+                    // 一 READY 就清零会让「起来又崩」的抖动绕开 MAX_RESTARTS 上限。
+                    if (stableSince == 0L) stableSince = now
+                    if (restartCount.get() > 0 && now - stableSince >= STABLE_RESET_MS) {
+                        restartCount.set(0)
+                        stage("引擎已稳定运行 " + (STABLE_RESET_MS / 1000) + "s，重启计数归零")
+                    }
+                    if (phase == Phase.READY) stage("探测 listening=true phase=READY 正常")
                     continue
                 }
-                fails++
-                stage("HTTP 探测失败 " + fails + "/5")
-                if (fails < 5) continue
+                // 端口一旦不通，稳定性重新计时。
+                stableSince = 0L
 
-                stage("引擎无响应（连续5次），判定已退出")
-                // setsid 之后 p 是 setsid 的句柄，杀它没用；
-                // 要按 pid 文件里登记的真实引擎 pid 清理，否则残留进程会占着端口。
-                val c0 = appCtx ?: ctx
-                val real = findEnginePid()
-                if (real > 1) {
-                    stage("清理无响应的引擎 pid=" + real)
-                    runCatching { android.os.Process.killProcess(real) }
+                // ── 端口不通 ──────────────────────────────────────────────
+                val inGrace = now - spawnedAt < START_GRACE_MS
+
+                // ⚠ 保护期内把起点一直往后推，不要在保护期里攒时间。
+                // 否则 90 秒保护期结束时 downFor 已经是 90 秒，
+                // 一次探测就直接越过 HARD_DEAD_MS 把还在启动的引擎杀掉 ——
+                // 那正是 286 版的老毛病换了个形式。
+                // 这样写的结果是：保护期结束后再重新数 20 秒 / 60 秒。
+                if (inGrace) { unreachableSince = now; continue }
+
+                if (unreachableSince == 0L) unreachableSince = now
+                val downFor = now - unreachableSince
+
+                // CPU 活跃度：涨了就刷新时间戳。读不到（-1）时保守处理，
+                // 当作「有活动」，避免因为读不到 /proc 而误杀。
+                val cpu = cpuTicks(real)
+                if (cpu < 0 || lastCpu < 0 || cpu != lastCpu) {
+                    lastCpuChangeAt = now
+                    lastCpu = cpu
                 }
-                clearPidFile(c0)
+                val cpuIdleFor = now - lastCpuChangeAt
+                val cpuBusy = cpuIdleFor < PROBE_INTERVAL_MS * 3
+
+                stage(
+                    "探测 listening=false phase=$phase 不通=" + (downFor / 1000) + "s" +
+                        " cpu变化距今=" + (cpuIdleFor / 1000) + "s" +
+                        " cpu=" + cpu
+                )
+
+                // 还没到「持续不通」的门槛，继续等。
+                if (downFor < UNREACHABLE_JUDGE_MS) continue
+
+                // CPU 还在动：在干活，继续等（大会话恢复会持续几十秒）。
+                if (cpuBusy) {
+                    stage("端口不通但 CPU 仍在活动，继续等待（已 " + (downFor / 1000) + "s）")
+                    continue
+                }
+
+                // 到这里才是「端口不通 + CPU 不动」，还要熬满 HARD_DEAD_MS。
+                if (downFor < HARD_DEAD_MS) {
+                    stage("端口不通且 CPU 停滞，观察中（" + (downFor / 1000) + "s/" + (HARD_DEAD_MS / 1000) + "s）")
+                    continue
+                }
+
+                // ── 情况 C：确认卡死 ──────────────────────────────────────
+                stage("引擎确认卡死（不通 " + (downFor / 1000) + "s，CPU 停滞 " + (cpuIdleFor / 1000) + "s），准备重启")
+                runCatching { android.os.Process.killProcess(real) }
+                clearPidFile(appCtx ?: ctx)
                 processRef.set(null)
                 stateRef.set(State(Phase.FAILED, error = "引擎无响应，正在重启…"))
                 statusSink?.invoke("引擎无响应，正在重启…")
+                judged = true
                 break
             }
             if (stopping.get()) { stage("主动停止，不做重启"); return@Thread }
-            if (fails < 5) return@Thread
+            if (!judged) return@Thread
 
             val c = appCtx ?: ctx
             val n = restartCount.incrementAndGet()

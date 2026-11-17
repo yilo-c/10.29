@@ -116,11 +116,38 @@ class MainActivity : AppCompatActivity() {
         need.add(android.Manifest.permission.ACCESS_COARSE_LOCATION)
         need.add(android.Manifest.permission.CAMERA)
         need.add(android.Manifest.permission.RECORD_AUDIO)
+        // ⚠ 日历权限（B2）刻意**不**放这里。
+        // 这组是启动时一次性申请的，而日历能力由 AI 主动调用、
+        // 用户还没表达需求时弹框很容易被拒；方案要求放设置页手动触发。
+        // 见 requestCalendarPermission()。
         val missing = need.filter {
             checkSelfPermission(it) != android.content.pm.PackageManager.PERMISSION_GRANTED
         }
         if (missing.isEmpty()) return
         android.util.Log.i("SiyiWeb", "申请运行时权限: " + missing.joinToString(","))
+        runCatching { permLauncher.launch(missing.toTypedArray()) }
+    }
+
+    /**
+     * 单独申请日历读写权限（B2）。
+     *
+     * 不在启动路径调用，必须由用户主动触发（设置页按钮）。
+     * 这样权限弹框出现在用户明确要「用日历能力」的时刻，通过率高得多，
+     * 也不会打断首次进入对话的流程。
+     */
+    fun requestCalendarPermission() {
+        val need = mutableListOf(
+            android.Manifest.permission.READ_CALENDAR,
+            android.Manifest.permission.WRITE_CALENDAR,
+        )
+        val missing = need.filter {
+            checkSelfPermission(it) != android.content.pm.PackageManager.PERMISSION_GRANTED
+        }
+        if (missing.isEmpty()) {
+            android.util.Log.i("SiyiWeb", "日历权限已全部授予")
+            return
+        }
+        android.util.Log.i("SiyiWeb", "申请日历权限: " + missing.joinToString(","))
         runCatching { permLauncher.launch(missing.toTypedArray()) }
     }
 

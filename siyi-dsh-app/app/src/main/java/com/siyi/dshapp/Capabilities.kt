@@ -98,6 +98,28 @@ object Capabilities {
         add("device_share_text", "interaction", "分享文本到其他应用。", schema("text" to "string", "title" to "string"), "write")
         add("device_voice_input", "interaction", "系统语音识别，返回文本。", empty, "sensitive")
         // 元能力
+        // ── B2 日历（2026-11-17）──────────────────────────────────────
+        // 权限是运行时的 READ/WRITE_CALENDAR，设计上不在启动路径申请，
+        // 由设置页手动触发，所以这些工具在没授权时会明确回报缺权限。
+        add("device_calendar_status", "calendar", "日历读写权限状态。", empty)
+        add("device_calendar_list", "calendar", "列出设备上的日历账户，写入事件时需要 calendarId。", empty)
+        add("device_calendar_events", "calendar", "查某段时间的系统日历事件。", schema("beginMs" to "number", "endMs" to "number", "limit" to "number"))
+        add("device_calendar_add", "calendar", "在系统日历里新建事件。", schema("title" to "string", "beginMs" to "number", "endMs" to "number", "allDay" to "boolean", "location" to "string", "description" to "string", "calendarId" to "number"), "write")
+        add("device_calendar_update", "calendar", "修改系统日历事件。", schema("eventId" to "number", "title" to "string", "beginMs" to "number", "endMs" to "number", "location" to "string", "description" to "string"), "write")
+        add("device_calendar_delete", "calendar", "删除系统日历事件。", schema("eventId" to "number"), "write")
+        // E3 第一档：零权限，发 Intent 让系统日历自己预填，用户点保存
+        add("device_calendar_open", "calendar", "打开系统日历新建界面并预填（零权限路径）。", schema("title" to "string", "beginMs" to "number", "endMs" to "number", "allDay" to "boolean", "location" to "string", "description" to "string"), "write")
+        // ── B3 精确闹钟 ───────────────────────────────────────────────
+        add("device_alarm_status", "alarm", "精确闹钟权限与已登记闹钟状态。", empty)
+        add("device_alarm_set", "alarm", "设一个精确闹钟，到点发通知。", schema("triggerAtMs" to "number", "title" to "string", "text" to "string"), "write")
+        add("device_alarm_cancel", "alarm", "取消一个已设置的闹钟。", schema("requestCode" to "number"), "write")
+        add("device_alarm_list", "alarm", "列出本进程登记的闹钟。", empty)
+        // ── B4 使用时长（特殊权限，未授权时降级为只统计本应用）──────
+        add("device_usage_status", "usage", "使用情况访问权限状态。", empty)
+        add("device_usage_summary", "usage", "统计区间内各应用使用时长，按总时长降序。", schema("beginMs" to "number", "endMs" to "number", "limit" to "number"))
+        // ── B5 Shizuku 静默安装 ──────────────────────────────────────
+        add("device_shizuku_status", "install", "Shizuku 状态：未安装/未运行/未授权/可用。", empty)
+        add("device_install_apk", "install", "用 Shizuku 免点击安装 APK。", schema("path" to "string"), "dangerous")
         add("device_intent", "meta", "发起任意 Intent。", schema("action" to "string", "data" to "string", "type" to "string", "package" to "string"), "dangerous")
         add("device_shell", "meta", "执行 shell 命令（白名单前缀）。", schema("cmd" to "string"), "dangerous")
         add("device_screenshot", "meta", "截屏保存到 /sdcard/思忆集/app/。", empty, "dangerous")
@@ -128,6 +150,59 @@ object Capabilities {
         "device_read_file" -> readFile(ctx, args.optString("path"))
         "device_write_file" -> writeFile(ctx, args.optString("path"), args.optString("text"))
         "device_list_files" -> listFiles(ctx, args.optString("subdir", ""))
+        // ── B2 日历 ──────────────────────────────────────────────────
+        "device_calendar_status" -> CalendarCapability.status(ctx)
+        "device_calendar_list" -> CalendarCapability.listCalendars(ctx)
+        "device_calendar_events" -> CalendarCapability.listEvents(
+            ctx,
+            args.optLong("beginMs", 0L),
+            args.optLong("endMs", 0L),
+            args.optInt("limit", 100))
+        "device_calendar_add" -> CalendarCapability.insertEvent(
+            ctx,
+            args.optString("title"),
+            args.optLong("beginMs", 0L),
+            args.optLong("endMs", 0L),
+            args.optBoolean("allDay", false),
+            args.optString("location"),
+            args.optString("description"),
+            args.optLong("calendarId", 0L))
+        "device_calendar_update" -> CalendarCapability.updateEvent(
+            ctx,
+            args.optLong("eventId", 0L),
+            args.optString("title"),
+            args.optLong("beginMs", 0L),
+            args.optLong("endMs", 0L),
+            args.optString("location"),
+            args.optString("description"))
+        "device_calendar_delete" -> CalendarCapability.deleteEvent(ctx, args.optLong("eventId", 0L))
+        "device_calendar_open" -> CalendarCapability.openEventEditor(
+            ctx,
+            args.optString("title"),
+            args.optLong("beginMs", 0L),
+            args.optLong("endMs", 0L),
+            args.optBoolean("allDay", false),
+            args.optString("location"),
+            args.optString("description"))
+        // ── B3 精确闹钟 ──────────────────────────────────────────────
+        "device_alarm_status" -> AlarmCapability.status(ctx)
+        "device_alarm_set" -> AlarmCapability.set(
+            ctx,
+            args.optLong("triggerAtMs", 0L),
+            args.optString("title"),
+            args.optString("text"))
+        "device_alarm_cancel" -> AlarmCapability.cancel(ctx, args.optInt("requestCode", 0))
+        "device_alarm_list" -> AlarmCapability.list()
+        // ── B4 使用时长 ──────────────────────────────────────────────
+        "device_usage_status" -> UsageCapability.status(ctx)
+        "device_usage_summary" -> UsageCapability.summary(
+            ctx,
+            args.optLong("beginMs", 0L),
+            args.optLong("endMs", 0L),
+            args.optInt("limit", 30))
+        // ── B5 Shizuku 安装 ──────────────────────────────────────────
+        "device_shizuku_status" -> ShizukuInstaller.status(ctx)
+        "device_install_apk" -> ShizukuInstaller.install(ctx, args.optString("path"))
         "device_intent" -> intent(ctx, args)
         "device_shell" -> shell(ctx, args.optString("cmd"))
         "device_screenshot" -> screenshot(ctx)
@@ -353,7 +428,23 @@ object Capabilities {
             while (it.hasNext()) {
                 val k = it.next()
                 when (val v = ex.get(k)) {
-                    is String -> i.putExtra(k, v); is Int -> i.putExtra(k, v); is Boolean -> i.putExtra(k, v)
+                    is String -> i.putExtra(k, v)
+                    is Int -> i.putExtra(k, v)
+                    is Boolean -> i.putExtra(k, v)
+                    // ── B1：补 Long 与 Double（2026-11-17）──
+                    // 系统日历要的 beginTime / endTime 是毫秒时间戳，
+                    // CalendarContract.EXTRA_EVENT_BEGIN_TIME 是 Long，
+                    // 只支持 String/Int/Boolean 时这类 extras 会被静默丢弃 ——
+                    // Intent 照发，但系统日历拿不到时间，表现为「打开了日历却没预填」。
+                    // 注意 org.json 的数字类型判断顺序：先 Long 再 Double，
+                    // 因为 getLong 对整数值和浮点值都能成功，getDouble 同理，
+                    // 但只有 getLong 在值带小数时会抛，所以用 optLong 之外的方式
+                    // 通过类型判断更稳妥：JSON 里整数解析成 Integer 或 Long，
+                    // 带小数解析成 Double，这里靠 is Long / is Double 分支区分。
+                    is Long -> i.putExtra(k, v)
+                    is Double -> i.putExtra(k, v)
+                    is JSONObject -> i.putExtra(k, v.toString())
+                    is JSONArray -> i.putExtra(k, v.toString())
                 }
             }
         }

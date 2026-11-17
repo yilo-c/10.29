@@ -136,7 +136,23 @@ object Capabilities {
         // ── B5 Shizuku 静默安装 ──────────────────────────────────────
         add("device_shizuku_status", "install", "Shizuku 状态：未安装/未运行/未授权/可用。", empty)
         add("device_install_apk", "install", "用 Shizuku 免点击安装 APK。", schema("path" to "string"), "dangerous")
-        add("device_intent", "meta", "发起任意 Intent。", schema("action" to "string", "data" to "string", "type" to "string", "package" to "string"), "dangerous")
+        // ⚠ extras 必须放进 schema（2026-11-17 实测发现）：
+        // intent() 早就支持 extras 了（B1 还专门补了 Long / Double 分支），
+        // 但 schema 里只暴露了 action/data/type/package 四个参数，
+        // 模型根本没有途径传 extras —— 那段 Long/Double 修复等于死代码。
+        // 系统日历预填（beginTime/endTime）就是靠 extras 传毫秒时间戳的，
+        // 不暴露这个参数，device_intent 就永远只能「打开日历但什么都不预填」。
+        add("device_intent", "meta",
+            "发起任意 Intent。extras 用于携带 Intent 附加数据，例如系统日历预填 beginTime/endTime 毫秒时间戳。",
+            schema(
+                "action" to "string", "data" to "string", "type" to "string",
+                "package" to "string", "extras" to "object"
+            ).apply {
+                getJSONObject("properties").getJSONObject("extras").put(
+                    "description",
+                    "Intent extras 的 JSON 对象。类型按值自动映射：整数→Int/Long，小数→Double，布尔→Boolean，字符串→String，嵌套对象或数组→JSON 字符串。"
+                )
+            }, "dangerous")
         add("device_shell", "meta", "执行 shell 命令（白名单前缀）。", schema("cmd" to "string"), "dangerous")
         add("device_screenshot", "meta", "截屏保存到 /sdcard/思忆集/app/。", empty, "dangerous")
         return list

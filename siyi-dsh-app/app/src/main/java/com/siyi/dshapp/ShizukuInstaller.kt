@@ -40,7 +40,23 @@ import java.io.File
  */
 object ShizukuInstaller {
 
-    private const val PKG = "dev.rikka.shizuku"
+    /**
+     * Shizuku 服务端 App 的包名。
+     *
+     * ⚠ 这里踩过真 bug（2026-11-17 实测发现）：
+     * 原来写的是 "dev.rikka.shizuku"，那是 Shizuku 的 **开发库命名空间**
+     * （dev.rikka.shizuku:api 这个 Maven 坐标），不是手机上的 App 包名。
+     * 结果用户的手机明明装了 Shizuku 13.5.4（moe.shizuku.privileged.api），
+     * device_shizuku_status 却一直报 not_installed —— 不是旧 bug 的复现，
+     * 是包名查错了，永远查不到。
+     *
+     * 真实包名是 moe.shizuku.privileged.api。保留 dev.rikka.shizuku 作兜底，
+     * 因为个别分支/魔改版可能沿用旧名字，多查一个没有副作用。
+     */
+    private val APP_PKGS = listOf(
+        "moe.shizuku.privileged.api",
+        "dev.rikka.shizuku"
+    )
     private const val REQ_CODE = 1001
 
     /** 授权结果监听器是否已注册（避免重复注册）。 */
@@ -48,10 +64,12 @@ object ShizukuInstaller {
     private var listenerRegistered = false
 
     /** Shizuku 服务端 App 是否装在设备上。 */
-    private fun shizukuPresent(ctx: Context): Boolean = runCatching {
-        ctx.packageManager.getPackageInfo(PKG, 0)
-        true
-    }.getOrDefault(false)
+    private fun shizukuPresent(ctx: Context): Boolean = APP_PKGS.any { pkg ->
+        runCatching {
+            ctx.packageManager.getPackageInfo(pkg, 0)
+            true
+        }.getOrDefault(false)
+    }
 
     /**
      * 注册授权结果监听器。

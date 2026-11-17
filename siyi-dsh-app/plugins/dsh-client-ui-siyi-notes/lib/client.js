@@ -5,7 +5,7 @@
 //   编辑  D3：大标题 + 正文 + 标签，仿 Redmi 笔记的排布
 //   图谱  D4：标题成节点、双链成边，纯 SVG 无 d3
 //
-// 数据全部走同源 HTTP：/siyi-vault/{list,get,save,delete,graph,tasks,stats}
+// 数据全部走同源 HTTP：/siyi-vault/{list,get,save,delete,graph,tasks,stats,upload,asset}
 // 这个接口由 /sdcard/思忆集/plugins/siyi-vault.js 挂在引擎的 webServer 上，
 // 所以前端不需要额外配置端口或鉴权（已经是登录态页面）。
 //
@@ -42,6 +42,24 @@ window.__ModuleLoader__.load({
     const getGraph = () => api('/graph')
     const getTasks = () => api('/tasks')
     const getStats = () => api('/stats')
+
+    // 图片上传：走宿主插件 /siyi-vault/upload 的原始字节协议
+    // （协议注释见 plugins/siyi-vault.js 的 handleUpload 上方）。
+    // 返回 { ok, url, name, size, dedup }，url 形如 /siyi-vault/asset/0123456789abcdef.png
+    async function uploadImage(file) {
+      const r = await fetch(API + '/upload', {
+        method: 'POST',
+        headers: {
+          'Content-Type': file.type || 'application/octet-stream',
+          'X-Siyi-Filename': encodeURIComponent(file.name || 'image'),
+        },
+        body: await file.arrayBuffer(),
+      })
+      let j = null
+      try { j = await r.json() } catch (e) {}
+      if (!r.ok || !j || !j.ok) throw new Error((j && j.error) || ('HTTP ' + r.status))
+      return j
+    }
 
     // ── 样式 ────────────────────────────────────────────────────────
     // 用 DSH 的 --dsw-alias-* 令牌，跟官方组件同风格；
@@ -116,6 +134,9 @@ window.__ModuleLoader__.load({
   font-size:13px;padding:8px 16px;border-radius:16px;z-index:9;
   border:.5px solid var(--dsw-alias-border-l3);pointer-events:none;
   max-width:calc(100% - 32px);text-align:center}
+/* 图片：窄屏防撑破，阅读态/编辑态共用 */
+.siyi-notes-body-input img{max-width:100%;height:auto;display:block;margin:8px 0;
+  border-radius:8px}
 `
 
     function ensureCss() {
@@ -237,7 +258,9 @@ window.__ModuleLoader__.load({
       const [pinnedTop, setPinnedTop] = useState(false)
       const [fmtMenu, setFmtMenu] = useState(false)  // 格式二级菜单
       const [insMenu, setInsMenu] = useState(false)  // 插入二级菜单
+      const [imgBusy, setImgBusy] = useState(false)   // 图片上传中
       const bodyRef = useRef(null)
+      const fileRef = useRef(null)                    // 隐藏的 <input type=file>
       const historyRef = useRef({ stack: [], index: -1 })
       const skipHistory = useRef(false)
 
@@ -347,6 +370,22 @@ window.__ModuleLoader__.load({
         setFmtMenu(false); setInsMenu(false)
         setTimeout(() => { ta.focus(); ta.selectionStart = ta.selectionEnd = start + prefix.length }, 0)
       }
+      // 纯插入一段文本（图片用），以 DOM 当前值为准，避免 await 之后闭包里的 body 过期
+      const insertRaw = (text) => {
+        const ta = bodyRef.current
+        const cur = ta ? ta.value : body
+        const start = ta ? (ta.selectionStart || 0) : cur.length
+        const end = ta ? (ta.selectionEnd || 0) : cur.length
+        const next = cur.slice(0, start) + text + cur.slice(end)
+        pushHistory(next)
+        setBody(next); setDirty(true)
+        setFmtMenu(false); setInsMenu(false)
+        setTimeout(() => {
+          if (!ta) return
+          ta.focus()
+          ta.selectionStart = ta.selectionEnd = start + text.length
+        }, 0)
+      }
       const toggleTodo = () => {
         const ta = bodyRef.current
         if (!ta) return
@@ -363,6 +402,31 @@ window.__ModuleLoader__.load({
         pushHistory(next)
         setBody(next); setDirty(true)
         setFmtMenu(false); setInsMenu(false)
+      }
+
+      // 选图 -> 上传 -> 光标处插入 markdown 图片语法
+      // <input type=file> 由 MainActivity 的 WebChromeClient.onShowFileChooser 弹系统选择器
+      const onPickImage = async (e) => {
+        const f = e.target && e.target.files && e.target.files[0]
+        if (e.target) e.target.value = ''   // 允许连续选同一张
+        if (!f) return
+        const name = f.name || ''
+        let ext = (name.match(/\.([A-Za-z0-9]+)$/) || [])[1] || ''
+        if (!ext) ext = ({ 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif' })[f.type] || ''
+        if (!/^(jpe?g|png|webp|gif)$/i.test(ext)) { toast('只支持 jpg/jpeg/png/webp/gif 图片'); return }
+        if (f.size > 8 * 1024 * 1024) { toast('图片超过 8MB 上限'); return }
+        setImgBusy(true)
+        try {
+          toast('图片上传中…')
+          const r = await uploadImage(f)
+          if (mode === 'read') setMode('edit')
+          insertRaw('\n![](' + r.url + ')\n')
+          toast('已插入图片')
+        } catch (err) {
+          toast('插入图片失败：' + (err && err.message ? err.message : err))
+        } finally {
+          setImgBusy(false)
+        }
       }
 
       // 底栏图标按钮：文字用通用符号，触控区 44px
@@ -457,6 +521,14 @@ window.__ModuleLoader__.load({
                 },
               }),
         ),
+        // 隐藏的文件选择器，点「图片」按钮时触发
+        h('input', {
+          ref: fileRef,
+          type: 'file',
+          accept: 'image/*',
+          style: { display: 'none' },
+          onChange: onPickImage,
+        }),
         // 二级菜单（在底栏上方弹出）
         (fmtMenu || insMenu) ? h('div', {
           style: {
@@ -487,6 +559,7 @@ window.__ModuleLoader__.load({
           h(IconBtn, { glyph: '✎', label: '格式', active: fmtMenu, onClick: () => { setFmtMenu(v => !v); setInsMenu(false) } }),
           h(IconBtn, { glyph: '☑', label: '待办', onClick: toggleTodo }),
           h(IconBtn, { glyph: '＋', label: '插入', active: insMenu, onClick: () => { setInsMenu(v => !v); setFmtMenu(false) } }),
+          h(IconBtn, { glyph: '🖼', label: imgBusy ? '上传中' : '图片', active: imgBusy, onClick: () => { if (fileRef.current) fileRef.current.click() } }),
           h(IconBtn, { glyph: mode === 'read' ? '✎' : '👁', label: mode === 'read' ? '编辑' : '阅读', onClick: () => setMode(m => m === 'read' ? 'edit' : 'read') }),
           h(IconBtn, { glyph: '⋯', label: '更多', onClick: () => { setFmtMenu(true); setInsMenu(false) } }),
         ),
@@ -496,6 +569,18 @@ window.__ModuleLoader__.load({
           h('span', null, note && note.meta ? '更新于 ' + fmtTime(note.meta.updated) : '新笔记'),
         ),
       )
+    }
+
+    // 图片语法只放行两类 src：本站 asset（sha256 前16位 + 白名单扩展名）与 https。
+    // 其余（javascript:、data:、../ 路径）一律原样显示文本，避免扩大注入面。
+    const IMG_SRC_RE = /^(?:\/siyi-vault\/asset\/[0-9a-f]{16}\.(?:jpe?g|png|webp|gif)|https:\/\/[^\s"'<>()]+)$/
+    function safeImgSrc(src) {
+      const v = String(src || '').trim()
+      return IMG_SRC_RE.test(v) ? v : null
+    }
+    function attrEsc(v) {
+      return String(v || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+        .replace(/</g, '&lt;').replace(/>/g, '&gt;')
     }
 
     function renderMarkdown(md) {
@@ -532,6 +617,15 @@ window.__ModuleLoader__.load({
         }
         if ((m = raw.match(/^[-*] (.*)$/))) { out.push('<div style="padding-left:16px;position:relative;margin:2px 0"><span style="position:absolute;left:4px">•</span>' + inline(m[1]) + '</div>'); continue }
         if ((m = raw.match(/^\d+\. (.*)$/))) { out.push('<div style="padding-left:20px;margin:2px 0">' + raw.replace(/^(.*)$/, '$1') .replace(/^(\d+)\. /, '<span style="opacity:.6">$1.</span> ') + '</div>'); continue }
+        // 独占一行的图片：渲染成块级 <img>，max-width:100% 防撑破窄屏
+        if ((m = raw.match(/^\s*!\[([^\]]*)\]\(([^()\s]+)\)\s*$/))) {
+          const src = safeImgSrc(m[2])
+          if (src) {
+            out.push('<div style="margin:8px 0"><img src="' + attrEsc(src) + '" alt="' + attrEsc(m[1]) +
+              '" style="max-width:100%;height:auto;display:block;border-radius:8px"></div>')
+            continue
+          }
+        }
         if (raw.trim() === '') { out.push('<div style="height:8px"></div>'); continue }
         out.push('<div style="margin:2px 0">' + inline(raw) + '</div>')
       }
@@ -546,6 +640,10 @@ window.__ModuleLoader__.load({
         .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
         .replace(/&lt;u&gt;/g, U_OPEN).replace(/&lt;\/u&gt;/g, U_CLOSE)
       return t
+        .replace(/!\[([^\]]*)\]\(([^()\s]+)\)/g, (m0, alt, src) => {
+          const ok = safeImgSrc(src)
+          return ok ? '<img src="' + attrEsc(ok) + '" alt="' + attrEsc(alt) + '" style="max-width:100%;height:auto;display:inline-block;vertical-align:middle">' : m0
+        })
         .replace(/\[\[([^\]]+)\]\]/g, '<span style="color:var(--dsw-alias-label-link, #3b82f6);border-bottom:1px dashed currentColor">$1</span>')
         .replace(/`([^`]+)`/g, '<code style="background:var(--dsw-alias-bg-layer-3);padding:1px 4px;border-radius:3px;font-size:.9em">$1</code>')
         .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')

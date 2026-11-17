@@ -207,6 +207,17 @@ object EngineController {
         processRef.set(null)   // 句柄不属于本进程，但 pid 文件已够用
         stateRef.set(State(Phase.READY, url = url))
         stage("已接管常驻引擎 url=" + url)
+        // ⚠ 必须在这里也重放补丁（2026-11-17 实测发现）：
+        // ensureAll/PatchOverlay 只在 boot()（冷启动）里调用，
+        // 而常驻引擎走的是 adoptExistingEngine 这条路，完全绕开了它。
+        // 结果是：用户改了 /sdcard/思忆集/patches/ 里的补丁，
+        // 只要引擎没被真正重启，补丁就永远不生效 ——
+        // 表现和「补丁没写对」一模一样，极难分辨。
+        //
+        // 补丁是纯文件覆盖，不影响正在运行的引擎进程（模块已经加载进内存），
+        // 只影响引擎下次启动时读到的文件，所以这里重放是安全的。
+        runCatching { PatchOverlay.apply(ctx) }
+            .onFailure { stage("接管后重放补丁失败: " + (it.message ?: "")) }
         return true
     }
 

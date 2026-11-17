@@ -102,10 +102,28 @@ window.__ModuleLoader__.load({
   touch-action:manipulation;-webkit-tap-highlight-color:transparent}
 .siyi-notes-btn:active{background:var(--dsw-alias-bg-layer-3)}
 .siyi-notes-btn.on{background:var(--dsw-alias-bg-layer-3);font-weight:600}
+/* 类型下拉：和按钮同高同风格，选中态靠边框区分 */
+.siyi-notes-kind-select{height:36px;border-radius:10px;padding:0 8px;flex:none;
+  border:.5px solid var(--dsw-alias-border-l3);background:var(--dsw-alias-bg-layer-2);
+  color:var(--dsw-alias-label-primary);font-size:13px;outline:none;
+  -webkit-appearance:none;appearance:none;touch-action:manipulation;max-width:96px}
 .siyi-notes-tabs{display:flex;gap:8px;padding:8px 10px;flex:none;overflow-x:auto;
   border-bottom:.5px solid var(--dsw-alias-border-l3);
-  scrollbar-width:none;overscroll-behavior-x:contain}
+  scrollbar-width:none;overscroll-behavior-x:contain;align-items:center}
 .siyi-notes-tabs::-webkit-scrollbar{display:none}
+/* 文件夹计数徽标：紧跟名字的小号数字 */
+.siyi-notes-folder-count{font-size:11px;opacity:.6;margin-left:5px;
+  font-variant-numeric:tabular-nums}
+/* 新建文件夹的「＋」：和别的按钮同高，但视觉更轻，暗示次要动作 */
+.siyi-notes-folder-add{min-width:36px;font-size:18px;line-height:1;
+  padding:0 8px;color:var(--dsw-alias-label-secondary)}
+/* 新建文件夹的输入区：整体不换行，避免挤掉其它按钮 */
+.siyi-notes-folder-new{display:inline-flex;align-items:center;gap:6px;flex:none}
+.siyi-notes-folder-input{height:36px;width:132px;padding:0 10px;border-radius:10px;
+  border:.5px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2);
+  color:var(--dsw-alias-label-primary);font-size:14px;outline:none;
+  -webkit-appearance:none;touch-action:manipulation}
+.siyi-notes-folder-input:focus{border-color:var(--dsw-alias-label-primary)}
 .siyi-notes-list{flex:1;overflow-y:auto;min-height:0;padding:4px 0;
   overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
 .siyi-notes-item{padding:12px;min-height:52px;box-sizing:border-box;cursor:pointer;
@@ -255,6 +273,13 @@ window.__ModuleLoader__.load({
       const [q, setQ] = useState('')
       const [kind, setKind] = useState('')
       const [stats, setStats] = useState(null)
+      // 文件夹栏状态。
+      // folder 用 '' 表示「全部」，'__none__' 表示未归类（服务端用这个特殊值区分，
+      // 因为空串在服务端表示「不过滤」）。
+      const [folder, setFolder] = useState('')
+      const [folders, setFolders] = useState([])
+      const [unfiled, setUnfiled] = useState(0)
+      const [newFolder, setNewFolder] = useState(null)   // 非 null 时显示新建输入框
 
       const load = useCallback(async () => {
         setLoading(true)
@@ -262,6 +287,7 @@ window.__ModuleLoader__.load({
           const p = {}
           if (q.trim()) p.q = q.trim()
           if (kind) p.kind = kind
+          if (folder) p.folder = folder
           if (kind === 'task') {
             const t = await getTasks()
             setItems((t.items || []).map(x => ({ ...x, updated: x.updated || x.due })))
@@ -271,15 +297,39 @@ window.__ModuleLoader__.load({
           }
           const s = await getStats()
           setStats(s)
+          // 文件夹列表独立取，不受当前筛选影响（否则选中某个文件夹后，
+          // 栏里就只剩它自己，没法切换到别的）。
+          try {
+            const f = await fetch('/siyi-vault/folders').then(r => r.json())
+            if (f && f.ok) { setFolders(f.folders || []); setUnfiled(f.unfiled || 0) }
+          } catch {}
         } catch (e) {
           toast('读取失败：' + e.message)
           setItems([])
         } finally { setLoading(false) }
-      }, [q, kind])
+      }, [q, kind, folder])
 
       useEffect(() => { load() }, [load])
 
-      const kinds = [['', '全部'], ['note', '笔记'], ['task', '待办'], ['source', '资料'], ['daily', '日记'], ['moc', '索引']]
+      // 新建文件夹：调服务端接口，成功后刷新列表。
+      const createFolder = async (name) => {
+        const n = String(name || '').trim()
+        if (!n) { setNewFolder(null); return }
+        try {
+          const r = await fetch('/siyi-vault/folder-create', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: n }),
+          }).then(r => r.json())
+          if (!r || !r.ok) { toast('创建失败：' + ((r && r.error) || '未知错误')); return }
+          toast(r.created ? ('已创建文件夹「' + n + '」') : ('文件夹「' + n + '」已存在'))
+          setNewFolder(null)
+          await load()
+          if (r.created) setFolder(n)
+        } catch (e) {
+          toast('创建失败：' + e.message)
+        }
+      }
 
       return h('div', { className: 'siyi-notes-root' },
         h('div', { className: 'siyi-notes-bar' },
@@ -291,13 +341,67 @@ window.__ModuleLoader__.load({
           h('button', { className: 'siyi-notes-btn', onClick: onMonth, title: '月历' }, '日历'),
           h('button', { className: 'siyi-notes-btn', onClick: onTasks, title: '待办清单' }, '待办'),
           h('button', { className: 'siyi-notes-btn', onClick: onGraph, title: '知识图谱' }, '图谱'),
+          // 类型筛选改成下拉，挪到顶栏末尾。
+          // 原因：下面的横向空间给了文件夹栏，两个维度都用横排按钮会挤在一起，
+          // 窄屏上根本点不准。类型是次要筛选，下拉更省空间。
+          h('select', {
+            className: 'siyi-notes-kind-select',
+            value: kind,
+            onChange: (e) => setKind(e.target.value),
+          }, [
+            ['', '全部类型'],
+            ['note', '笔记'],
+            ['task', '待办'],
+            ['source', '资料'],
+            ['daily', '日记'],
+            ['moc', '索引'],
+          ].map(([k, label]) => h('option', { key: k || 'all', value: k }, label))),
         ),
+        // 文件夹栏：替代原来的类型栏（全部/笔记/待办/资料/日记/索引）。
+        // 数据来自笔记 frontmatter 的 folder 字段，vault 已有 60 篇笔记、
+        // 53 篇带 folder（现有「资讯」「知识」两个真实文件夹）。
         h('div', { className: 'siyi-notes-tabs' },
-          kinds.map(([k, label]) => h('button', {
-            key: k || 'all',
-            className: 'siyi-notes-btn' + (kind === k ? ' on' : ''),
-            onClick: () => setKind(k),
-          }, label)),
+          h('button', {
+            className: 'siyi-notes-btn' + (folder === '' ? ' on' : ''),
+            onClick: () => setFolder(''),
+          }, '全部'),
+          folders.map(f => h('button', {
+            key: f.name,
+            className: 'siyi-notes-btn' + (folder === f.name ? ' on' : ''),
+            onClick: () => setFolder(f.name),
+          }, f.name, h('span', { className: 'siyi-notes-folder-count' }, String(f.count)))),
+          unfiled > 0 ? h('button', {
+            className: 'siyi-notes-btn' + (folder === '__none__' ? ' on' : ''),
+            onClick: () => setFolder('__none__'),
+          }, '未归类', h('span', { className: 'siyi-notes-folder-count' }, String(unfiled))) : null,
+          // 最右侧：创建文件夹。
+          newFolder === null
+            ? h('button', {
+                className: 'siyi-notes-btn siyi-notes-folder-add',
+                onClick: () => setNewFolder(''),
+                title: '新建文件夹',
+              }, '＋')
+            : h('span', { className: 'siyi-notes-folder-new' },
+                h('input', {
+                  className: 'siyi-notes-folder-input',
+                  placeholder: '文件夹名',
+                  value: newFolder,
+                  autoFocus: true,
+                  onChange: (e) => setNewFolder(e.target.value),
+                  onKeyDown: (e) => {
+                    if (e.key === 'Enter') { e.preventDefault(); createFolder(newFolder) }
+                    else if (e.key === 'Escape') { e.preventDefault(); setNewFolder(null) }
+                  },
+                }),
+                h('button', {
+                  className: 'siyi-notes-btn',
+                  onClick: () => createFolder(newFolder),
+                }, '确定'),
+                h('button', {
+                  className: 'siyi-notes-btn',
+                  onClick: () => setNewFolder(null),
+                }, '取消'),
+              ),
           stats ? h('span', {
             className: 'siyi-notes-btn',
             style: { cursor: 'default', opacity: .7, marginLeft: 'auto', whiteSpace: 'nowrap' },

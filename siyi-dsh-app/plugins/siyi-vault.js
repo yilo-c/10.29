@@ -224,10 +224,79 @@ function mimeByExt(ext) {
 // ── 业务处理 ────────────────────────────────────────────────────────────
 
 /** 列表：支持 kind / 标签 / 关键词过滤，按 updated 倒序。 */
+/**
+ * 列出所有文件夹（名字 + 笔记数）以及未归类计数。
+ *
+ * 文件夹不是一个独立的目录实体，而是笔记 frontmatter 里的 folder 字段。
+ * 已有数据里 folder 取值形如「资讯」「知识」，也有 null（未归类）。
+ * 计数从实际笔记里统计，所以不会出现「有文件夹但里面是空的」以外的偏差。
+ */
+function handleFolders() {
+  const counts = new Map()
+  let unfiled = 0
+  for (const n of allNotes()) {
+    const f = n.meta.folder
+    if (typeof f === 'string' && f.trim()) {
+      const key = f.trim()
+      counts.set(key, (counts.get(key) || 0) + 1)
+    } else unfiled++
+  }
+  const folders = [...counts.entries()]
+    .map(([name, count]) => ({ name, count }))
+    .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
+  return { ok: true, folders, unfiled, total: folders.reduce((s, f) => s + f.count, 0) + unfiled }
+}
+
+/**
+ * 创建一个文件夹。
+ *
+ * 文件夹本身用一个 kind=moc（索引）的笔记承载：这样不用引入新的文件类型，
+ * 现有 frontmatter 解析、列表统计、图谱全都自动支持它。
+ * 用户在文件夹里写点说明也顺带能存下来。
+ */
+async function handleFolderCreate(req) {
+  let data
+  try {
+    const raw = await readBody(req)
+    data = JSON.parse(raw)
+  } catch (e) {
+    return { ok: false, error: 'invalid json: ' + (e && e.message) }
+  }
+  const name = String((data && data.name) || '').trim()
+  if (!name) return { ok: false, error: '文件夹名不能为空' }
+  if (name.length > 40) return { ok: false, error: '文件夹名过长（最多 40 字）' }
+  if (/[\/#\r\n]/.test(name)) return { ok: false, error: '文件夹名不能包含 / # 或换行' }
+  // 已存在就复用，不重复创建
+  const exists = allNotes().some(n => String(n.meta.folder || '').trim() === name)
+  if (exists) return { ok: true, name, created: false, message: '文件夹已存在' }
+  const id = ulid()
+  const now = new Date().toISOString()
+  const meta = {
+    schema: 1,
+    id,
+    kind: 'moc',
+    title: name,
+    aliases: [],
+    tags: [],
+    sensitivity: 'personal',
+    created: now,
+    updated: now,
+    device: 'phone',
+    source: null,
+    status: 'active',
+    folder: name,
+  }
+  const dir = path.join(VAULT, now.slice(0, 4), now.slice(0, 7))
+  fs.mkdirSync(dir, { recursive: true })
+  fs.writeFileSync(path.join(dir, id + '.md'), buildMd(meta, ''), 'utf8')
+  return { ok: true, name, id, created: true }
+}
+
 function handleList(url) {
   const q = url.searchParams.get('q') || ''
   const kind = url.searchParams.get('kind') || ''
   const tag = url.searchParams.get('tag') || ''
+  const folder = url.searchParams.get('folder') || ''
   const status = url.searchParams.get('status') || ''
   const limit = Math.min(Number(url.searchParams.get('limit')) || 500, 2000)
 
@@ -245,6 +314,10 @@ function handleList(url) {
   if (kind) items = items.filter(i => i.kind === kind)
   if (status) items = items.filter(i => i.status === status)
   if (tag) items = items.filter(i => i.tags.includes(tag))
+  // folder 过滤：客户端的文件夹栏用它筛。
+  // folder=__none__ 表示「没有文件夹的笔记」（未归类），
+  // 不能用空串表达，因为空串就是「不过滤」。
+  if (folder) items = items.filter(i => (i.folder || '') === (folder === '__none__' ? '' : folder))
   if (q) {
     const k = q.toLowerCase()
     items = items.filter(i =>
@@ -668,6 +741,11 @@ export function apply(ctx, config) {
         if (action === 'graph') return sendJson(res, 200, handleGraph())
         if (action === 'tasks') return sendJson(res, 200, handleTasks(url))
         if (action === 'stats') return sendJson(res, 200, handleStats())
+        if (action === 'folders') return sendJson(res, 200, handleFolders())
+        if (action === 'folder-create') {
+          if (req.method !== 'POST') return sendJson(res, 405, { ok: false, error: 'POST only' })
+          return sendJson(res, 200, await handleFolderCreate(req))
+        }
         if (action === 'save') {
           if (req.method !== 'POST') return sendJson(res, 405, { ok: false, error: 'POST only' })
           return sendJson(res, 200, await handleSave(req))

@@ -17,12 +17,29 @@
 
 import fs from 'node:fs'
 import path from 'node:path'
+import crypto from 'node:crypto'
 
 export const name = 'siyi-vault'
 export const inject = ['tools']
 
 const VAULT = '/sdcard/思忆集/vault'
 const PREFIX = '/siyi-vault'
+const ASSETS = path.join(VAULT, 'assets')
+
+// ── 图片上传协议（客户端 client.js 与 selftest 脚本共用）─────────────
+// 1) 原始字节（首选，客户端用）：
+//    POST /siyi-vault/upload
+//    Content-Type: image/png（或 application/octet-stream）
+//    X-Siyi-Filename: encodeURIComponent(原始文件名)  ← 只用于取扩展名
+//    body: 图片原始字节，<= 8MB
+// 2) JSON 备选（curl / 自测方便）：
+//    POST /siyi-vault/upload  Content-Type: application/json
+//    {"name":"a.png","ext":"png","data":"<base64 或 data URL>"}
+// 成功：{"ok":true,"url":"/siyi-vault/asset/<sha256前16位>.<ext>","name":...,"size":...,"dedup":bool}
+// 失败：{"ok":false,"error":"..."}；400 参数/内容问题，413 超大，415 类型不支持
+// 落盘名只用内容 sha256 前 16 位 + 嗅探出的扩展名，绝不使用用户文件名（防路径穿越）。
+const MAX_UPLOAD = 8 * 1024 * 1024
+const MIME_BY_EXT = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', gif: 'image/gif' }
 
 // ── 工具函数 ────────────────────────────────────────────────────────────
 
@@ -151,18 +168,57 @@ function sendJson(res, code, obj) {
   res.end(body)
 }
 
-function readBody(req) {
+/** 读原始字节；超过 maxBytes 抛 code=TOO_LARGE（并排空剩余 body，保证还能回响应）。 */
+function readBuffer(req, maxBytes) {
   return new Promise((resolve, reject) => {
     const chunks = []
     let size = 0
+    let done = false
     req.on('data', c => {
+      if (done) return
       size += c.length
-      if (size > 4 * 1024 * 1024) { reject(new Error('body too large')); req.destroy(); return }
+      if (size > maxBytes) {
+        done = true
+        const err = new Error('body too large')
+        err.code = 'TOO_LARGE'
+        reject(err)
+        try { req.resume() } catch {}
+        return
+      }
       chunks.push(c)
     })
-    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')))
-    req.on('error', reject)
+    req.on('end', () => { if (!done) resolve(Buffer.concat(chunks)) })
+    req.on('error', e => { if (!done) { done = true; reject(e) } })
   })
+}
+
+async function readBody(req) {
+  return (await readBuffer(req, 4 * 1024 * 1024)).toString('utf8')
+}
+
+/** 用文件头判断真实图片类型，防止改扩展名把别的文件混进 asset。 */
+function sniffImage(buf) {
+  if (!buf || buf.length < 12) return null
+  if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return 'jpg'
+  if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) return 'png'
+  const head = buf.toString('latin1', 0, 6)
+  if (head === 'GIF87a' || head === 'GIF89a') return 'gif'
+  if (buf.toString('latin1', 0, 4) === 'RIFF' && buf.toString('latin1', 8, 12) === 'WEBP') return 'webp'
+  return null
+}
+
+/** 取白名单扩展名（jpeg 归一成 jpg）；不在白名单返回 null。 */
+function normExt(name) {
+  const m = String(name || '').match(/\.([A-Za-z0-9]+)$/)
+  if (!m) return null
+  const e = m[1].toLowerCase()
+  if (e === 'jpeg') return 'jpg'
+  return MIME_BY_EXT[e] ? e : null
+}
+
+/** 白名单扩展名 -> MIME。 */
+function mimeByExt(ext) {
+  return MIME_BY_EXT[String(ext || '').toLowerCase()] || null
 }
 
 // ── 业务处理 ────────────────────────────────────────────────────────────
@@ -345,6 +401,235 @@ function handleStats() {
   return { ok: true, total: notes.length, byKind, byStatus, vault: VAULT }
 }
 
+/** 上传图片：校验 -> sha256 去重 -> 写 vault/assets。返回 {code, body} 由分发层写响应。 */
+async function handleUpload(req) {
+  if (req.method !== 'POST') return { code: 405, body: { ok: false, error: 'POST only' } }
+  const ct = String(req.headers['content-type'] || '').toLowerCase()
+  // WebView 调系统选图器时文件名可能为空/无扩展名，用 MIME 兜底
+  const ctExt = /image\/jpe?g/.test(ct) ? 'jpg' : /image\/png/.test(ct) ? 'png' :
+    /image\/webp/.test(ct) ? 'webp' : /image\/gif/.test(ct) ? 'gif' : ''
+  let buf = null
+  let claimedName = ''
+  let claimedExt = ''
+  try {
+    if (ct.includes('application/json')) {
+      const raw = await readBuffer(req, 12 * 1024 * 1024)
+      let data
+      try { data = JSON.parse(raw.toString('utf8')) } catch {
+        return { code: 400, body: { ok: false, error: 'invalid json' } }
+      }
+      if (!data || typeof data.data !== 'string' || !data.data) {
+        return { code: 400, body: { ok: false, error: '缺少 data(base64)' } }
+      }
+      let b64 = data.data
+      if (b64.startsWith('data:')) b64 = b64.slice(b64.indexOf(',') + 1)
+      buf = Buffer.from(b64, 'base64')
+      claimedName = String(data.name || '')
+      claimedExt = String(data.ext || '')
+    } else {
+      const fn = String(req.headers['x-siyi-filename'] || '')
+      try { claimedName = decodeURIComponent(fn) } catch { claimedName = fn }
+      buf = await readBuffer(req, MAX_UPLOAD)
+    }
+  } catch (e) {
+    if (e && e.code === 'TOO_LARGE') return { code: 413, body: { ok: false, error: '图片超过 8MB 上限' } }
+    return { code: 400, body: { ok: false, error: '读取失败: ' + (e && e.message) } }
+  }
+  if (!buf || buf.length === 0) return { code: 400, body: { ok: false, error: '空文件' } }
+  if (buf.length > MAX_UPLOAD) return { code: 413, body: { ok: false, error: '图片超过 8MB 上限' } }
+
+  // 扩展名白名单：调用方声明的扩展名 + 文件头嗅探必须一致
+  const declared = claimedExt ? normExt('.' + claimedExt)
+    : (normExt(claimedName) || (ctExt ? normExt('.' + ctExt) : null))
+  if (!declared) return { code: 415, body: { ok: false, error: '只支持 jpg/jpeg/png/webp/gif' } }
+  const sniffed = sniffImage(buf)
+  if (!sniffed) return { code: 415, body: { ok: false, error: '文件内容不是有效图片' } }
+  if (sniffed !== declared) {
+    return { code: 415, body: { ok: false, error: '扩展名与内容不符：' + declared + ' / ' + sniffed } }
+  }
+
+  const hash = crypto.createHash('sha256').update(buf).digest('hex').slice(0, 16)
+  const fname = hash + '.' + sniffed
+  fs.mkdirSync(ASSETS, { recursive: true })
+  const fp = path.join(ASSETS, fname)
+  let dedup = false
+  if (fs.existsSync(fp)) {
+    dedup = true
+  } else {
+    // 同一目录内临时名再 rename，避免写一半被读到
+    const tmp = fp + '.tmp-' + process.pid
+    fs.writeFileSync(tmp, buf)
+    fs.renameSync(tmp, fp)
+  }
+  return { code: 200, body: { ok: true, url: PREFIX + '/asset/' + fname, name: fname, size: buf.length, dedup } }
+}
+
+/** 返回 asset 图片字节。name 只允许 sha256 前16位 + 白名单扩展名，双保险防 ../。 */
+function handleAsset(req, res, name) {
+  if (req.method !== 'GET' && req.method !== 'HEAD') {
+    return sendJson(res, 405, { ok: false, error: 'GET only' })
+  }
+  let n = String(name || '')
+  try { n = decodeURIComponent(n) } catch {
+    return sendJson(res, 400, { ok: false, error: 'bad name' })
+  }
+  if (!/^[0-9a-f]{16}\.(?:jpe?g|png|webp|gif)$/.test(n)) {
+    return sendJson(res, 400, { ok: false, error: 'bad asset name' })
+  }
+  const fp = path.resolve(ASSETS, n)
+  if (!fp.startsWith(ASSETS + path.sep)) {
+    return sendJson(res, 400, { ok: false, error: 'bad path' })
+  }
+  const mime = mimeByExt(n.slice(n.lastIndexOf('.') + 1))
+  if (!mime) return sendJson(res, 415, { ok: false, error: 'bad ext' })
+  let buf
+  try { buf = fs.readFileSync(fp) } catch {
+    return sendJson(res, 404, { ok: false, error: 'asset not found' })
+  }
+  res.writeHead(200, {
+    'Content-Type': mime,
+    'Content-Length': buf.length,
+    'Cache-Control': 'public, max-age=31536000, immutable',
+    'X-Content-Type-Options': 'nosniff',
+  })
+  res.end(req.method === 'HEAD' ? undefined : buf)
+}
+
+// ── AI 助手代理（笔记编辑器内嵌聊天）────────────────────────────────────
+//
+// 为什么在插件侧代理，而不是 client.js 直接打主 RPC：
+//   1) 主会话的 prompt 只返回 {accepted:true}，真正的 AI 回复走 session/follow
+//      的 Remote mux 流（WebSocket + 登录态签名 cookie）。笔记面板是裸 fetch 页面，
+//      接不到那条流，也不该碰主对话的流（会串会话/打断用户当前对话）。
+//   2) 插件在引擎内，ctx.get('sessionController') 就是已配好 provider/model 的主
+//      agent 控制器，ctx.on('session/event') 能收到所有 assistant/message 事件。
+//      这里复用它的「已配置模型和登录态」，绝不硬编码模型名或 API key。
+//   3) 因此 client.js 只需要 POST /siyi-vault/chat 然后显示一次性返回的 reply。
+//
+// 实现：用一个专用的命名 session（siyi-notes-ai-chat）承载笔记问答，避免占用/污染
+// 用户的主对话 session。prompt 受理后监听该 session 的 assistant/message，攒够本轮
+// 新增的文本就返回；turn/end 或超时也算收尾，保证不会让 HTTP 请求挂死。
+
+// 专用会话的稳定 id（ULID 形状仅用于满足 dsh-session 的会话 id 校验）。
+// 固定 id + create 的 reusable 语义会复用同一个空白 session，不会每问一句新建一条。
+const AI_CHAT_SESSION = '01JAI0N7E5SIYINOTES00000000000'
+const AI_CHAT_TIMEOUT_MS = 90_000
+
+function assistantText(sessionId, events) {
+  // 只收集本轮 record 里 assistant/message 的 text 块，按时间顺序拼接。
+  let out = ''
+  for (const ev of events) {
+    const data = ev && ev.data
+    const msg = data && data.message
+    if (!msg || msg.role !== 'assistant' || !Array.isArray(msg.content)) continue
+    const parts = msg.content
+      .filter(b => b && b.type === 'text' && typeof b.text === 'string')
+      .map(b => b.text)
+    if (parts.length) out += (out && !out.endsWith('\n') ? '\n' : '') + parts.join('')
+  }
+  return out
+}
+
+async function handleChat(ctx, req) {
+  if (req.method !== 'POST') return { code: 405, body: { ok: false, error: 'POST only' } }
+  let input
+  try {
+    const raw = await readBuffer(req, 256 * 1024)
+    input = JSON.parse(raw.toString('utf8'))
+  } catch (e) {
+    return { code: 400, body: { ok: false, error: 'invalid json: ' + (e && e.message) } }
+  }
+  const question = String((input && input.question) || '').trim()
+  if (!question) return { code: 400, body: { ok: false, error: '问题不能为空' } }
+  const noteText = input && typeof input.noteText === 'string' ? input.noteText : ''
+
+  const controller = ctx.get('sessionController', false)
+  if (!controller || typeof controller.prompt !== 'function') {
+    return { code: 503, body: { ok: false, error: '主 agent 控制器不可用' } }
+  }
+
+  // 组 prompt：正文作为上下文块（用户勾了「引用当前笔记」才有），再跟用户问题。
+  // 复用主 agent 的 system prompt / preset，不在这里注入任何角色扮演硬编码。
+  const content = []
+  if (noteText) {
+    content.push({ type: 'text', text: '以下是我当前笔记的内容，请作为上下文参考：\n<笔记>\n' + noteText + '\n</笔记>' })
+  }
+  content.push({ type: 'text', text: question })
+
+  const requestId = (globalThis.crypto && typeof globalThis.crypto.randomUUID === 'function')
+    ? globalThis.crypto.randomUUID()
+    : (String(Date.now()) + '-' + Math.random().toString(36).slice(2))
+
+  // 收集本轮 assistant 事件：按 session id 过滤，只认本会话的 assistant/message。
+  // 每次请求都是新的一次问答，事件监听在 prompt 之前挂上，收完本轮即摘除，
+  // 不会混入下一轮残留。
+  const collected = []
+
+  let settled = false
+  let finish
+  const done = new Promise((resolve) => { finish = resolve })
+  let timer = null
+  // 用「收到第一条 assistant 文本后再静默一段时间」作为一轮回复的收尾信号，
+  // 辅以 turn/end；两者都先到先算，并且有硬超时兜底。
+  let quietTimer = null
+  const armQuiet = () => {
+    if (quietTimer) clearTimeout(quietTimer)
+    quietTimer = setTimeout(() => { if (!settled) { settled = true; finish() } }, 1500)
+  }
+
+  const off = ctx.on('session/event', (session, event) => {
+    if (settled || !session || session.id !== AI_CHAT_SESSION || !event) return
+    const type = event.type
+    if (type === 'assistant/message') {
+      const msg = event.data && event.data.message
+      if (msg && msg.role === 'assistant') {
+        collected.push(event)
+        armQuiet()
+      }
+    } else if (type === 'turn/end') {
+      if (collected.length > 0) { settled = true; finish() }
+    }
+  })
+
+  try {
+    // 确保有会话：create 同名会复用空白 session（幂等）。
+    try {
+      const created = await controller.create({ sessionId: AI_CHAT_SESSION })
+      log('AI 会话就绪 ' + ((created && created.sessionId) || AI_CHAT_SESSION))
+    } catch (e) {
+      log('AI 会话创建/复用失败（继续尝试直接 prompt）: ' + (e && e.message))
+    }
+
+    // 必须传 signal：SessionController.prompt 内部第一行就是 signal.throwIfAborted()。
+    const abort = new AbortController()
+    const admitted = await controller.prompt({
+      requestId,
+      sessionId: AI_CHAT_SESSION,
+      mode: 'queue',
+      content,
+      clientTimeZone: 'Asia/Shanghai',
+    }, abort.signal)
+    // 宿主 controller.prompt 直接返回 {accepted:true}，失败会抛 RemoteError（进下面的 catch）。
+    if (!admitted || admitted.accepted !== true) {
+      return { code: 502, body: { ok: false, error: '主 agent 未受理本次提问' } }
+    }
+
+    timer = setTimeout(() => { if (!settled) { settled = true; finish() } }, AI_CHAT_TIMEOUT_MS)
+    await done
+    const reply = assistantText(AI_CHAT_SESSION, collected).trim()
+    if (!reply) {
+      return { code: 504, body: { ok: false, error: 'AI 未在限定时间内回复，请稍后重试' } }
+    }
+    return { code: 200, body: { ok: true, reply, sessionId: AI_CHAT_SESSION } }
+  } catch (e) {
+    return { code: 502, body: { ok: false, error: 'AI 助手出错: ' + (e && e.message ? e.message : String(e)) } }
+  } finally {
+    if (timer) clearTimeout(timer)
+    if (quietTimer) clearTimeout(quietTimer)
+    try { off() } catch {}
+  }
+}
+
 // ── 路由分发 ────────────────────────────────────────────────────────────
 
 export function apply(ctx, config) {
@@ -368,8 +653,18 @@ export function apply(ctx, config) {
       const rest = url.pathname.slice(PREFIX.length).replace(/^\//, '')
       const action = rest.replace(/^api\//, '') || 'stats'
       try {
+        // 图片字节流：/siyi-vault/asset/<name>
+        if (action.startsWith('asset/')) return handleAsset(req, res, action.slice(6))
+        if (action === 'upload') {
+          const r = await handleUpload(req)
+          return sendJson(res, r.code, r.body)
+        }
         if (action === 'list') return sendJson(res, 200, handleList(url))
         if (action === 'get') return sendJson(res, 200, handleGet(url))
+        if (action === 'chat') {
+          const r = await handleChat(ctx, req)
+          return sendJson(res, r.code, r.body)
+        }
         if (action === 'graph') return sendJson(res, 200, handleGraph())
         if (action === 'tasks') return sendJson(res, 200, handleTasks(url))
         if (action === 'stats') return sendJson(res, 200, handleStats())
@@ -389,7 +684,7 @@ export function apply(ctx, config) {
     },
   })
 
-  log('笔记接口已挂载 ' + PREFIX + '（list/get/save/delete/graph/tasks/stats）')
+  log('笔记接口已挂载 ' + PREFIX + '（list/get/save/delete/graph/tasks/stats/upload/asset/chat）')
   ctx.effect(() => () => {
     try { disposer() } catch {}
   }, 'siyi-vault: dispose')

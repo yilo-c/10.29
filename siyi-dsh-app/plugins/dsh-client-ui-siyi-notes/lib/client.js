@@ -43,6 +43,17 @@ window.__ModuleLoader__.load({
     const getTasks = () => api('/tasks')
     const getStats = () => api('/stats')
 
+    // AI 助手：走宿主插件 /siyi-vault/chat 代理，复用主 agent 已配好的模型与登录态。
+    // 笔记面板不直接打主 Remote RPC —— prompt 只返回 accepted，回复走 follow WebSocket mux
+    // 流（需登录签名），裸 fetch 页面接不到也不该碰主对话。代理层在引擎内聚合好回复后
+    // 一次性返回 {ok, reply}，这里只负责发问题与显示。
+    // 请求体固定为 { question, noteText }：noteText 由「引用当前笔记」开关决定传不传。
+    const chatWithAI = (question, noteText) => api('/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question, noteText: noteText || '' }),
+    })
+
     // 图片上传：走宿主插件 /siyi-vault/upload 的原始字节协议
     // （协议注释见 plugins/siyi-vault.js 的 handleUpload 上方）。
     // 返回 { ok, url, name, size, dedup }，url 形如 /siyi-vault/asset/0123456789abcdef.png
@@ -137,6 +148,71 @@ window.__ModuleLoader__.load({
 /* 图片：窄屏防撑破，阅读态/编辑态共用 */
 .siyi-notes-body-input img{max-width:100%;height:auto;display:block;margin:8px 0;
   border-radius:8px}
+/* ── AI 助手面板 ────────────────────────────────────────────────────
+   半屏抽屉：高度 <= 50vh、可滚动、输入区避开软键盘与手势条。
+   沿用手机端约定：触控 >=36px、touch-action:manipulation、
+   overscroll-behavior:contain、色值全部走 --dsw-alias-*。          */
+.siyi-notes-ai{display:flex;flex-direction:column;flex:none;
+  max-height:50vh;height:50vh;min-height:0;
+  border-top:.5px solid var(--dsw-alias-border-l3);
+  background:var(--dsw-alias-bg-layer-2);
+  overscroll-behavior:contain}
+.siyi-notes-ai-head{display:flex;align-items:center;gap:8px;flex:none;
+  padding:6px 10px;border-bottom:.5px solid var(--dsw-alias-border-l3)}
+.siyi-notes-ai-title{font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary);
+  flex:1;min-width:0}
+.siyi-notes-ai-quote{display:inline-flex;align-items:center;gap:4px;
+  min-height:36px;padding:0 10px;border-radius:10px;cursor:pointer;flex:none;
+  border:.5px solid var(--dsw-alias-border-l3);
+  background:var(--dsw-alias-bg-layer-1);
+  color:var(--dsw-alias-label-secondary);font-size:12px;
+  touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+.siyi-notes-ai-quote.on{background:var(--dsw-alias-bg-layer-3);
+  color:var(--dsw-alias-label-primary);font-weight:600}
+.siyi-notes-ai-close{min-height:36px;min-width:36px;padding:0 10px;border-radius:10px;
+  cursor:pointer;flex:none;border:.5px solid var(--dsw-alias-border-l3);
+  background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);
+  font-size:16px;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+.siyi-notes-ai-list{flex:1;min-height:0;overflow-y:auto;padding:8px 10px;
+  overscroll-behavior:contain;-webkit-overflow-scrolling:touch;
+  display:flex;flex-direction:column;gap:8px}
+.siyi-notes-ai-msg{max-width:88%;padding:7px 10px;border-radius:12px;font-size:13px;
+  line-height:1.6;white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere}
+.siyi-notes-ai-msg.me{align-self:flex-end;
+  background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-primary)}
+.siyi-notes-ai-msg.ai{align-self:flex-start;
+  background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);
+  border:.5px solid var(--dsw-alias-border-l3)}
+.siyi-notes-ai-msg.err{align-self:stretch;color:var(--dsw-alias-label-warning,var(--dsw-alias-label-secondary));
+  background:var(--dsw-alias-bg-layer-1);border:.5px solid var(--dsw-alias-border-l3)}
+.siyi-notes-ai-insert{display:inline-flex;align-items:center;justify-content:center;
+  min-height:36px;margin-top:6px;padding:0 12px;border-radius:10px;cursor:pointer;
+  border:.5px solid var(--dsw-alias-border-l3);background:var(--dsw-alias-bg-layer-2);
+  color:var(--dsw-alias-label-primary);font-size:12px;
+  touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+.siyi-notes-ai-quick{display:flex;gap:6px;flex:none;overflow-x:auto;padding:4px 10px;
+  border-top:.5px solid var(--dsw-alias-border-l3);scrollbar-width:none;
+  overscroll-behavior-x:contain}
+.siyi-notes-ai-quick::-webkit-scrollbar{display:none}
+.siyi-notes-ai-quick button{flex:none;min-height:36px;padding:0 10px;border-radius:10px;
+  cursor:pointer;border:.5px solid var(--dsw-alias-border-l3);
+  background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);
+  font-size:12px;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+.siyi-notes-ai-inputbar{display:flex;align-items:flex-end;gap:8px;flex:none;
+  padding:6px 10px calc(6px + env(safe-area-inset-bottom, 0px));
+  border-top:.5px solid var(--dsw-alias-border-l3)}
+.siyi-notes-ai-input{flex:1;min-width:0;min-height:40px;max-height:120px;
+  padding:8px 10px;border-radius:10px;resize:none;
+  border:.5px solid var(--dsw-alias-border-l3);
+  background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);
+  font-size:14px;line-height:1.5;font-family:inherit;outline:none;
+  overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
+.siyi-notes-ai-input:focus{border-color:var(--dsw-alias-border-l1)}
+.siyi-notes-ai-send{flex:none;min-width:56px;min-height:40px;border-radius:10px;
+  cursor:pointer;border:none;background:var(--dsw-alias-button-info-fill,var(--dsw-alias-bg-layer-3));
+  color:var(--dsw-alias-label-primary);font-size:14px;
+  touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+.siyi-notes-ai-send:disabled{opacity:.5;cursor:default}
 `
 
     function ensureCss() {
@@ -247,6 +323,95 @@ window.__ModuleLoader__.load({
     //   3. 正文区独立滚动，不靠移动光标来翻页
     //   4. source 类型或含 HTML 的笔记默认进阅读态，不显示源码
     //   5. 阅读态对安全 HTML（a/div align/br）做白名单渲染
+    //   6. 内嵌 AI 助手面板（半屏抽屉），走 /siyi-vault/chat 复用主 agent
+
+    // AI 助手面板：独立组件，状态自管。onInsert(reply) 回传正文，由 EditorView 走
+    // 已有的 insertRaw 光标处插入逻辑；noteText 由父级按需传入（引用当前笔记）。
+    const AI_QUICK = ['润色这篇笔记', '总结要点', '续写下文', '帮我起个标题']
+    function AIPanel({ noteText, onInsert, onClose }) {
+      const [msgs, setMsgs] = useState([])       // [{role:'me'|'ai'|'err', text}]
+      const [input, setInput] = useState('')
+      const [quote, setQuote] = useState(true)    // 默认引用当前笔记
+      const [busy, setBusy] = useState(false)
+      const listRef = useRef(null)
+      const inputRef = useRef(null)
+
+      useEffect(() => {
+        const el = listRef.current
+        if (el) el.scrollTop = el.scrollHeight
+      }, [msgs])
+
+      const send = useCallback(async (text) => {
+        const q = String(text || '').trim()
+        if (!q || busy) return
+        setMsgs(m => [...m, { role: 'me', text: q }])
+        setInput('')
+        setBusy(true)
+        try {
+          // 只有打开「引用笔记」且有正文时才把 noteText 发给代理；纯提问不夹带正文。
+          const ctxText = quote && noteText && noteText.trim() ? noteText : ''
+          const r = await chatWithAI(q, ctxText)
+          if (!r || !r.ok) throw new Error((r && r.error) || 'AI 回复失败')
+          setMsgs(m => [...m, { role: 'ai', text: String(r.reply || '') }])
+        } catch (e) {
+          setMsgs(m => [...m, { role: 'err', text: '请求失败：' + (e && e.message ? e.message : String(e)) }])
+        } finally {
+          setBusy(false)
+          if (inputRef.current) try { inputRef.current.focus() } catch {}
+        }
+      }, [busy, quote, noteText])
+
+      return h('div', { className: 'siyi-notes-ai' },
+        h('div', { className: 'siyi-notes-ai-head' },
+          h('span', { className: 'siyi-notes-ai-title' }, 'AI 助手'),
+          h('button', {
+            className: 'siyi-notes-ai-quote' + (quote ? ' on' : ''),
+            title: '把当前笔记正文作为上下文一并发给 AI',
+            onClick: () => setQuote(v => !v),
+          }, (quote ? '✓ ' : '') + '引用当前笔记'),
+          h('button', { className: 'siyi-notes-ai-close', title: '收起 AI 助手', onClick: onClose }, '✕'),
+        ),
+        h('div', { className: 'siyi-notes-ai-list', ref: listRef },
+          msgs.length === 0
+            ? h('div', { style: { color: 'var(--dsw-alias-label-tertiary)', fontSize: 12, padding: '6px 2px' } },
+                '可向 AI 提问，或点下方快捷指令。打开「引用当前笔记」时，AI 会参考正文。')
+            : msgs.map((m, i) => h('div', { key: i, className: 'siyi-notes-ai-msg ' + m.role },
+                m.text,
+                m.role === 'ai' && m.text ? h('button', {
+                  className: 'siyi-notes-ai-insert',
+                  title: '插入到笔记光标处',
+                  onClick: () => onInsert(m.text),
+                }, '插入到笔记') : null,
+              )),
+          busy ? h('div', { className: 'siyi-notes-ai-msg err' }, 'AI 思考中…') : null,
+        ),
+        h('div', { className: 'siyi-notes-ai-quick' },
+          AI_QUICK.map(q => h('button', {
+            key: q, disabled: busy,
+            onClick: () => send(q),
+          }, q)),
+        ),
+        h('div', { className: 'siyi-notes-ai-inputbar' },
+          h('textarea', {
+            ref: inputRef,
+            className: 'siyi-notes-ai-input',
+            rows: 1,
+            placeholder: '输入问题，Enter 发送…',
+            value: input,
+            onChange: (e) => setInput(e.target.value),
+            onKeyDown: (e) => {
+              if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(input) }
+            },
+          }),
+          h('button', {
+            className: 'siyi-notes-ai-send',
+            disabled: busy || !input.trim(),
+            onClick: () => send(input),
+          }, busy ? '…' : '发送'),
+        ),
+      )
+    }
+
     function EditorView({ id, onBack, toast }) {
       const [note, setNote] = useState(null)
       const [title, setTitle] = useState('')
@@ -259,6 +424,7 @@ window.__ModuleLoader__.load({
       const [fmtMenu, setFmtMenu] = useState(false)  // 格式二级菜单
       const [insMenu, setInsMenu] = useState(false)  // 插入二级菜单
       const [imgBusy, setImgBusy] = useState(false)   // 图片上传中
+      const [aiOpen, setAiOpen] = useState(false)     // AI 助手面板展开/收起
       const bodyRef = useRef(null)
       const fileRef = useRef(null)                    // 隐藏的 <input type=file>
       const historyRef = useRef({ stack: [], index: -1 })
@@ -386,6 +552,18 @@ window.__ModuleLoader__.load({
           ta.selectionStart = ta.selectionEnd = start + text.length
         }, 0)
       }
+      // AI 回复插入：复用已有的 insertRaw（光标处插入），不另写一套。
+      // 若正文当前是阅读态，先切回编辑态再插入，保证 textarea 已挂载。
+      const insertAI = (text) => {
+        if (mode === 'read') setMode('edit')
+        // 阅读态时 textarea 下一帧才挂载，延后插入；编辑态直接插入光标处。
+        if (mode === 'read') {
+          setTimeout(() => insertRaw(text), 0)
+        } else {
+          insertRaw(text)
+        }
+        toast('已插入 AI 回复')
+      }
       const toggleTodo = () => {
         const ta = bodyRef.current
         if (!ta) return
@@ -487,6 +665,11 @@ window.__ModuleLoader__.load({
             onClick: () => { setPinnedTop(v => !v); setDirty(true) },
             title: '置顶',
           }, pinnedTop ? '★' : '☆'),
+          h('button', {
+            className: 'siyi-notes-btn' + (aiOpen ? ' on' : ''),
+            onClick: () => setAiOpen(v => !v),
+            title: 'AI 助手',
+          }, 'AI'),
         ),
         // 内容区：独立滚动，高度占满
         h('div', { className: 'siyi-notes-editor' },
@@ -563,6 +746,12 @@ window.__ModuleLoader__.load({
           h(IconBtn, { glyph: mode === 'read' ? '✎' : '👁', label: mode === 'read' ? '编辑' : '阅读', onClick: () => setMode(m => m === 'read' ? 'edit' : 'read') }),
           h(IconBtn, { glyph: '⋯', label: '更多', onClick: () => { setFmtMenu(true); setInsMenu(false) } }),
         ),
+        // AI 助手半屏面板：展开时占地 50vh，编辑区自动收缩；可收起
+        aiOpen ? h(AIPanel, {
+          noteText: (title ? '# ' + title + '\n' : '') + (body || ''),
+          onInsert: insertAI,
+          onClose: () => setAiOpen(false),
+        }) : null,
         // 底部信息条
         h('div', { className: 'siyi-notes-foot' },
           h('span', null, wordCount + ' 字' + (linkCount ? ' · ' + linkCount + ' 双链' : '')),

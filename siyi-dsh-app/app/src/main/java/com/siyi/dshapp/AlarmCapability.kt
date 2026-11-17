@@ -48,7 +48,8 @@ object AlarmCapability {
             .put("canExact", canExact)
             .put("permGranted", hasPerm)
             .put("sdk", Build.VERSION.SDK_INT)
-            .put("scheduled", scheduled.length())
+            // scheduled 是 ArrayList，不是 JSONArray —— 没有 length()，要用 size
+            .put("scheduled", scheduled.size)
         if (!canExact) {
             out.put("hint", "精确闹钟未授权。请在设置页点「授予精确闹钟」，或在系统设置里允许本应用设置闹钟")
         }

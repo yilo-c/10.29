@@ -325,11 +325,14 @@ jobs:
       - name: Build debug APK
         run: |
           cd "$APP_DIR"
-          # versionCode 用日期+运行号��增，避免部分 ROM 因 versionCode 不变而拒绝覆盖。
-          # ⚠ 必须是 int32：Android 的 versionCode 上限 2147483647。
-          # 之前拼成 2026111243136691423（19 位）会直接溢出，
-          # 所以改成 日期*100 + 运行号后两位 = 2026111200 ~ 2026111299。
-          VC=$(( $(date -u +%Y%m%d) * 100 + GITHUB_RUN_NUMBER % 100 ))
+          # versionCode = 日期基数 * 100 + 完整运行号，保证严格递增。
+          # ⚠ 踩过真 bug（2026-11-17 build 300）：原来低位用 % 100，
+          #   run 从 99 到 100 时低位归零，versionCode 从 2026111799
+          #   倒退到 2026111700，比用户已装版本还小，无法覆盖安装。
+          #   去掉 % 100 后 run=300 得 2026112000，同天与跨天都递增。
+          # ⚠ 必须 int32（上限 2147483647）：日期基数约 2e9，run 要涨到
+          #   8 位数才溢出，不现实；早期拼完整时间戳 19 位溢出过，别再犯。
+          VC=$(( $(date -u +%Y%m%d) * 100 + GITHUB_RUN_NUMBER ))
           VN="1.0.0"
           echo "SIYI_VERSION_CODE=$VC" >> $GITHUB_ENV
           echo "SIYI_VERSION_NAME=$VN" >> $GITHUB_ENV

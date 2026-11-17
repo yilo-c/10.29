@@ -13,13 +13,20 @@
 //   HTTP（siyi-vault.js）和 AI 工具必须是同一个写入实现，
 //   否则两条路径会产生不同的 frontmatter、不同的路径校验、不同的原子写行为。
 
-import { createVaultService } from '/storage/emulated/0/思忆集/app/sif/core/vault/service.mjs'
-import { vaultCapabilities } from '/storage/emulated/0/思忆集/app/sif/core/vault/capabilities.mjs'
+// SIYI-PORTABLE-20261118：路径不再写死。
+// 用户插件在 /sdcard 下没有 node_modules 解析路径，必须用绝对路径 import；
+// 但绝对路径写死会让「装 APK / 换设备 / 换平台」全部失败。
+// 改为：先解析 sif 根目录，再动态 import 核心模块（顶层 await，ESM 支持）。
+const SIF_ROOT = process.env.SIYI_SIF_ROOT
+  || '/storage/emulated/0/思忆集/app/sif'
+const { createVaultService } = await import(SIF_ROOT + '/core/vault/service.mjs')
+const { vaultCapabilities } = await import(SIF_ROOT + '/core/vault/capabilities.mjs')
 
 export const name = 'siyi-vault-tools'
 export const inject = ['tools']
 
-const VAULT_ROOT = '/storage/emulated/0/思忆集/vault'
+// SIYI-PORTABLE-20261118：数据目录可被环境变量覆盖
+const VAULT_ROOT = process.env.SIYI_VAULT_ROOT || '/storage/emulated/0/思忆集/vault'
 
 function log(msg) {
   try { process.stderr.write('[siyi-vault-tools] ' + msg + '\n') } catch {}

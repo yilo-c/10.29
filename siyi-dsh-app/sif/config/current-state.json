@@ -1,6 +1,6 @@
 {
   "schema": "siyi.current-state/v1",
-  "generatedAt": "2026-11-18T07:25:00+08:00",
+  "generatedAt": "2026-11-18T07:52:00+08:00",
   "runbook": "思忆集-DeepSeek-v4.1-Flash-全流程执行手册-20261118.md",
   "track": "A-android",
   "phases": {
@@ -66,6 +66,12 @@
       "evidenceLevel": "E4",
       "evidence": "dist/manifest.json + scripts/build-dist.mjs + apply-dist.mjs + 恢复演练 13 项",
       "note": "13 个文件已固化，含 4 个补丁标记；空环境部署、覆盖备份、从备份恢复全部实测通过"
+    },
+    "P12-portable-paths": {
+      "status": "PASS",
+      "evidenceLevel": "E4",
+      "evidence": "core/paths.mjs + tests/contract/paths.test.mjs (12 项，含换设备模拟) + 运行实例验证",
+      "note": "绝对路径 import 改为运行时注入；4 个 SIYI_* 环境变量；显式覆盖无条件优先"
     }
   },
   "testMatrix": {
@@ -137,8 +143,8 @@
     }
   },
   "suiteResult": {
-    "total": 170,
-    "pass": 170,
+    "total": 182,
+    "pass": 182,
     "fail": 0,
     "command": "node tests/contract/run-all.mjs"
   },
@@ -149,14 +155,14 @@
     "note": "只读解析兼容性验证，未写入正式 vault"
   },
   "knownGaps": [
-    "dist/ 尚未推进仓库（本轮即将推送）",
-    "插件用绝对路径 import sif-core，CI 内需改为包名",
+    "schema 版本迁移脚本未实现（当前 schema:1，无升级路径）",
+    "MCP 适配未实现（规范已定义）",
     "本机其他进程仍可访问 127.0.0.1:3180（需进程级认证）",
-    "Windows/Linux 宿主未实现",
-    "补丁发布管线与 secret scan 未做",
-    "仓库是公开的，且 siyi-dsh-app/keystore/ 目录存在，签名私钥有泄露风险"
+    "补丁发布管线与自动 secret scan 未固化",
+    "仓库公开且含签名私钥 keystore（已确认指纹 83a7e514...）",
+    "Windows/Linux 宿主按决定不做"
   ],
-  "nextAction": "把 dist/ 与测试推进仓库；或开始 Windows/Linux 最小宿主",
+  "nextAction": "推送本轮路径改造与迁移文档到仓库；或补 schema 版本迁移脚本",
   "livePluginPatch": {
     "target": "/storage/emulated/0/思忆集/plugins/siyi-vault.js",
     "backup": "sif/backups/siyi-vault.before-pathfix-20261118.js",
@@ -219,6 +225,14 @@
       "toolsRegistered": "6/6",
       "indexActive": true,
       "httpListMs": 5.9,
+      "result": "PASS"
+    },
+    "fifthRestart": {
+      "executedAt": "2026-11-18T07:34:19+08:00",
+      "prePid": 10079,
+      "postPid": 12659,
+      "pluginScan": 6,
+      "toolsRegistered": "6/6",
       "result": "PASS"
     }
   },
@@ -337,5 +351,21 @@
     "drillResult": "13/13 PASS（空环境部署、覆盖备份、备份恢复、损坏拒绝、无残留）",
     "ciEmbedDoc": "sif/dist/ci-embed.md",
     "caveat": "siyi-vault-tools.js 用绝对路径 import sif-core，进 CI 前需改为包名或建软链"
+  },
+  "pathPortability": {
+    "module": "sif/core/paths.mjs",
+    "envVars": {
+      "SIYI_SIF_ROOT": "核心模块根目录（默认 /storage/emulated/0/思忆集/app/sif）",
+      "SIYI_DATA_ROOT": "数据根（默认 /storage/emulated/0/思忆集）",
+      "SIYI_VAULT_ROOT": "笔记目录（默认 <dataRoot>/vault）",
+      "SIYI_PLUGINS_DIR": "插件目录（默认 <dataRoot>/plugins）"
+    },
+    "fixedCouplings": [
+      "plugins/siyi-vault-tools.js 的 2 个静态绝对 import → 动态 import",
+      "siyi-vault.js 的 indexer import → 动态 import",
+      "两处 VAULT 常量 → 环境变量可覆盖"
+    ],
+    "tests": 12,
+    "migrationDrill": "复制 core 到临时目录后仍能解析核心模块"
   }
 }

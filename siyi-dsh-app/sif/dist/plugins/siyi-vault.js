@@ -19,7 +19,10 @@ import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
 // SIYI-INDEX-20261118：复用 sif 的增量索引，避免每次请求全量读盘
-import { createIndexer } from '/storage/emulated/0/思忆集/app/sif/core/vault/indexer.mjs'
+// SIYI-PORTABLE-20261118：路径不再写死
+const SIF_ROOT = process.env.SIYI_SIF_ROOT
+  || '/storage/emulated/0/思忆集/app/sif'
+const { createIndexer } = await import(SIF_ROOT + '/core/vault/indexer.mjs')
 
 export const name = 'siyi-vault'
 export const inject = ['tools']

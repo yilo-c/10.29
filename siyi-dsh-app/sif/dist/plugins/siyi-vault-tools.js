@@ -13,8 +13,11 @@
 //   HTTP（siyi-vault.js）和 AI 工具必须是同一个写入实现，
 //   否则两条路径会产生不同的 frontmatter、不同的路径校验、不同的原子写行为。
 
-import { createVaultService } from '/storage/emulated/0/思忆集/app/sif/core/vault/service.mjs'
-import { vaultCapabilities } from '/storage/emulated/0/思忆集/app/sif/core/vault/capabilities.mjs'
+// SIYI-PORTABLE-20261118：路径不再写死（详见 sif/scripts/fix-abs-import.mjs）
+const SIF_ROOT = process.env.SIYI_SIF_ROOT
+  || '/storage/emulated/0/思忆集/app/sif'
+const { createVaultService } = await import(SIF_ROOT + '/core/vault/service.mjs')
+const { vaultCapabilities } = await import(SIF_ROOT + '/core/vault/capabilities.mjs')
 
 export const name = 'siyi-vault-tools'
 export const inject = ['tools']

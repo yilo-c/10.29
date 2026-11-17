@@ -102,7 +102,11 @@ tt('apply-dist --check 在当前状态返回 0', () => {
   const r = spawnSync(process.execPath, [path.join(SIF, 'scripts/apply-dist.mjs'), '--check'],
     { encoding: 'utf8' })
   eq(r.status, 0, 'exit-code')
-  eq(r.stdout.includes('一致 13'), true, 'all-consistent')
+  // 不写死文件数：固化包会随新增模块增长，
+  // 断言具体数字会让「加了一个文件」误报失败（实测踩到 13→14）。
+  // 改为断言「不一致 0 且缺失 0」这个真正的语义。
+  eq(/不一致 0/.test(r.stdout), true, 'no-mismatch')
+  eq(/未部署或缺失 0/.test(r.stdout), true, 'no-missing')
 })
 
 tt('manifest 记录了部署目标路径', () => {

@@ -4,7 +4,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
-const suites = ['codec.test.mjs', 'vault.test.mjs', 'bridge.test.mjs', 'dsh-adapter.test.mjs', 'dsh-schema-dsl.test.mjs', 'title-type.test.mjs', 'vault-js-title.test.mjs', 'http-hardening.test.mjs', 'indexer.test.mjs', 'plugin-indexer.test.mjs', 'dist-restore.test.mjs', 'dist-restore-drill.mjs']
+const suites = ['codec.test.mjs', 'vault.test.mjs', 'bridge.test.mjs', 'dsh-adapter.test.mjs', 'dsh-schema-dsl.test.mjs', 'title-type.test.mjs', 'vault-js-title.test.mjs', 'http-hardening.test.mjs', 'indexer.test.mjs', 'plugin-indexer.test.mjs', 'dist-restore.test.mjs', 'dist-restore-drill.mjs', 'paths.test.mjs']
 
 let failed = 0
 const summary = []

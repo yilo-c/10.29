@@ -2,7 +2,7 @@
   "schema": "siyi.dist/v1",
   "name": "siyi-runtime-bundle",
   "version": "1.0.0",
-  "generatedAt": "2026-11-17T23:22:00.104Z",
+  "generatedAt": "2026-11-17T23:51:18.556Z",
   "sourceDevice": {
     "package": "com.siyi.dshapp",
     "versionCode": 2026112001
@@ -28,6 +28,12 @@
       "path": "core/bridge/server.mjs",
       "bytes": 9309,
       "sha256": "b97a49acfa35416addbd6affb080185cfca2ccbc2006bb0bc72fd4b5ef011e37",
+      "markers": []
+    },
+    {
+      "path": "core/paths.mjs",
+      "bytes": 5077,
+      "sha256": "f7ed8aa1157f156c9b1960482fcb7a5e7567f6aa9e43aad935eb52d79d867dee",
       "markers": []
     },
     {
@@ -80,14 +86,14 @@
     },
     {
       "path": "plugins/siyi-vault-tools.js",
-      "bytes": 7741,
-      "sha256": "18c0556f56960e3fd82791dc3b07a68418f733b7523cb5ebf62b135d8a352239",
+      "bytes": 7887,
+      "sha256": "2cc686df35988c72e5513957e49ca771e20e1016d0e53a9a5ec7d0c5dbb628da",
       "markers": []
     },
     {
       "path": "plugins/siyi-vault.js",
-      "bytes": 42298,
-      "sha256": "8517632e36331764221c9102edb22b7bb57af3e16ac07247a371de9b9d71405f",
+      "bytes": 42417,
+      "sha256": "fc7dd92e7f130aa42deff9cc181948b430ed233f853deb78ec8cc09dbf76f974",
       "markers": [
         "SIYI-PATHFIX-20261118",
         "SIYI-TITLEFIX-20261118",
@@ -97,8 +103,8 @@
     }
   ],
   "totals": {
-    "files": 13,
-    "bytes": 145682,
+    "files": 14,
+    "bytes": 151024,
     "patched": 1
   }
 }

@@ -47,54 +47,75 @@ window.__ModuleLoader__.load({
     // 用 DSH 的 --dsw-alias-* 令牌，跟官方组件同风格；
     // 每个类名带 siyi- 前缀避免和官方 CSS Modules 的 hash 名撞。
     const CSS = `
+/* ── 手机端 UI 约定（2026-11-17 打磨）───────────────────────────────
+   1. 可点元素高度 >= 36px：WCAG 2.5.8 底线是 24px，Material 建议 48dp，
+      手机上 30px 的按钮经常点不中，这里统一提到 36-44。
+   2. -webkit-tap-highlight-color: transparent —— 去掉点击时的灰色方块闪。
+   3. touch-action: manipulation —— 去掉双击缩放的 300ms 等待。
+   4. overscroll-behavior: contain —— 列表滚到底不要带动整页橡皮筋。
+   5. 底部工具栏留 env(safe-area-inset-bottom) —— 避开全面屏手势条。
+   6. 正文 15px / 行高 1.75 —— 小四号偏上，长文阅读不累。            */
 .siyi-notes-root{display:flex;flex-direction:column;height:100%;min-height:0;
   background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);
-  font-size:14px;line-height:1.6}
-.siyi-notes-bar{display:flex;align-items:center;gap:6px;padding:8px 10px;flex:none;
+  font-size:14px;line-height:1.6;
+  -webkit-tap-highlight-color:transparent}
+.siyi-notes-bar{display:flex;align-items:center;gap:8px;padding:8px 10px;flex:none;
   border-bottom:.5px solid var(--dsw-alias-border-l3)}
-.siyi-notes-search{flex:1;min-width:0;height:30px;padding:0 10px;border-radius:8px;
+.siyi-notes-search{flex:1;min-width:0;height:38px;padding:0 12px;border-radius:10px;
   border:.5px solid var(--dsw-alias-border-l3);background:var(--dsw-alias-bg-layer-2);
-  color:var(--dsw-alias-label-primary);font-size:13px;outline:none}
+  color:var(--dsw-alias-label-primary);font-size:14px;outline:none;
+  -webkit-appearance:none}
 .siyi-notes-search:focus{border-color:var(--dsw-alias-border-l1)}
-.siyi-notes-btn{height:30px;padding:0 10px;border-radius:8px;flex:none;cursor:pointer;
+.siyi-notes-btn{min-height:36px;padding:0 12px;border-radius:10px;flex:none;cursor:pointer;
+  display:inline-flex;align-items:center;justify-content:center;
   border:.5px solid var(--dsw-alias-border-l3);background:var(--dsw-alias-bg-layer-2);
-  color:var(--dsw-alias-label-primary);font-size:13px}
+  color:var(--dsw-alias-label-primary);font-size:14px;
+  touch-action:manipulation;-webkit-tap-highlight-color:transparent}
 .siyi-notes-btn:active{background:var(--dsw-alias-bg-layer-3)}
 .siyi-notes-btn.on{background:var(--dsw-alias-bg-layer-3);font-weight:600}
-.siyi-notes-tabs{display:flex;gap:6px;padding:6px 10px;flex:none;overflow-x:auto;
-  border-bottom:.5px solid var(--dsw-alias-border-l3)}
+.siyi-notes-tabs{display:flex;gap:8px;padding:8px 10px;flex:none;overflow-x:auto;
+  border-bottom:.5px solid var(--dsw-alias-border-l3);
+  scrollbar-width:none;overscroll-behavior-x:contain}
 .siyi-notes-tabs::-webkit-scrollbar{display:none}
-.siyi-notes-list{flex:1;overflow-y:auto;min-height:0;padding:4px 0}
-.siyi-notes-item{padding:10px 12px;cursor:pointer;border-bottom:.5px solid var(--dsw-alias-border-l3)}
+.siyi-notes-list{flex:1;overflow-y:auto;min-height:0;padding:4px 0;
+  overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
+.siyi-notes-item{padding:12px;min-height:52px;box-sizing:border-box;cursor:pointer;
+  border-bottom:.5px solid var(--dsw-alias-border-l3);touch-action:manipulation}
 .siyi-notes-item:active{background:var(--dsw-alias-bg-layer-2)}
-.siyi-notes-item-title{font-size:14px;font-weight:500;margin-bottom:3px;
+.siyi-notes-item-title{font-size:15px;font-weight:500;margin-bottom:4px;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.siyi-notes-item-meta{font-size:11px;color:var(--dsw-alias-label-tertiary);
-  display:flex;gap:8px;align-items:center}
-.siyi-notes-tag{font-size:10px;padding:1px 6px;border-radius:4px;
+.siyi-notes-item-meta{font-size:12px;color:var(--dsw-alias-label-tertiary);
+  display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.siyi-notes-tag{font-size:11px;padding:2px 7px;border-radius:5px;
   background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-secondary)}
-.siyi-notes-empty{padding:40px 20px;text-align:center;color:var(--dsw-alias-label-tertiary);font-size:13px}
+.siyi-notes-empty{padding:48px 24px;text-align:center;
+  color:var(--dsw-alias-label-tertiary);font-size:14px;line-height:1.7}
 .siyi-notes-editor{flex:1;display:flex;flex-direction:column;min-height:0;overflow:hidden}
-.siyi-notes-editor-head{display:flex;align-items:center;gap:6px;padding:8px 10px;flex:none;
+.siyi-notes-editor-head{display:flex;align-items:center;gap:8px;padding:8px 10px;flex:none;
   border-bottom:.5px solid var(--dsw-alias-border-l3)}
 .siyi-notes-title-input{width:100%;border:none;outline:none;background:transparent;
-  color:var(--dsw-alias-label-primary);font-size:19px;font-weight:600;
-  padding:14px 16px 6px;line-height:1.35}
+  color:var(--dsw-alias-label-primary);font-size:20px;font-weight:600;
+  padding:14px 16px 8px;line-height:1.35}
 .siyi-notes-body-input{width:100%;flex:1;border:none;outline:none;background:transparent;
   color:var(--dsw-alias-label-primary);font-size:15px;line-height:1.75;
-  padding:6px 16px 16px;resize:none;font-family:inherit;min-height:0}
+  padding:8px 16px 20px;resize:none;font-family:inherit;min-height:0;
+  overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
 .siyi-notes-foot{font-size:11px;color:var(--dsw-alias-label-tertiary);
-  padding:6px 16px;flex:none;display:flex;justify-content:space-between;
+  padding:8px 16px;flex:none;display:flex;justify-content:space-between;
   border-top:.5px solid var(--dsw-alias-border-l3)}
-.siyi-notes-graph{flex:1;min-height:0;overflow:hidden;position:relative;touch-action:none;user-select:none;-webkit-user-select:none}
+.siyi-notes-graph{flex:1;min-height:0;overflow:hidden;position:relative;
+  touch-action:none;user-select:none;-webkit-user-select:none}
 .siyi-notes-graph svg{width:100%;height:100%;display:block}
 .siyi-notes-legend{position:absolute;left:8px;bottom:8px;font-size:10px;
   color:var(--dsw-alias-label-tertiary);background:var(--dsw-alias-bg-layer-1);
-  padding:4px 8px;border-radius:6px;border:.5px solid var(--dsw-alias-border-l3)}
-.siyi-notes-toast{position:absolute;left:50%;transform:translateX(-50%);bottom:16px;
+  padding:5px 9px;border-radius:6px;border:.5px solid var(--dsw-alias-border-l3);
+  pointer-events:none}
+.siyi-notes-toast{position:absolute;left:50%;transform:translateX(-50%);
+  bottom:calc(16px + env(safe-area-inset-bottom, 0px));
   background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-primary);
-  font-size:12px;padding:6px 14px;border-radius:14px;z-index:9;
-  border:.5px solid var(--dsw-alias-border-l3)}
+  font-size:13px;padding:8px 16px;border-radius:16px;z-index:9;
+  border:.5px solid var(--dsw-alias-border-l3);pointer-events:none;
+  max-width:calc(100% - 32px);text-align:center}
 `
 
     function ensureCss() {
@@ -448,7 +469,7 @@ window.__ModuleLoader__.load({
           onMouseDown: (e) => e.preventDefault(),
           onClick: it.a,
           style: {
-            minWidth: 44, minHeight: 40, padding: '0 8px', borderRadius: 8,
+            minWidth: 48, minHeight: 44, padding: '0 10px', borderRadius: 10,
             border: '.5px solid var(--dsw-alias-border-l3)',
             background: 'var(--dsw-alias-bg-layer-1)',
             color: 'var(--dsw-alias-label-primary)', fontSize: 14,
@@ -884,15 +905,15 @@ window.__ModuleLoader__.load({
               (graph.nodes.find(x => x.id === sel) || {}).title || ''),
             h('div', { style: { display: 'flex', gap: 6 } },
               h('button', {
-                className: 'siyi-notes-btn', style: { minHeight: 36, flex: 1 },
+                className: 'siyi-notes-btn', style: { minHeight: 42, flex: 1 },
                 onClick: () => onOpen(sel),
               }, '打开笔记'),
               h('button', {
-                className: 'siyi-notes-btn', style: { minHeight: 36 },
+                className: 'siyi-notes-btn', style: { minHeight: 42 },
                 onClick: () => { setPinned(p => { const c = { ...p }; delete c[sel]; return c }); toast('已解除固定') },
               }, '解除固定'),
               h('button', {
-                className: 'siyi-notes-btn', style: { minHeight: 36 },
+                className: 'siyi-notes-btn', style: { minHeight: 42 },
                 onClick: () => setSel(null),
               }, '关闭'),
             ),
@@ -1005,7 +1026,7 @@ window.__ModuleLoader__.load({
             key: c.key,
             onClick: () => setSelDay(isSel ? null : c),
             style: {
-              position: 'relative', minHeight: 40, padding: '3px 1px',
+              position: 'relative', minHeight: 46, padding: '4px 1px',
               display: 'flex', flexDirection: 'column', alignItems: 'center',
               cursor: 'pointer',
               background: isSel ? 'var(--dsw-alias-bg-layer-3)' : 'transparent',
@@ -1162,7 +1183,7 @@ window.__ModuleLoader__.load({
                       onClick: () => save({ id: t.id, status: done ? 'open' : 'done' }),
                       disabled: busy,
                       style: {
-                        flex: 'none', width: 20, height: 20, marginTop: 1,
+                        flex: 'none', width: 30, height: 30, marginTop: 0,
                         borderRadius: '50%', cursor: 'pointer',
                         border: '.5px solid ' + (done ? 'var(--dsw-alias-label-tertiary)' : 'var(--dsw-alias-label-secondary)'),
                         background: done ? 'var(--dsw-alias-bg-layer-3)' : 'transparent',

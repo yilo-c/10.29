@@ -35,6 +35,21 @@ class MainActivity : AppCompatActivity() {
     private companion object {
         private const val KEY_LOADED_URL = "siyi.loadedUrl"
         private const val KEY_NAVIGATED = "siyi.navigated"
+
+        /**
+         * 后台超过这么久回来就整页重载一次。
+         *
+         * 为什么需要：会话的事件流走 WebSocket，后台期间可能被系统
+         * 或省电策略掐断，客户端不会再收到 turn/end，界面就停在
+         * 「正在运行 / 清理任务」的假状态，此时点暂停没有任何效果
+         * （引擎那边根本没有在跑的轮次，暂停是空操作）。
+         * 用户手动强关重开能恢复，正是因为它重新拉了一次会话状态。
+         * 这里把「强关重开」自动化。
+         *
+         * 阈值取 60 秒：短时间切出去复制个链接不该触发重载，
+         * 否则会丢掉输入框里还没发的内容。
+         */
+        private const val LONG_BACKGROUND_MS = 60_000L
     }
 
     private lateinit var web: WebView
@@ -51,6 +66,8 @@ class MainActivity : AppCompatActivity() {
     /** 当前 WebView 里加载的是哪个地址。引擎重启后 token 会变，靠它识别。 */
     private var loadedUrl: String? = null
     private var startAt = System.currentTimeMillis()
+    /** 进入后台的时刻，0 表示当前在前台。用来判断后台时长。 */
+    private var backgroundedAt = 0L
 
     // 文件选择 / 交互回调
     private var filePathCallback: ValueCallback<Array<Uri>>? = null
@@ -160,6 +177,17 @@ class MainActivity : AppCompatActivity() {
                 startActivity(Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
                     Uri.parse("package:$packageName")))
             }
+        }
+
+        // 把「在 Activity 上申请运行时权限」的能力交给 Capabilities。
+        //
+        // 背景：B2 日历能力需要 READ_CALENDAR / WRITE_CALENDAR，
+        // 这类运行时权限只能由 Activity 调 requestPermissions 才弹框，
+        // 用 Application context 调不会弹。之前这三个方法写好了却没人调用，
+        // 用户只能自己去系统设置翻三层菜单，很多人找不到就以为功能坏了。
+        // 现在 AI 可以通过 device_request_permission 工具主动拉起授权。
+        Capabilities.permissionLauncher = { kind ->
+            if (kind == "calendar") requestCalendarPermission()
         }
 
         waitView = TextView(this).apply {
@@ -767,9 +795,23 @@ class MainActivity : AppCompatActivity() {
         // 与 onPause 配对：即使将来有人 pause 了 WebView，这里也会恢复渲染。
         runCatching { web.onResume() }
         val url = EngineController.state().url
+        // 后台时长：进入后台时记录，回前台清掉
+        val bgAt = backgroundedAt
+        backgroundedAt = 0L
+        val bgMs = if (bgAt > 0) System.currentTimeMillis() - bgAt else 0L
         if (url != null && url != loadedUrl) {
             // 后台期间引擎重启过（token 变了），必须重新加载
             navigated = true
+            loadUrl(url)
+        } else if (url != null && bgMs >= LONG_BACKGROUND_MS) {
+            // 后台太久（默认 60 秒）：事件流大概率已被掐断，
+            // 界面会停在假的「运行中 / 清理任务」状态，而引擎那边
+            // 其实早就跑完了 —— 此时点暂停是空操作，因为没东西可停。
+            // 整页重载会重新拉一次会话状态，等价于用户手动强关重开，
+            // 但不用用户动手。
+            android.util.Log.i("SiyiWeb", "后台 " + (bgMs / 1000) + "s 回来，重载页面同步会话状态")
+            navigated = true
+            retries = 0
             loadUrl(url)
         } else if (url != null) {
             // 从后台回来：引擎可能刚被解冻，页面也可能被系统回收了内容。
@@ -827,6 +869,10 @@ class MainActivity : AppCompatActivity() {
         // 不用 pauseTimers()：那会让引擎里的 SSE 对话流断掉。
         // 代价是后台仍在跑 WebView 的定时器和网络请求 ——
         // 对这个 App 可以接受，换来的是前后台切换不掉链子。
+        //
+        // 记录进入后台的时刻，onResume 里用它判断是否后台太久、
+        // 需要整页重载来重新同步会话状态（见 LONG_BACKGROUND_MS）。
+        backgroundedAt = System.currentTimeMillis()
         super.onPause()
     }
 

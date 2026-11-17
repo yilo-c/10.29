@@ -39,6 +39,16 @@ import java.util.concurrent.TimeUnit
 object Capabilities {
 
     private const val PREF = "siyi_capabilities"
+
+    /**
+     * 由 MainActivity 注册：需要在 Activity 上发起的运行时权限申请。
+     *
+     * 为什么不能直接在工具里申请：READ_CALENDAR / WRITE_CALENDAR 这类
+     * 运行时权限必须由 Activity 调 requestPermissions 才会弹系统框，
+     * 用 Application context 调不会弹。这里做成回调，
+     * 工具线程 post 到主线程，由 Activity 执行真正的申请。
+     */
+    @Volatile var permissionLauncher: ((String) -> Unit)? = null
     @Volatile private var ttsEngine: TextToSpeech? = null
 
     /** 工具清单。引擎会把每一项注册成真正的 dsh tool。 */
@@ -101,6 +111,12 @@ object Capabilities {
         // ── B2 日历（2026-11-17）──────────────────────────────────────
         // 权限是运行时的 READ/WRITE_CALENDAR，设计上不在启动路径申请，
         // 由设置页手动触发，所以这些工具在没授权时会明确回报缺权限。
+        // ── B2/B3/B4 授权入口（2026-11-17 补）──────────────────────
+        // 这些能力本身实现完整，但用户没法在 App 里点一下授权，
+        // 必须自己去系统设置翻。加这个工具让 AI 能主动拉起授权流程。
+        add("device_request_permission", "calendar",
+            "拉起系统授权界面：calendar（日历运行时权限）/ exact_alarm（精确闹钟）/ usage_stats（使用情况访问）/ shizuku。",
+            schema("kind" to "string"), "write")
         add("device_calendar_status", "calendar", "日历读写权限状态。", empty)
         add("device_calendar_list", "calendar", "列出设备上的日历账户，写入事件时需要 calendarId。", empty)
         add("device_calendar_events", "calendar", "查某段时间的系统日历事件。", schema("beginMs" to "number", "endMs" to "number", "limit" to "number"))
@@ -151,6 +167,7 @@ object Capabilities {
         "device_write_file" -> writeFile(ctx, args.optString("path"), args.optString("text"))
         "device_list_files" -> listFiles(ctx, args.optString("subdir", ""))
         // ── B2 日历 ──────────────────────────────────────────────────
+        "device_request_permission" -> requestPermission(ctx, args.optString("kind"))
         "device_calendar_status" -> CalendarCapability.status(ctx)
         "device_calendar_list" -> CalendarCapability.listCalendars(ctx)
         "device_calendar_events" -> CalendarCapability.listEvents(
@@ -414,6 +431,71 @@ object Capabilities {
     }
 
     // ── 元能力 ──
+    /**
+     * B2/B3/B4 的授权入口。
+     *
+     * 这四个能力的实现本身都在（CalendarCapability / AlarmCapability /
+     * UsageCapability / ShizukuInstaller），缺的只是「用户能在 App 里点一下」。
+     * 之前的状况：AI 只能回一句「请去系统设置里打开」，用户要自己翻三层菜单，
+     * 很多人找不到就以为功能坏了。
+     *
+     * 各种权限的申请方式不同，这里按类型分流：
+     *   calendar    运行时权限，必须由 Activity 弹框 → 走 permissionLauncher
+     *   exact_alarm 特殊权限，只能跳系统设置页 → ACTION_REQUEST_SCHEDULE_EXACT_ALARM
+     *   usage_stats 特殊权限，只能跳系统设置页 → ACTION_USAGE_ACCESS_SETTINGS
+     *   shizuku     走 Shizuku 自己的授权流程 → ShizukuInstaller.requestPermission
+     */
+    private fun requestPermission(ctx: Context, kind: String): String {
+        val k = kind.lowercase().trim()
+        val out = JSONObject().put("ok", true).put("kind", k.ifEmpty { "all" })
+        when (k) {
+            "calendar" -> {
+                val l = permissionLauncher
+                    ?: return out.put("ok", false)
+                        .put("error", "界面未就绪：App 还没完成初始化").toString(2)
+                // 必须主线程，requestPermissions 只能在主线程调
+                android.os.Handler(android.os.Looper.getMainLooper()).post { runCatching { l("calendar") } }
+                out.put("action", "已弹出日历权限申请")
+                    .put("then", "在系统弹框里点「允许」，之后 device_calendar_* 就能用了")
+            }
+            "exact_alarm" -> {
+                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+                    out.put("action", "系统版本低于 Android 12，精确闹钟不需要单独授权")
+                } else {
+                    val can = runCatching { AlarmCapability.canExact(ctx) }.getOrDefault(true)
+                    if (can) {
+                        out.put("action", "已具备精确闹钟权限，无需授权")
+                    } else {
+                        val i = Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM)
+                            .setData(Uri.parse("package:" + ctx.packageName))
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        val r = runCatching { ctx.startActivity(i) }
+                        if (r.isSuccess) out.put("action", "已打开系统设置，请允许本应用设置闹钟")
+                        else return out.put("ok", false).put("error", "打开设置失败: " + (r.exceptionOrNull()?.message ?: "")).toString(2)
+                    }
+                }
+            }
+            "usage_stats" -> {
+                val i = Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                val r = runCatching { ctx.startActivity(i) }
+                if (r.isSuccess) out.put("action", "已打开「使用情况访问」设置，请找到本应用并开启")
+                else return out.put("ok", false).put("error", "打开设置失败: " + (r.exceptionOrNull()?.message ?: "")).toString(2)
+            }
+            "shizuku" -> {
+                val detail = ShizukuInstaller.requestPermission(ctx)
+                out.put("detail", detail)
+            }
+            else -> {
+                out.put("hint", "kind 取值：calendar / exact_alarm / usage_stats / shizuku")
+                    .put("calendar", JSONObject(CalendarCapability.status(ctx)))
+                    .put("exactAlarm", JSONObject(AlarmCapability.status(ctx)))
+                    .put("usageStats", JSONObject(UsageCapability.status(ctx)))
+                    .put("shizuku", JSONObject(ShizukuInstaller.status(ctx)))
+            }
+        }
+        return out.toString(2)
+    }
     private fun intent(ctx: Context, args: JSONObject): String {
         val action = args.optString("action")
         if (action.isEmpty()) throw IllegalArgumentException("action 不能为空")

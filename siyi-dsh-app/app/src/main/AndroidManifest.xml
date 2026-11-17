@@ -98,5 +98,18 @@
             </intent-filter>
         </receiver>
 
+        <!-- B5 Shizuku Provider（2026-11-17）─────────────────────────────
+             Shizuku 服务靠它把本应用认定为「已授权应用」。
+             不注册的后果：pingBinder 能通、checkSelfPermission 也可能过，
+             但真正执行 shell 命令会被拒，表现为「显示已授权但装不上」。
+             authorities 必须和 Shizuku 约定一致：
+               <包名>.shizuku
+             多一个字符就认不到。 -->
+        <provider
+            android:name="rikka.shizuku.ShizukuProvider"
+            android:authorities="com.siyi.dshapp.shizuku"
+            android:exported="true"
+            android:multiprocess="false" />
+
     </application>
 </manifest>

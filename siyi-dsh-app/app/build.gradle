@@ -88,4 +88,16 @@ dependencies {
     implementation 'androidx.activity:activity-ktx:1.9.3'
     implementation 'androidx.webkit:webkit:1.11.0'
     implementation 'com.google.android.material:material:1.12.0'
+
+    // B5 Shizuku 静默安装（2026-11-17）。
+    // ⚠ 两个包都要加：
+    //   api  是 Shizuku 的客户端 API，App 用它拿 binder、发授权请求、起 shell 进程。
+    //   provider 是 Shizuku 服务端的 Provider，必须在 Manifest 里声明
+    //   authorities，否则 Shizuku 服务无法把 App 标记为「已授权应用」，
+    //   命令执行会失败。
+    // 之前这一组是半成品：代码用反射调 rikka.shizuku.Shizuku，
+    // 但依赖没加、Provider 没注册，dex 里根本没有该类，
+    // 反射必然抛 ClassNotFoundException 被吞掉，状态永远报「未安装」。
+    implementation 'dev.rikka.shizuku:api:13.1.5'
+    implementation 'dev.rikka.shizuku:provider:13.1.5'
 }

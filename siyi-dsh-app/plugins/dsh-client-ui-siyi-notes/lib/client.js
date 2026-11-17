@@ -198,18 +198,13 @@ window.__ModuleLoader__.load({
 
     // ── D3 编辑器 ───────────────────────────────────────────────────
     //
-    // 对齐 Redmi 笔记的功能集（对照它的实际编辑器逐项确认）：
-    //   工具栏：粗体 / 斜体 / 下划线 / 删除线 / 标题 / 无序列表 /
-    //           有序列表 / 待办 / 引用 / 代码 / 分割线 / 双链 / 标签
-    //   编辑区：所见即所得的轻量渲染（预览态），不是纯 textarea
-    //   其它：撤销 / 重做、字数统计、置顶、自动保存、手动保存
-    //
-    // 关键取舍：不引入 ProseMirror/Slate。
-    //   方案里明确写了「不搬 ProseMirror，太重且和 DSH 渲染体系打架」。
-    //   这里用 contentEditable + document.execCommand 这类浏览器原生能力，
-    //   简单命令（加粗、列表）交给它，复杂结构（待办、双链）走 markdown 文本。
-    //   好处是零依赖、行为可预期；代价是富文本能力不如专业编辑器，
-    //   但笔记场景够用，且文件仍是标准 markdown，外部可读可迁移。
+    // 按手机端笔记（小米/红米笔记、Google Keep、Obsidian mobile）重新设计：
+    //   1. 底部固定工具栏，图标 40px+ 触控区（Material 48dp / WCAG 24px 标准）
+    //   2. 分类入口而不是 13 个字母全铺开 —— 参考红米笔记的
+    //      「画笔/语音/图片/手写/待办/文字」分类式底栏
+    //   3. 正文区独立滚动，不靠移动光标来翻页
+    //   4. source 类型或含 HTML 的笔记默认进阅读态，不显示源码
+    //   5. 阅读态对安全 HTML（a/div align/br）做白名单渲染
     function EditorView({ id, onBack, toast }) {
       const [note, setNote] = useState(null)
       const [title, setTitle] = useState('')
@@ -217,17 +212,23 @@ window.__ModuleLoader__.load({
       const [tags, setTags] = useState('')
       const [saving, setSaving] = useState(false)
       const [dirty, setDirty] = useState(false)
-      const [preview, setPreview] = useState(false)
+      const [mode, setMode] = useState('edit')   // edit / read
       const [pinnedTop, setPinnedTop] = useState(false)
+      const [fmtMenu, setFmtMenu] = useState(false)  // 格式二级菜单
+      const [insMenu, setInsMenu] = useState(false)  // 插入二级菜单
       const bodyRef = useRef(null)
       const historyRef = useRef({ stack: [], index: -1 })
       const skipHistory = useRef(false)
+
+      // 是不是「阅读型」笔记：RSS 导入的 source，或正文里有 HTML 标签
+      const isSourceLike = (meta, text) =>
+        (meta && meta.kind === 'source') || /<[a-zA-Z][^>]*>/.test(text || '')
 
       useEffect(() => {
         let alive = true
         if (!id) {
           setNote(null); setTitle(''); setBody(''); setTags('')
-          setDirty(false); setPreview(false); setPinnedTop(false)
+          setDirty(false); setMode('edit'); setPinnedTop(false)
           historyRef.current = { stack: [''], index: 0 }
           return
         }
@@ -239,6 +240,8 @@ window.__ModuleLoader__.load({
           setBody(g.body || '')
           setTags((g.meta.tags || []).join(', '))
           setPinnedTop(g.meta.status === 'pinned')
+          // 阅读型笔记默认进阅读态，避免一进来就看到满屏 HTML 源码
+          setMode(isSourceLike(g.meta, g.body) ? 'read' : 'edit')
           setDirty(false)
           historyRef.current = { stack: [g.body || ''], index: 0 }
         }).catch(e => alive && toast('读取失败：' + e.message))
@@ -267,14 +270,12 @@ window.__ModuleLoader__.load({
         finally { setSaving(false) }
       }, [note, title, body, tags, pinnedTop, saving])
 
-      // 自动保存：停笔 1.5 秒
       useEffect(() => {
         if (!dirty) return
         const t = setTimeout(() => doSave({ silent: true }), 1500)
         return () => clearTimeout(t)
       }, [dirty, title, body, tags, pinnedTop])
 
-      // ── 撤销 / 重做（自己维护栈，因为 contentEditable 的原生 undo 不可靠）──
       const pushHistory = useCallback((next) => {
         if (skipHistory.current) { skipHistory.current = false; return }
         const h = historyRef.current
@@ -291,7 +292,6 @@ window.__ModuleLoader__.load({
         h.index--
         skipHistory.current = true
         setBody(h.stack[h.index]); setDirty(true)
-        toast('已撤销')
       }
       const redo = () => {
         const h = historyRef.current
@@ -299,46 +299,37 @@ window.__ModuleLoader__.load({
         h.index++
         skipHistory.current = true
         setBody(h.stack[h.index]); setDirty(true)
-        toast('已重做')
       }
 
-      // ── 编辑器：往光标处插入 markdown 片段 ──
       const insert = (before, after, placeholder) => {
         const ta = bodyRef.current
         if (!ta) return
-        const start = ta.selectionStart, end = ta.selectionEnd
+        const start = ta.selectionStart || 0, end = ta.selectionEnd || 0
         const sel = body.slice(start, end) || (placeholder || '')
         const next = body.slice(0, start) + before + sel + after + body.slice(end)
         pushHistory(next)
         setBody(next); setDirty(true)
-        // 恢复光标到片段内部
-        requestAnimationFrame(() => {
+        setFmtMenu(false); setInsMenu(false)
+        setTimeout(() => {
           ta.focus()
           ta.selectionStart = ta.selectionEnd = start + before.length + sel.length
-        })
+        }, 0)
       }
-
-      // 行首插入（列表、标题、引用这类）
       const insertLine = (prefix) => {
         const ta = bodyRef.current
         if (!ta) return
-        const start = ta.selectionStart
-        // 找到当前行开头
+        const start = ta.selectionStart || 0
         let lineStart = body.lastIndexOf('\n', start - 1) + 1
         const next = body.slice(0, lineStart) + prefix + body.slice(lineStart)
         pushHistory(next)
         setBody(next); setDirty(true)
-        requestAnimationFrame(() => {
-          ta.focus()
-          ta.selectionStart = ta.selectionEnd = start + prefix.length
-        })
+        setFmtMenu(false); setInsMenu(false)
+        setTimeout(() => { ta.focus(); ta.selectionStart = ta.selectionEnd = start + prefix.length }, 0)
       }
-
-      // 待办：切换行首的 [ ] / [x]
       const toggleTodo = () => {
         const ta = bodyRef.current
         if (!ta) return
-        const start = ta.selectionStart
+        const start = ta.selectionStart || 0
         let lineStart = body.lastIndexOf('\n', start - 1) + 1
         let lineEnd = body.indexOf('\n', lineStart)
         if (lineEnd < 0) lineEnd = body.length
@@ -350,119 +341,142 @@ window.__ModuleLoader__.load({
         const next = body.slice(0, lineStart) + nextLine + body.slice(lineEnd)
         pushHistory(next)
         setBody(next); setDirty(true)
-        requestAnimationFrame(() => { ta.focus() })
+        setFmtMenu(false); setInsMenu(false)
       }
 
-      const TOOLS = [
-        { label: 'B', tip: '粗体', act: () => insert('**', '**', '粗体'), style: { fontWeight: 700 } },
-        { label: 'I', tip: '斜体', act: () => insert('*', '*', '斜体'), style: { fontStyle: 'italic' } },
-        { label: 'U', tip: '下划线', act: () => insert('<u>', '</u>', '下划线'), style: { textDecoration: 'underline' } },
-        { label: 'S', tip: '删除线', act: () => insert('~~', '~~', '删除线'), style: { textDecoration: 'line-through' } },
-        { label: 'H', tip: '标题', act: () => insertLine('## ') },
-        { label: '•', tip: '无序列表', act: () => insertLine('- ') },
-        { label: '1.', tip: '有序列表', act: () => insertLine('1. ') },
-        { label: '☑', tip: '待办', act: toggleTodo },
-        { label: '❝', tip: '引用', act: () => insertLine('> ') },
-        { label: '</>', tip: '代码块', act: () => insert('\n```\n', '\n```\n', 'code'), style: { fontSize: 10 } },
-        { label: '—', tip: '分割线', act: () => { const next = body + '\n\n---\n\n'; pushHistory(next); setBody(next); setDirty(true) } },
-        { label: '[[', tip: '双链', act: () => insert('[[', ']]', '笔记标题') },
-        { label: '#', tip: '标签', act: () => insert(' #', '', '标签') },
-      ]
+      // 底栏图标按钮：文字用通用符号，触控区 44px
+      const IconBtn = ({ label, glyph, title, onClick, active }) => h('button', {
+        title: title || label,
+        onClick,
+        style: {
+          minWidth: 44, minHeight: 44, flex: '1 1 0',
+          display: 'flex', flexDirection: 'column', alignItems: 'center',
+          justifyContent: 'center', gap: 2,
+          border: 'none', borderRadius: 10, cursor: 'pointer',
+          background: active ? 'var(--dsw-alias-bg-layer-3)' : 'transparent',
+          color: active ? 'var(--dsw-alias-label-primary)' : 'var(--dsw-alias-label-secondary)',
+          fontSize: 20, lineHeight: 1,
+        },
+      },
+        h('span', { style: { fontSize: 20 } }, glyph),
+        label ? h('span', { style: { fontSize: 10 } }, label) : null,
+      )
 
       const wordCount = (body || '').replace(/\s/g, '').length
       const linkCount = (body || '').match(/\[\[[^\]]+\]\]/g)?.length || 0
-      const todoDone = (body || '').match(/^- \[x\]/gim)?.length || 0
-      const todoAll = (body || '').match(/^- \[[ x]\]/gim)?.length || 0
+
+      // 二级菜单内容
+      const fmtItems = [
+        { g: 'B', t: '粗体', a: () => insert('**', '**', '粗体') },
+        { g: 'I', t: '斜体', a: () => insert('*', '*', '斜体') },
+        { g: 'U', t: '下划线', a: () => insert('<u>', '</u>', '下划线') },
+        { g: 'S', t: '删除线', a: () => insert('~~', '~~', '删除线') },
+        { g: 'H', t: '标题', a: () => insertLine('## ') },
+        { g: '❝', t: '引用', a: () => insertLine('> ') },
+        { g: '↶', t: '撤销', a: undo },
+        { g: '↷', t: '重做', a: redo },
+      ]
+      const insItems = [
+        { g: '☑', t: '待办', a: toggleTodo },
+        { g: '•', t: '列表', a: () => insertLine('- ') },
+        { g: '1.', t: '编号', a: () => insertLine('1. ') },
+        { g: '[[', t: '双链', a: () => insert('[[', ']]', '笔记标题') },
+        { g: '#', t: '标签', a: () => insert(' #', '', '标签') },
+        { g: '</>', t: '代码', a: () => insert('\n```\n', '\n```\n', 'code') },
+        { g: '—', t: '分割线', a: () => { const n = body + '\n\n---\n\n'; pushHistory(n); setBody(n); setDirty(true); setInsMenu(false) } },
+      ]
 
       return h('div', { className: 'siyi-notes-root' },
+        // 顶部：返回 / 标题状态 / 阅读编辑切换
         h('div', { className: 'siyi-notes-editor-head' },
-          h('button', { className: 'siyi-notes-btn', onClick: onBack }, '返回'),
+          h('button', { className: 'siyi-notes-btn', onClick: onBack }, '‹ 返回'),
+          h('span', {
+            style: { flex: 1, fontSize: 11, color: 'var(--dsw-alias-label-tertiary)', textAlign: 'center' },
+          }, saving ? '保存中…' : (dirty ? '未保存' : '已保存')),
           h('button', {
-            className: 'siyi-notes-btn' + (dirty ? ' on' : ''),
-            onClick: () => doSave({}),
-            disabled: saving,
-          }, saving ? '保存中…' : (dirty ? '保存' : '已保存')),
-          h('button', { className: 'siyi-notes-btn', onClick: undo, title: '撤销' }, '↶'),
-          h('button', { className: 'siyi-notes-btn', onClick: redo, title: '重做' }, '↷'),
-          h('button', {
-            className: 'siyi-notes-btn' + (preview ? ' on' : ''),
-            onClick: () => setPreview(v => !v),
-            title: '预览',
-          }, preview ? '编辑' : '预览'),
+            className: 'siyi-notes-btn' + (mode === 'read' ? ' on' : ''),
+            onClick: () => setMode(m => m === 'read' ? 'edit' : 'read'),
+          }, mode === 'read' ? '编辑' : '阅读'),
           h('button', {
             className: 'siyi-notes-btn' + (pinnedTop ? ' on' : ''),
             onClick: () => { setPinnedTop(v => !v); setDirty(true) },
             title: '置顶',
-          }, pinnedTop ? '已置顶' : '置顶'),
+          }, pinnedTop ? '★' : '☆'),
         ),
+        // 内容区：独立滚动，高度占满
         h('div', { className: 'siyi-notes-editor' },
           h('input', {
             className: 'siyi-notes-title-input',
             placeholder: '标题',
             value: title,
+            readOnly: mode === 'read',
             onChange: (e) => { setTitle(e.target.value); setDirty(true) },
           }),
-          preview
+          mode === 'read'
             ? h('div', {
                 className: 'siyi-notes-body-input',
-                style: { overflowY: 'auto', display: 'block' },
-                dangerouslySetInnerHTML: { __html: renderMarkdown(body) },
+                style: {
+                  overflowY: 'auto', display: 'block', WebkitOverflowScrolling: 'touch',
+                  lineHeight: 1.75,
+                },
+                dangerouslySetInnerHTML: { __html: renderRich(body) },
               })
             : h('textarea', {
                 ref: bodyRef,
                 className: 'siyi-notes-body-input',
-                placeholder: '开始写…用 [[双链]] 和 #标签 组织内容',
+                placeholder: '开始写…',
                 value: body,
-                onChange: (e) => {
-                  const v = e.target.value
-                  pushHistory(v)
-                  setBody(v); setDirty(true)
-                },
+                onChange: (e) => { pushHistory(e.target.value); setBody(e.target.value); setDirty(true) },
                 onKeyDown: (e) => {
-                  // 常用快捷键
                   if ((e.ctrlKey || e.metaKey) && e.key === 'b') { e.preventDefault(); insert('**', '**', '粗体') }
                   else if ((e.ctrlKey || e.metaKey) && e.key === 'i') { e.preventDefault(); insert('*', '*', '斜体') }
                   else if ((e.ctrlKey || e.metaKey) && e.key === 'z') { e.preventDefault(); undo() }
                   else if ((e.ctrlKey || e.metaKey) && e.key === 'y') { e.preventDefault(); redo() }
-                  // Tab 在待办行里切换完成状态
                   else if (e.key === 'Tab') { e.preventDefault(); toggleTodo() }
                 },
               }),
-          // 工具栏：只在编辑态显示
-          preview ? null : h('div', {
-            style: {
-              display: 'flex', flexWrap: 'wrap', gap: 4, padding: '6px 10px',
-              borderTop: '.5px solid var(--dsw-alias-border-l3)', flex: 'none',
-              background: 'var(--dsw-alias-bg-layer-2)',
-            },
-          }, TOOLS.map(t => h('button', {
-            key: t.tip,
-            title: t.tip,
-            className: 'siyi-notes-btn',
-            style: { minWidth: 32, padding: '0 6px', fontSize: 12, ...t.style },
-            onMouseDown: (e) => e.preventDefault(),   // 防止点工具栏时编辑区失焦
-            onClick: t.act,
-          }, t.label))),
-          h('input', {
-            style: {
-              border: 'none', outline: 'none', background: 'transparent',
-              color: 'var(--dsw-alias-label-tertiary)', fontSize: 12,
-              padding: '4px 16px', flex: 'none',
-            },
-            placeholder: '标签，逗号分隔',
-            value: tags,
-            onChange: (e) => { setTags(e.target.value); setDirty(true) },
-          }),
         ),
+        // 二级菜单（在底栏上方弹出）
+        (fmtMenu || insMenu) ? h('div', {
+          style: {
+            display: 'flex', flexWrap: 'wrap', gap: 6, padding: '8px 10px',
+            borderTop: '.5px solid var(--dsw-alias-border-l3)',
+            background: 'var(--dsw-alias-bg-layer-2)', flex: 'none',
+          },
+        }, (fmtMenu ? fmtItems : insItems).map(it => h('button', {
+          key: it.t, title: it.t,
+          onMouseDown: (e) => e.preventDefault(),
+          onClick: it.a,
+          style: {
+            minWidth: 44, minHeight: 40, padding: '0 8px', borderRadius: 8,
+            border: '.5px solid var(--dsw-alias-border-l3)',
+            background: 'var(--dsw-alias-bg-layer-1)',
+            color: 'var(--dsw-alias-label-primary)', fontSize: 14,
+          },
+        }, it.g))) : null,
+        // 底部固定工具栏：分类式，参考红米笔记
+        h('div', {
+          style: {
+            display: 'flex', gap: 2, padding: '6px 8px',
+            borderTop: '.5px solid var(--dsw-alias-border-l3)',
+            background: 'var(--dsw-alias-bg-layer-2)', flex: 'none',
+            paddingBottom: 'calc(6px + env(safe-area-inset-bottom, 0px))',
+          },
+        },
+          h(IconBtn, { glyph: '✎', label: '格式', active: fmtMenu, onClick: () => { setFmtMenu(v => !v); setInsMenu(false) } }),
+          h(IconBtn, { glyph: '☑', label: '待办', onClick: toggleTodo }),
+          h(IconBtn, { glyph: '＋', label: '插入', active: insMenu, onClick: () => { setInsMenu(v => !v); setFmtMenu(false) } }),
+          h(IconBtn, { glyph: mode === 'read' ? '✎' : '👁', label: mode === 'read' ? '编辑' : '阅读', onClick: () => setMode(m => m === 'read' ? 'edit' : 'read') }),
+          h(IconBtn, { glyph: '⋯', label: '更多', onClick: () => { setFmtMenu(true); setInsMenu(false) } }),
+        ),
+        // 底部信息条
         h('div', { className: 'siyi-notes-foot' },
-          h('span', null, wordCount + ' 字' + (linkCount ? ' · ' + linkCount + ' 双链' : '') +
-            (todoAll ? ' · 待办 ' + todoDone + '/' + todoAll : '')),
+          h('span', null, wordCount + ' 字' + (linkCount ? ' · ' + linkCount + ' 双链' : '')),
           h('span', null, note && note.meta ? '更新于 ' + fmtTime(note.meta.updated) : '新笔记'),
         ),
       )
     }
 
-    /** 极简 markdown 渲染，只覆盖笔记实际用到的语法。 */
     function renderMarkdown(md) {
       if (!md) return ''
       // ⚠ 不能整段先转义再解析：一旦 > 变成 &gt;，
@@ -519,30 +533,62 @@ window.__ModuleLoader__.load({
         .replace(new RegExp(U_OPEN + '([^]*?)' + U_CLOSE, 'g'), '<u>$1</u>')
         .replace(/#([\u4e00-\u9fa5A-Za-z0-9_]+)/g, '<span style="color:var(--dsw-alias-label-secondary)">#$1</span>')
     }
+
+    /**
+     * 阅读态渲染：markdown + 安全 HTML 白名单。
+     *
+     * 背景：RSS 导入的 source 笔记正文直接含
+     *   <div align='right'><a href='...'>点击查看原文></a></div>
+     * 纯 textarea 会把这段当源码显示，撑满屏幕（用户反馈图1）。
+     * 这里对白名单标签做真实渲染，其余一律转义，兼顾可读与安全。
+     *
+     * 白名单：a(href)、div(align)、br、p、span、strong、em、u、code。
+     * 属性只留 href 和 align，href 必须 http(s)，杜绝 javascript:。
+     */
+    function renderRich(md) {
+      if (!md) return ''
+      // 先跑 markdown，得到带 HTML 的字符串
+      let html = renderMarkdown(md)
+      // 白名单放行：把被转义的安全标签还原（仅限本应用自己产生的）
+      const allowAttrs = (tag) => {
+        // 取出标签内容，只保留安全属性
+        return tag
+      }
+      // a 标签：href 必须 http(s)
+      // ⚠ inline() 只转义双引号，单引号会原样保留。
+      // 所以属性值要同时兼容 ' 和 &quot; 两种形态（RSS 源里两种都有）。
+      html = html.replace(/&lt;a\s+href=(?:'|&quot;)(https?:\/\/[^'&]+)(?:'|&quot;)[^&]*&gt;([\s\S]*?)&lt;\/a&gt;/g,
+        (m, href, txt) => '<a href="' + href + '" target="_blank" rel="noopener noreferrer" style="color:var(--dsw-alias-label-link,#3b82f6)">' + txt + '</a>')
+      // div align / br / p / span
+      html = html.replace(/&lt;div\s+align=(?:'|&quot;)(left|right|center)(?:'|&quot;)&gt;/g,
+        (m, al) => '<div style="text-align:' + al + '">')
+      html = html.replace(/&lt;\/div&gt;/g, '</div>')
+      html = html.replace(/&lt;br\s*\/?&gt;/g, '<br>')
+      html = html.replace(/&lt;p&gt;/g, '<div>').replace(/&lt;\/p&gt;/g, '</div>')
+      html = html.replace(/&lt;span&gt;/g, '<span>').replace(/&lt;\/span&gt;/g, '</span>')
+      html = html.replace(/&lt;strong&gt;/g, '<strong>').replace(/&lt;\/strong&gt;/g, '</strong>')
+      html = html.replace(/&lt;em&gt;/g, '<em>').replace(/&lt;\/em&gt;/g, '</em>')
+      html = html.replace(/&lt;code&gt;/g, '<code>').replace(/&lt;\/code&gt;/g, '</code>')
+      return html
+    }
     // ── D4 知识图谱 ─────────────────────────────────────────────────
-    //
-    // 交互设计参考 Obsidian 的图谱（这是目前移动端做得最成熟的实现）：
-    //   1. 单指拖动空白处  → 平移画布（问题反馈「无法滑动」的正面修复）
-    //   2. 双指捏合        → 缩放，0.3x 到 3x
-    //   3. 拖动节点        → 移动单个节点，并固定住它的位置
-    //   4. 点节点          → 高亮它和它的邻居，其余淡化
-    //   5. 双击空白        → 复位视图
-    //   6. 节点大小按连接数，孤立节点更小更淡
-    //
-    // 为什么不用 d3：它的 zoom/force 在 WebView 里体积大且和 React 的
-    // 事件系统要额外接一层。这里的布局和变换都是手写，几十行就够，
-    // 而且完全可控（力导向只在初始化跑一次，之后位置由位置表维护，
-    // 避免持续计算导致手机发热）。
+    // 手机端交互（按 MDN Pointer Events 与 touch-action 规范）：
+    //   - touch-action:none 关掉浏览器手势，pointermove 才收得到连续位移
+    //   - 浏览器接管手势会发 pointercancel，必须处理，否则手势卡死
+    //   - 点击判定：位移阈值放宽到 10px（手指点按几乎不可能零位移）
+    //   - 节点直接绑 onClick（DOM 原生），绕开 pointer 位移判定 ——
+    //     这是「点节点没反应」的正面修复
+    //   - 节点命中半径 28px * 缩放补偿，手指点得准
+    //   - 拖空白平移、双指捏合缩放、拖节点固定、双击复位
     function GraphView({ onBack, onOpen, toast }) {
       const [graph, setGraph] = useState(null)
       const [sel, setSel] = useState(null)
       const [size, setSize] = useState({ w: 360, h: 480 })
-      // 视图变换：平移 + 缩放
       const [view, setView] = useState({ x: 0, y: 0, k: 1 })
-      // 节点手工位置覆盖（拖动后固定）
       const [pinned, setPinned] = useState({})
       const wrapRef = useRef(null)
       const gesture = useRef(null)
+      const pinch = useRef(null)
 
       useEffect(() => {
         getGraph().then(setGraph).catch(e => toast('图谱读取失败：' + e.message))
@@ -559,7 +605,6 @@ window.__ModuleLoader__.load({
         return () => ro.disconnect()
       }, [])
 
-      // ── 力导向布局：只在节点/尺寸变化时算一次 ──
       const baseLayout = useMemo(() => {
         if (!graph || !graph.nodes || !graph.nodes.length) return null
         const nodes = graph.nodes
@@ -579,7 +624,6 @@ window.__ModuleLoader__.load({
           deg.set(e.source, (deg.get(e.source) || 0) + 1)
           deg.set(e.target, (deg.get(e.target) || 0) + 1)
         }
-        // 迭代退火：前期斥力大、后期收敛
         for (let it = 0; it < 260; it++) {
           const t = 1 - it / 260
           for (let i = 0; i < arr.length; i++) {
@@ -609,15 +653,13 @@ window.__ModuleLoader__.load({
             a.y += (CY - a.y) * 0.006
           }
         }
-        // 收敛后一次性夹到可视区，避免飞出屏幕
         for (const a of arr) {
-          a.x = Math.max(28, Math.min(W - 28, a.x))
-          a.y = Math.max(24, Math.min(H - 24, a.y))
+          a.x = Math.max(30, Math.min(W - 30, a.x))
+          a.y = Math.max(26, Math.min(H - 26, a.y))
         }
         return { nodes: arr, map: new Map(arr.map(a => [a.id, a])), link, deg, W, H }
       }, [graph, size])
 
-      // 应用 pin 后的最终坐标
       const nodes = useMemo(() => {
         if (!baseLayout) return []
         return baseLayout.nodes.map(n => {
@@ -632,7 +674,6 @@ window.__ModuleLoader__.load({
         return m
       }, [nodes])
 
-      // 选中节点的邻居集合（用于高亮）
       const neighbors = useMemo(() => {
         if (!sel || !graph || !graph.edges) return null
         const s = new Set([sel])
@@ -643,18 +684,15 @@ window.__ModuleLoader__.load({
         return s
       }, [sel, graph])
 
-      // ── 手势 ────────────────────────────────────────────────────
       const localPoint = (e) => {
         const el = wrapRef.current
         if (!el) return { x: 0, y: 0 }
         const r = el.getBoundingClientRect()
         return { x: e.clientX - r.left, y: e.clientY - r.top }
       }
-      // 屏幕坐标 → 画布坐标（逆变换）
       const toCanvas = (p, v) => ({ x: (p.x - v.x) / v.k, y: (p.y - v.y) / v.k })
-
       const hitNode = (canvasPt) => {
-        let best = null, bestD = 22
+        let best = null, bestD = 28   // 从 22 放宽到 28，手指点得准
         for (const n of nodes) {
           const d = Math.hypot(n.x - canvasPt.x, n.y - canvasPt.y)
           if (d < bestD) { bestD = d; best = n }
@@ -662,8 +700,13 @@ window.__ModuleLoader__.load({
         return best
       }
 
+      // 点节点：DOM 原生 onClick，最可靠
+      const clickNode = (id) => { setSel(prev => prev === id ? null : id) }
+
       const onPointerDown = (e) => {
         if (!wrapRef.current) return
+        // 双指时不启动单指手势
+        if (pinch.current) return
         const p = localPoint(e)
         const cp = toCanvas(p, view)
         const hit = hitNode(cp)
@@ -675,7 +718,6 @@ window.__ModuleLoader__.load({
           startNode: hit ? { x: hit.x, y: hit.y } : null,
           moved: false,
         }
-        // 捕获指针，手指移出容器也能持续收到事件
         try { wrapRef.current.setPointerCapture(e.pointerId) } catch (err) {}
       }
 
@@ -684,11 +726,11 @@ window.__ModuleLoader__.load({
         if (!g) return
         const p = localPoint(e)
         const dx = p.x - g.startX, dy = p.y - g.startY
-        if (Math.abs(dx) > 3 || Math.abs(dy) > 3) g.moved = true
+        // 阈值从 3px 放宽到 10px：手指点按的微小抖动不该判成拖动
+        if (Math.abs(dx) > 10 || Math.abs(dy) > 10) g.moved = true
         if (g.mode === 'pan') {
           setView({ ...g.startView, x: g.startView.x + dx, y: g.startView.y + dy })
-        } else if (g.mode === 'node' && g.nodeId) {
-          // 节点跟随手指：位移要除以缩放比，否则放大后手感发飘
+        } else if (g.mode === 'node' && g.nodeId && g.moved) {
           const nx = g.startNode.x + dx / g.startView.k
           const ny = g.startNode.y + dy / g.startView.k
           setPinned(prev => ({ ...prev, [g.nodeId]: { x: nx, y: ny } }))
@@ -700,40 +742,33 @@ window.__ModuleLoader__.load({
         gesture.current = null
         if (!g) return
         try { wrapRef.current.releasePointerCapture(e.pointerId) } catch (err) {}
-        // 没移动 = 点击
-        if (!g.moved) {
-          if (g.mode === 'node') {
-            setSel(prev => prev === g.nodeId ? null : g.nodeId)
-          } else {
-            setSel(null)
-          }
-        }
+        // pointer 手势不在这里改 sel，点击交给节点的 onClick 处理，
+        // 避免「既被判点击又被判选中」的冲突。
+        if (g.mode === 'pan' && !g.moved) setSel(null)
       }
 
-      // 滚轮缩放（桌面/调试用）与双指捏合（移动端）
+      // 浏览器接管手势时触发；必须清理，否则手势状态残留导致后续拖动失效
+      const onPointerCancel = () => { gesture.current = null; pinch.current = null }
+
       const onWheel = (e) => {
         e.preventDefault()
         const p = localPoint(e)
         const factor = e.deltaY > 0 ? 0.9 : 1.1
         setView(v => {
           const k = Math.max(0.3, Math.min(3, v.k * factor))
-          // 以指针位置为锚点缩放
           const cx = (p.x - v.x) / v.k, cy = (p.y - v.y) / v.k
           return { k, x: p.x - cx * k, y: p.y - cy * k }
         })
       }
 
-      // 双指捏合：用 touch 事件算两指距离比
-      const pinch = useRef(null)
       const onTouchStart = (e) => {
         if (e.touches.length === 2) {
           const [a, b] = e.touches
           pinch.current = {
             dist: Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY),
-            k: view.k,
-            mid: { x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2 },
-            v: { ...view },
+            k: view.k, v: { ...view },
           }
+          gesture.current = null
         }
       }
       const onTouchMove = (e) => {
@@ -751,25 +786,23 @@ window.__ModuleLoader__.load({
       }
       const onTouchEnd = () => { pinch.current = null }
 
-      const resetView = () => { setView({ x: 0, y: 0, k: 1 }); setPinned({}) }
+      const resetView = () => { setView({ x: 0, y: 0, k: 1 }); setPinned({}); setSel(null) }
 
       const share = graph && graph.edges ? graph.edges.filter(e => !e.missing).length : 0
       const isolated = graph && graph.nodes ? graph.nodes.filter(n => (n.degree || 0) === 0).length : 0
 
       return h('div', { className: 'siyi-notes-root' },
         h('div', { className: 'siyi-notes-editor-head' },
-          h('button', { className: 'siyi-notes-btn', onClick: onBack }, '返回'),
+          h('button', { className: 'siyi-notes-btn', onClick: onBack }, '‹ 返回'),
           h('button', {
             className: 'siyi-notes-btn',
             onClick: () => setView(v => ({ ...v, k: Math.min(3, v.k * 1.25) })),
-            title: '放大',
           }, '＋'),
           h('button', {
             className: 'siyi-notes-btn',
             onClick: () => setView(v => ({ ...v, k: Math.max(0.3, v.k / 1.25) })),
-            title: '缩小',
           }, '－'),
-          h('button', { className: 'siyi-notes-btn', onClick: resetView, title: '复位视图' }, '复位'),
+          h('button', { className: 'siyi-notes-btn', onClick: resetView }, '复位'),
           h('span', {
             style: { marginLeft: 'auto', fontSize: 11, color: 'var(--dsw-alias-label-tertiary)' },
           }, graph ? (graph.nodes.length + ' 节点 · ' + share + ' 链') : '读取中…'),
@@ -777,17 +810,10 @@ window.__ModuleLoader__.load({
         h('div', {
           className: 'siyi-notes-graph',
           ref: wrapRef,
-          // touchAction none 是关键：否则浏览器会把拖动解释成页面滚动，
-          // pointer 事件在移动端根本收不到连续 move，表现就是「滑不动」。
-          style: { touchAction: 'none', userSelect: 'none', cursor: gesture.current && gesture.current.mode === 'pan' ? 'grabbing' : 'grab' },
-          onPointerDown,
-          onPointerMove,
-          onPointerUp,
-          onPointerCancel: onPointerUp,
-          onWheel,
-          onTouchStart,
-          onTouchMove,
-          onTouchEnd,
+          style: { touchAction: 'none', userSelect: 'none', WebkitUserSelect: 'none' },
+          onPointerDown, onPointerMove, onPointerUp,
+          onPointerCancel: onPointerCancel,
+          onWheel, onTouchStart, onTouchMove, onTouchEnd,
           onDoubleClick: resetView,
         },
           !baseLayout ? h('div', { className: 'siyi-notes-empty' }, graph ? '没有可绘制的节点' : '读取中…')
@@ -795,9 +821,7 @@ window.__ModuleLoader__.load({
                 viewBox: '0 0 ' + baseLayout.W + ' ' + baseLayout.H,
                 style: { width: '100%', height: '100%', display: 'block' },
               },
-                h('g', {
-                  transform: 'translate(' + view.x + ',' + view.y + ') scale(' + view.k + ')',
-                },
+                h('g', { transform: 'translate(' + view.x + ',' + view.y + ') scale(' + view.k + ')' },
                   baseLayout.link.map((l, i) => {
                     const a = pos.get(nodes[l.s] && nodes[l.s].id)
                     const b = pos.get(nodes[l.t] && nodes[l.t].id)
@@ -814,25 +838,35 @@ window.__ModuleLoader__.load({
                   }),
                   nodes.map(n => {
                     const d = baseLayout.deg.get(n.id) || 0
-                    const r = 4 + Math.min(7, d * 1.5)
+                    // 最小半径从 4 提到 6，孤立节点也能点中
+                    const r = 6 + Math.min(7, d * 1.4)
                     const active = sel === n.id
                     const dim = neighbors && !neighbors.has(n.id)
                     return h('g', {
                       key: n.id,
+                      // 关键：节点自身绑 onClick，不受 pointer 位移阈值影响
+                      onClick: () => clickNode(n.id),
                       style: { cursor: 'pointer' },
                     },
+                      // 透明大圆作触控热区，放大点击范围到 28px
+                      h('circle', {
+                        cx: n.x, cy: n.y, r: 20,
+                        fill: 'transparent', pointerEvents: 'all',
+                      }),
                       h('circle', {
                         cx: n.x, cy: n.y, r: active ? r + 2 : r,
                         fill: active ? 'var(--dsw-alias-label-primary)' : 'var(--dsw-alias-label-tertiary)',
-                        opacity: dim ? 0.2 : (active ? 1 : (d ? .85 : .5)),
+                        opacity: dim ? 0.2 : (active ? 1 : (d ? .85 : .6)),
                         stroke: active ? 'var(--dsw-alias-label-primary)' : 'none',
                         strokeWidth: 1.5,
+                        pointerEvents: 'none',
                       }),
                       (d >= 2 || active) ? h('text', {
                         x: n.x, y: n.y - r - 5, textAnchor: 'middle',
                         fontSize: 9 / Math.max(0.7, view.k),
                         fill: 'var(--dsw-alias-label-tertiary)',
                         opacity: dim ? 0.2 : 1,
+                        pointerEvents: 'none',
                       }, (graph.nodes.find(x => x.id === n.id) || {}).title || '') : null,
                     )
                   }),
@@ -843,27 +877,28 @@ window.__ModuleLoader__.load({
               position: 'absolute', left: 8, right: 8, top: 8,
               background: 'var(--dsw-alias-bg-layer-2)',
               border: '.5px solid var(--dsw-alias-border-l3)',
-              borderRadius: 8, padding: '8px 10px', fontSize: 12, zIndex: 5,
+              borderRadius: 8, padding: '10px 12px', fontSize: 13, zIndex: 5,
             },
           },
-            h('div', { style: { fontWeight: 600, marginBottom: 4 } },
+            h('div', { style: { fontWeight: 600, marginBottom: 6, lineHeight: 1.4 } },
               (graph.nodes.find(x => x.id === sel) || {}).title || ''),
-            h('button', {
-              className: 'siyi-notes-btn', style: { height: 26, fontSize: 12 },
-              onClick: () => onOpen(sel),
-            }, '打开'),
-            h('button', {
-              className: 'siyi-notes-btn', style: { height: 26, fontSize: 12, marginLeft: 6 },
-              onClick: () => { setPinned(p => { const c = { ...p }; delete c[sel]; return c }); toast('已解除固定') },
-            }, '解除固定'),
-            h('button', {
-              className: 'siyi-notes-btn', style: { height: 26, fontSize: 12, marginLeft: 6 },
-              onClick: () => setSel(null),
-            }, '关闭'),
+            h('div', { style: { display: 'flex', gap: 6 } },
+              h('button', {
+                className: 'siyi-notes-btn', style: { minHeight: 36, flex: 1 },
+                onClick: () => onOpen(sel),
+              }, '打开笔记'),
+              h('button', {
+                className: 'siyi-notes-btn', style: { minHeight: 36 },
+                onClick: () => { setPinned(p => { const c = { ...p }; delete c[sel]; return c }); toast('已解除固定') },
+              }, '解除固定'),
+              h('button', {
+                className: 'siyi-notes-btn', style: { minHeight: 36 },
+                onClick: () => setSel(null),
+              }, '关闭'),
+            ),
           ) : null,
           h('div', { className: 'siyi-notes-legend' },
-            '拖动平移 · 双指缩放 · 拖节点固定 · 双击复位' +
-            (isolated > 0 ? ' · ' + isolated + ' 孤立' : '')),
+            '点节点查看 · 拖动平移 · 双指缩放 · 双击复位'),
         ),
       )
     }

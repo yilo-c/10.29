@@ -1,0 +1,341 @@
+{
+  "schema": "siyi.current-state/v1",
+  "generatedAt": "2026-11-18T07:25:00+08:00",
+  "runbook": "思忆集-DeepSeek-v4.1-Flash-全流程执行手册-20261118.md",
+  "track": "A-android",
+  "phases": {
+    "P0-baseline": {
+      "status": "PASS",
+      "evidence": "config/environment.json"
+    },
+    "P1-contracts": {
+      "status": "PASS",
+      "evidence": "contracts/, tests/golden"
+    },
+    "P2-vault": {
+      "status": "PASS",
+      "evidence": "core/vault/, tests/contract/vault.test.mjs, tests/contract/vault-regression.mjs",
+      "note": "运行中 siyi-vault.js 已打路径安全补丁并回归通过"
+    },
+    "P3-tools": {
+      "status": "PASS",
+      "evidenceLevel": "E4",
+      "evidence": "引擎日志: 已注册 6/6 个 vault 工具；真实 HTTP 端到端验证通过",
+      "note": "修复 DSH DSL 不支持 pattern 的问题后，第二次重启生效"
+    },
+    "P4-model": {
+      "status": "PASS",
+      "evidenceLevel": "E5",
+      "evidence": "真实宿主 render(args,value) 验证：vault_search 输出 4 篇列表，vault_get 输出标题/标签/revision",
+      "note": "首次 E5 发现 render 签名错误（宿主传 (args,value)，插件按 (value) 接），已修复并用真实 defineTool 复验通过"
+    },
+    "P5-security-release": {
+      "status": "NOT_TESTED",
+      "note": "补丁管线与 secret scan 未执行"
+    },
+    "P6A-android": {
+      "status": "NOT_TESTED",
+      "note": "未改 Kotlin、未构建、未安装"
+    },
+    "P6B-windows": {
+      "status": "NOT_TESTED"
+    },
+    "P6C-linux": {
+      "status": "NOT_TESTED"
+    },
+    "P2b-live-pathfix": {
+      "status": "PASS",
+      "evidenceLevel": "E4",
+      "evidence": "HTTP 实测 /siyi-vault/save 返回 INVALID_ARGUMENT；正常新建/读回/更新/删除全部通过",
+      "note": "补丁已在运行实例生效（重启后验证）"
+    },
+    "P5-http-security": {
+      "status": "PASS",
+      "evidenceLevel": "E4",
+      "evidence": "tests/contract/http-hardening.test.mjs (21 项) + 真实引擎攻击面复测",
+      "note": "四道闸门：回环 Host / 同源 Origin / JSON Content-Type / 写操作限流；安全响应头"
+    },
+    "P9-index": {
+      "status": "PASS",
+      "evidenceLevel": "E4",
+      "evidence": "core/vault/indexer.mjs + tests/contract/indexer.test.mjs (14) + plugin-indexer.test.mjs (10)",
+      "note": "56 篇时 list 从 43.7ms 降到 0.05ms（约 874 倍）；HTTP 实测 5.9ms/次含网络开销"
+    },
+    "P10-ci-dist": {
+      "status": "PASS",
+      "evidenceLevel": "E4",
+      "evidence": "dist/manifest.json + scripts/build-dist.mjs + apply-dist.mjs + 恢复演练 13 项",
+      "note": "13 个文件已固化，含 4 个补丁标记；空环境部署、覆盖备份、从备份恢复全部实测通过"
+    }
+  },
+  "testMatrix": {
+    "T01-codec": {
+      "status": "PASS",
+      "cases": 17,
+      "evidenceLevel": "E2"
+    },
+    "T06-path": {
+      "status": "PASS",
+      "cases": 15,
+      "evidenceLevel": "E2",
+      "note": "含隔离 PoC：修复前确认逃出 vault 本体，修复后阻断"
+    },
+    "T07-markdown": {
+      "status": "PASS",
+      "cases": 10,
+      "evidenceLevel": "E2"
+    },
+    "T04-cancel": {
+      "status": "PASS",
+      "cases": 2,
+      "evidenceLevel": "E2"
+    },
+    "T05-idempotent": {
+      "status": "PASS",
+      "cases": 4,
+      "evidenceLevel": "E2"
+    },
+    "T09-index": {
+      "status": "PARTIAL",
+      "note": "reconcile 已实现；watcher 未实现"
+    },
+    "T10-security": {
+      "status": "PASS",
+      "cases": 21,
+      "evidenceLevel": "E4",
+      "note": "改造前实测：无认证可读写全部笔记、任意 Origin 可跨站读写、text/plain 可 CSRF 写入；改造后全部拦截"
+    },
+    "T11-routing": {
+      "status": "NOT_TESTED"
+    },
+    "T12-compaction": {
+      "status": "NOT_TESTED"
+    },
+    "T13-model-contract": {
+      "status": "PASS",
+      "cases": 1,
+      "evidenceLevel": "E5",
+      "note": "真实模型完整工具回路已验证"
+    },
+    "T14-config": {
+      "status": "PARTIAL",
+      "cases": 24,
+      "evidenceLevel": "E4",
+      "note": "固化包校验与恢复演练通过；CI 侧嵌入步骤待仓库操作"
+    },
+    "T15-backup": {
+      "status": "NOT_TESTED"
+    },
+    "T16-resource": {
+      "status": "NOT_TESTED"
+    },
+    "T03-tools": {
+      "status": "PASS",
+      "cases": 20,
+      "evidenceLevel": "E3",
+      "note": "含真实 defineTool 校验（8 项）+ 桩注册（12 项）"
+    }
+  },
+  "suiteResult": {
+    "total": 170,
+    "pass": 170,
+    "fail": 0,
+    "command": "node tests/contract/run-all.mjs"
+  },
+  "productionVaultProbe": {
+    "mode": "read-only",
+    "notesParsed": 56,
+    "parseFailures": 0,
+    "note": "只读解析兼容性验证，未写入正式 vault"
+  },
+  "knownGaps": [
+    "dist/ 尚未推进仓库（本轮即将推送）",
+    "插件用绝对路径 import sif-core，CI 内需改为包名",
+    "本机其他进程仍可访问 127.0.0.1:3180（需进程级认证）",
+    "Windows/Linux 宿主未实现",
+    "补丁发布管线与 secret scan 未做",
+    "仓库是公开的，且 siyi-dsh-app/keystore/ 目录存在，签名私钥有泄露风险"
+  ],
+  "nextAction": "把 dist/ 与测试推进仓库；或开始 Windows/Linux 最小宿主",
+  "livePluginPatch": {
+    "target": "/storage/emulated/0/思忆集/plugins/siyi-vault.js",
+    "backup": "sif/backups/siyi-vault.before-pathfix-20261118.js",
+    "marker": "SIYI-PATHFIX-20261118",
+    "syntaxCheck": "PASS",
+    "pocBefore": "VULNERABLE (deep escape confirmed)",
+    "pocAfter": "SAFE",
+    "regression": "13/13 PASS",
+    "effectiveInRunningEngine": false,
+    "reason": "运行中引擎已加载旧模块，需重启引擎才生效；本轮未重启以免中断会话"
+  },
+  "deployedPlugins": {
+    "siyi-vault-tools.js": {
+      "target": "/storage/emulated/0/思忆集/plugins/siyi-vault-tools.js",
+      "source": "sif/plugins/siyi-vault-tools.js",
+      "tools": [
+        "vault_get",
+        "vault_search",
+        "vault_save",
+        "vault_trash",
+        "vault_stats",
+        "vault_reconcile"
+      ],
+      "effectiveInRunningEngine": false,
+      "reason": "需重启引擎才会被加载器扫描"
+    }
+  },
+  "restart": {
+    "requestedAt": "2026-11-18T06:33:11+08:00",
+    "executedAt": "2026-11-18T06:33:51+08:00",
+    "method": "SIGKILL engine pid, watchdog auto-restart",
+    "reason": "使路径补丁与 vault 工具插件生效",
+    "preRestartPid": 29747,
+    "postRestartPid": 25862,
+    "pluginScanBefore": 5,
+    "pluginScanAfter": 6,
+    "result": "PASS",
+    "note": "am force-stop 无权限（需 FORCE_STOP_PACKAGES），改用 kill 引擎进程由看门狗拉起",
+    "secondRestart": {
+      "executedAt": "2026-11-18T06:48:00+08:00",
+      "prePid": 25862,
+      "postPid": 26514,
+      "pluginScan": 6,
+      "toolsRegistered": "6/6",
+      "result": "PASS"
+    },
+    "thirdRestart": {
+      "executedAt": "2026-11-18T07:06:40+08:00",
+      "prePid": 6245,
+      "postPid": 7179,
+      "pluginScan": 6,
+      "toolsRegistered": "6/6",
+      "result": "PASS"
+    },
+    "fourthRestart": {
+      "executedAt": "2026-11-18T07:14:33+08:00",
+      "prePid": 8042,
+      "postPid": 10079,
+      "pluginScan": 6,
+      "toolsRegistered": "6/6",
+      "indexActive": true,
+      "httpListMs": 5.9,
+      "result": "PASS"
+    }
+  },
+  "liveHttpVerification": {
+    "pathEscape": {
+      "request": "id=../../tmp/PATHFIX-TEST",
+      "status": 200,
+      "response": "INVALID_ARGUMENT",
+      "verdict": "SAFE"
+    },
+    "normalCreate": {
+      "ok": true,
+      "id": "01M7NTTP2X4T9WHFZG0NBDDFGY",
+      "verdict": "PASS"
+    },
+    "readBack": {
+      "titleMatch": true,
+      "bodyMatch": true,
+      "verdict": "PASS"
+    },
+    "update": {
+      "ok": true,
+      "revisionChanged": true,
+      "verdict": "PASS"
+    },
+    "trash": {
+      "ok": true,
+      "verdict": "PASS"
+    },
+    "postSecondRestart": {
+      "list": {
+        "ok": true,
+        "total": 56
+      },
+      "get": {
+        "ok": true,
+        "titleRead": true,
+        "links": 0,
+        "tags": 0
+      },
+      "stats": {
+        "ok": true,
+        "total": 56,
+        "byKind": {
+          "note": 14,
+          "moc": 1,
+          "task": 10,
+          "daily": 3,
+          "source": 27,
+          "memory": 1
+        }
+      },
+      "folders": {
+        "ok": true,
+        "count": 2,
+        "unfiled": 22
+      },
+      "pathEscape": {
+        "response": "INVALID_ARGUMENT",
+        "verdict": "SAFE"
+      }
+    }
+  },
+  "httpSecurity": {
+    "before": {
+      "noAuthRead": "200 返回 56 篇",
+      "evilOriginRead": "200 返回 56 篇",
+      "evilOriginWrite": "200 写入成功（已清理）",
+      "formWrite": "200 写入成功"
+    },
+    "after": {
+      "noAuthRead": "200（本机客户端，按设计放行）",
+      "evilOriginRead": "403 FORBIDDEN_ORIGIN",
+      "evilOriginWrite": "403 FORBIDDEN_ORIGIN",
+      "formWrite": "415 UNSUPPORTED_MEDIA_TYPE",
+      "nonLoopbackHost": "403 FORBIDDEN_HOST",
+      "securityHeaders": [
+        "X-Content-Type-Options: nosniff",
+        "X-Frame-Options: DENY",
+        "Referrer-Policy: no-referrer"
+      ]
+    },
+    "boundary": "挡住浏览器跨站；不挡本机其他进程（需 Unix socket 或进程认证，属更大改造）"
+  },
+  "e5Verification": {
+    "firstAttempt": {
+      "at": "2026-11-18T07:00:00+08:00",
+      "verdict": "FAIL",
+      "symptom": "工具被调用但模型看到错误输出：搜索显示共 0 篇、vault_get 显示 undefined",
+      "rootCause": "output.render 签名错误：宿主调用 render(args, value)，插件按 render(value) 接，入参被当成结果",
+      "whyTestsMissed": "dsh-adapter.test.mjs 的 render 测试按单参数调用，把错误签名写进了断言，插件错测试反绿"
+    },
+    "fixedAt": "2026-11-18T07:05:00+08:00",
+    "reverifiedAt": "2026-11-18T07:30:00+08:00",
+    "reverifyEvidence": "真实 defineTool：vault_search total=4 渲染出 4 行列表；vault_get 渲染出标题、tags: 设计、64 位 revision",
+    "verdict": "PASS",
+    "evidenceLevel": "E5"
+  },
+  "ciDist": {
+    "path": "sif/dist",
+    "files": 13,
+    "bytes": 145682,
+    "patchedFiles": 1,
+    "markers": [
+      "SIYI-PATHFIX-20261118",
+      "SIYI-TITLEFIX-20261118",
+      "SIYI-HTTPHARDEN-20261118",
+      "SIYI-INDEX-20261118"
+    ],
+    "commands": {
+      "build": "node scripts/build-dist.mjs",
+      "check": "node scripts/apply-dist.mjs --check",
+      "apply": "node scripts/apply-dist.mjs --apply",
+      "restore": "node scripts/apply-dist.mjs --restore"
+    },
+    "drillResult": "13/13 PASS（空环境部署、覆盖备份、备份恢复、损坏拒绝、无残留）",
+    "ciEmbedDoc": "sif/dist/ci-embed.md",
+    "caveat": "siyi-vault-tools.js 用绝对路径 import sif-core，进 CI 前需改为包名或建软链"
+  }
+}

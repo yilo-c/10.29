@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "siyi.capability/v1",
+  "type": "object",
+  "required": ["specVersion","name","version","description","inputSchema","risk","permissions","idempotent","supportsCancel","timeoutMs","concurrency"],
+  "additionalProperties": false,
+  "properties": {
+    "specVersion": { "const": "siyi.capability/v1" },
+    "name": { "type": "string", "pattern": "^[a-z][a-z0-9]*(\\.[a-z][a-z0-9-]*)+$", "maxLength": 64 },
+    "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+    "descriptorHash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "kind": { "enum": ["command","query","stream"] },
+    "title": { "type": "string", "maxLength": 120 },
+    "description": { "type": "string", "minLength": 1, "maxLength": 2000 },
+    "inputSchema": { "type": "object" },
+    "outputSchema": { "type": "object" },
+    "risk": { "enum": ["read","write","sensitive","dangerous"] },
+    "sensitivity": { "enum": ["public","internal","personal","secret"] },
+    "permissions": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+    "idempotent": { "type": "boolean" },
+    "supportsCancel": { "type": "boolean" },
+    "timeoutMs": { "type": "integer", "minimum": 1, "maximum": 3600000 },
+    "concurrency": { "enum": ["parallel","serialized","exclusive"] },
+    "stream": { "enum": ["none","chunked","server-events"] },
+    "outputLimits": {
+      "type": "object",
+      "properties": {
+        "maxBytes": { "type": "integer", "minimum": 1 },
+        "maxItems": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false
+    },
+    "requires": { "type": "array", "items": { "type": "string" } },
+    "annotations": { "type": "object" }
+  }
+}

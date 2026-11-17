@@ -1,0 +1,49 @@
+{
+  "projectId": "siyi",
+  "track": "A",
+  "host": "android",
+  "osVersion": "15",
+  "sdk": 35,
+  "abi": "arm64-v8a",
+  "kernel": "6.1.115-android14-11",
+  "node": {
+    "version": "24.22.1",
+    "path": "/data/user/0/com.siyi.dshapp/files/bin/node"
+  },
+  "runtime": {
+    "name": "dsh",
+    "enginePid": 29747,
+    "port": 3180,
+    "probeStatus": "401-without-token-expected",
+    "tokenSource": "/storage/emulated/0/思忆集/app/engine-stdout.log"
+  },
+  "app": {
+    "package": "com.siyi.dshapp",
+    "versionCode": 2026112001,
+    "versionName": "1.0.0"
+  },
+  "paths": {
+    "workspaceRoot": "/storage/emulated/0/思忆集/app",
+    "dataRoot": "/storage/emulated/0/思忆集",
+    "vaultRoot": "/storage/emulated/0/思忆集/vault",
+    "pluginsDir": "/storage/emulated/0/思忆集/plugins",
+    "patchDir": "/storage/emulated/0/思忆集/patches",
+    "stateRoot": "/storage/emulated/0/思忆集/app",
+    "sifRoot": "/storage/emulated/0/思忆集/app/sif"
+  },
+  "facts": {
+    "vaultMdCount": 65,
+    "userPluginCount": 5,
+    "storageAvail": "33G",
+    "storageUsedPct": 94
+  },
+  "model": {
+    "provider": "deepseek-account",
+    "model": "deepseek-flash"
+  },
+  "allowWrites": true,
+  "writeScope": ["/storage/emulated/0/思忆集/app/sif"],
+  "credentialsProvided": false,
+  "capturedAt": "2026-11-18T05:50:00+08:00",
+  "captureMethod": "read-only shell probes on device"
+}

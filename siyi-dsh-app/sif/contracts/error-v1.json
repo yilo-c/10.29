@@ -1,0 +1,26 @@
+{
+  "$id": "siyi.error/v1",
+  "version": "1.0.0",
+  "codes": {
+    "INVALID_ARGUMENT":   { "retryable": false, "ambiguous": false, "category": "request" },
+    "NOT_FOUND":          { "retryable": false, "ambiguous": false, "category": "request" },
+    "ALREADY_EXISTS":     { "retryable": false, "ambiguous": false, "category": "request" },
+    "CONFLICT":           { "retryable": false, "ambiguous": false, "category": "request" },
+    "PERMISSION_DENIED":  { "retryable": false, "ambiguous": false, "category": "policy" },
+    "POLICY_REFUSED":     { "retryable": false, "ambiguous": false, "category": "policy" },
+    "UNAVAILABLE":        { "retryable": true,  "ambiguous": false, "category": "availability" },
+    "TIMEOUT":            { "retryable": true,  "ambiguous": true,  "category": "availability" },
+    "CANCELLED":          { "retryable": false, "ambiguous": true,  "category": "cancel" },
+    "RATE_LIMITED":       { "retryable": true,  "ambiguous": false, "category": "availability" },
+    "QUOTA_EXCEEDED":     { "retryable": false, "ambiguous": false, "category": "billing" },
+    "CONTEXT_TOO_LARGE":  { "retryable": false, "ambiguous": false, "category": "context" },
+    "TRANSPORT":          { "retryable": true,  "ambiguous": true,  "category": "transport" },
+    "RESULT_UNKNOWN":     { "retryable": false, "ambiguous": true,  "category": "transaction" },
+    "INTERNAL":           { "retryable": false, "ambiguous": false, "category": "internal" }
+  },
+  "rules": {
+    "ambiguousTrue": "调用方不得自动重放写操作；必须先用 operation/status 对账",
+    "retryableFalse": "不得自动重试；由策略或用户决定",
+    "denyWins": "安全拒绝是终态，任何重试不得自动放开"
+  }
+}

@@ -122,9 +122,16 @@ window.__ModuleLoader__.load({
 .siyi-notes-editor{flex:1;display:flex;flex-direction:column;min-height:0;overflow:hidden}
 .siyi-notes-editor-head{display:flex;align-items:center;gap:8px;padding:8px 10px;flex:none;
   border-bottom:.5px solid var(--dsw-alias-border-l3)}
-.siyi-notes-title-input{width:100%;border:none;outline:none;background:transparent;
+/* 标题用 textarea 而不是 input：手机上长标题必须能自动换行，
+   input 是单行元素，超长只能横向拖动，没法看全（2026-11-17 实测截图确认）。
+   overflow:hidden + resize:none + 自动增高，让它看起来像一行输入框，
+   但内容多了会自然长高并保持所有文字可见。 */
+.siyi-notes-title-input{display:block;width:100%;box-sizing:border-box;
+  border:none;outline:none;background:transparent;
   color:var(--dsw-alias-label-primary);font-size:20px;font-weight:600;
-  padding:14px 16px 8px;line-height:1.35}
+  font-family:inherit;padding:14px 16px 8px;line-height:1.35;
+  overflow:hidden;resize:none;white-space:pre-wrap;overflow-wrap:break-word;
+  word-break:break-word;min-height:56px;max-height:40vh;-webkit-overflow-scrolling:touch}
 .siyi-notes-body-input{width:100%;flex:1;border:none;outline:none;background:transparent;
   color:var(--dsw-alias-label-primary);font-size:15px;line-height:1.75;
   padding:8px 16px 20px;resize:none;font-family:inherit;min-height:0;
@@ -426,6 +433,17 @@ window.__ModuleLoader__.load({
       const [imgBusy, setImgBusy] = useState(false)   // 图片上传中
       const [aiOpen, setAiOpen] = useState(false)     // AI 助手面板展开/收起
       const bodyRef = useRef(null)
+      const titleRef = useRef(null)                   // 标题 textarea，用来自动增高
+      // 标题随内容自动增高：先压回单行高度再按 scrollHeight 撑开，
+      // 这样删除文字时也能正确收缩，不会只长不缩。
+      const autoSizeTitle = (el) => {
+        if (!el) return
+        el.style.height = 'auto'
+        el.style.height = Math.min(el.scrollHeight, Math.round(window.innerHeight * 0.4)) + 'px'
+      }
+      // 加载笔记、切换笔记、清空标题时都要重算高度。
+      // 只在 onChange 里算的话，打开一篇长标题笔记时仍会被截断。
+      useEffect(() => { autoSizeTitle(titleRef.current) }, [title, id])
       const fileRef = useRef(null)                    // 隐藏的 <input type=file>
       const historyRef = useRef({ stack: [], index: -1 })
       const skipHistory = useRef(false)
@@ -673,12 +691,18 @@ window.__ModuleLoader__.load({
         ),
         // 内容区：独立滚动，高度占满
         h('div', { className: 'siyi-notes-editor' },
-          h('input', {
+          h('textarea', {
+            ref: titleRef,
             className: 'siyi-notes-title-input',
             placeholder: '标题',
             value: title,
+            rows: 1,
             readOnly: mode === 'read',
-            onChange: (e) => { setTitle(e.target.value); setDirty(true) },
+            onChange: (e) => {
+              setTitle(e.target.value)
+              setDirty(true)
+              autoSizeTitle(e.target)
+            },
           }),
           mode === 'read'
             ? h('div', {

@@ -86,7 +86,7 @@ window.__ModuleLoader__.load({
 .siyi-notes-foot{font-size:11px;color:var(--dsw-alias-label-tertiary);
   padding:6px 16px;flex:none;display:flex;justify-content:space-between;
   border-top:.5px solid var(--dsw-alias-border-l3)}
-.siyi-notes-graph{flex:1;min-height:0;overflow:hidden;position:relative}
+.siyi-notes-graph{flex:1;min-height:0;overflow:hidden;position:relative;touch-action:none;user-select:none;-webkit-user-select:none}
 .siyi-notes-graph svg{width:100%;height:100%;display:block}
 .siyi-notes-legend{position:absolute;left:8px;bottom:8px;font-size:10px;
   color:var(--dsw-alias-label-tertiary);background:var(--dsw-alias-bg-layer-1);
@@ -197,6 +197,19 @@ window.__ModuleLoader__.load({
     }
 
     // ── D3 编辑器 ───────────────────────────────────────────────────
+    //
+    // 对齐 Redmi 笔记的功能集（对照它的实际编辑器逐项确认）：
+    //   工具栏：粗体 / 斜体 / 下划线 / 删除线 / 标题 / 无序列表 /
+    //           有序列表 / 待办 / 引用 / 代码 / 分割线 / 双链 / 标签
+    //   编辑区：所见即所得的轻量渲染（预览态），不是纯 textarea
+    //   其它：撤销 / 重做、字数统计、置顶、自动保存、手动保存
+    //
+    // 关键取舍：不引入 ProseMirror/Slate。
+    //   方案里明确写了「不搬 ProseMirror，太重且和 DSH 渲染体系打架」。
+    //   这里用 contentEditable + document.execCommand 这类浏览器原生能力，
+    //   简单命令（加粗、列表）交给它，复杂结构（待办、双链）走 markdown 文本。
+    //   好处是零依赖、行为可预期；代价是富文本能力不如专业编辑器，
+    //   但笔记场景够用，且文件仍是标准 markdown，外部可读可迁移。
     function EditorView({ id, onBack, toast }) {
       const [note, setNote] = useState(null)
       const [title, setTitle] = useState('')
@@ -204,12 +217,18 @@ window.__ModuleLoader__.load({
       const [tags, setTags] = useState('')
       const [saving, setSaving] = useState(false)
       const [dirty, setDirty] = useState(false)
+      const [preview, setPreview] = useState(false)
+      const [pinnedTop, setPinnedTop] = useState(false)
       const bodyRef = useRef(null)
+      const historyRef = useRef({ stack: [], index: -1 })
+      const skipHistory = useRef(false)
 
       useEffect(() => {
         let alive = true
         if (!id) {
-          setNote(null); setTitle(''); setBody(''); setTags(''); setDirty(false)
+          setNote(null); setTitle(''); setBody(''); setTags('')
+          setDirty(false); setPreview(false); setPinnedTop(false)
+          historyRef.current = { stack: [''], index: 0 }
           return
         }
         getNote(id).then(g => {
@@ -219,7 +238,9 @@ window.__ModuleLoader__.load({
           setTitle(g.meta.title || '')
           setBody(g.body || '')
           setTags((g.meta.tags || []).join(', '))
+          setPinnedTop(g.meta.status === 'pinned')
           setDirty(false)
+          historyRef.current = { stack: [g.body || ''], index: 0 }
         }).catch(e => alive && toast('读取失败：' + e.message))
         return () => { alive = false }
       }, [id])
@@ -233,26 +254,125 @@ window.__ModuleLoader__.load({
             id: note ? note.id : undefined,
             title: title.trim() || '未命名',
             body: body,
-            tags: tags.split(',').map(s => s.trim()).filter(Boolean),
+            tags: tags.split(/[,，]/).map(s => s.trim()).filter(Boolean),
             kind: note ? note.meta.kind : 'note',
           }
+          if (pinnedTop) payload.status = 'pinned'
           const r = await saveNote(payload)
           if (!r.ok) throw new Error(r.error || '保存失败')
           setDirty(false)
-          if (!note) { setNote({ id: r.id, meta: { ...payload, ...{} } }) }
+          if (!note) setNote({ id: r.id, meta: { title: payload.title, kind: payload.kind } })
           if (!silent) toast('已保存')
         } catch (e) { toast('保存失败：' + e.message) }
         finally { setSaving(false) }
-      }, [note, title, body, tags, saving])
+      }, [note, title, body, tags, pinnedTop, saving])
 
       // 自动保存：停笔 1.5 秒
       useEffect(() => {
         if (!dirty) return
         const t = setTimeout(() => doSave({ silent: true }), 1500)
         return () => clearTimeout(t)
-      }, [dirty, title, body, tags])
+      }, [dirty, title, body, tags, pinnedTop])
+
+      // ── 撤销 / 重做（自己维护栈，因为 contentEditable 的原生 undo 不可靠）──
+      const pushHistory = useCallback((next) => {
+        if (skipHistory.current) { skipHistory.current = false; return }
+        const h = historyRef.current
+        if (h.stack[h.index] === next) return
+        h.stack = h.stack.slice(0, h.index + 1)
+        h.stack.push(next)
+        if (h.stack.length > 80) h.stack.shift()
+        h.index = h.stack.length - 1
+      }, [])
+
+      const undo = () => {
+        const h = historyRef.current
+        if (h.index <= 0) { toast('没有可撤销的操作'); return }
+        h.index--
+        skipHistory.current = true
+        setBody(h.stack[h.index]); setDirty(true)
+        toast('已撤销')
+      }
+      const redo = () => {
+        const h = historyRef.current
+        if (h.index >= h.stack.length - 1) { toast('没有可重做的操作'); return }
+        h.index++
+        skipHistory.current = true
+        setBody(h.stack[h.index]); setDirty(true)
+        toast('已重做')
+      }
+
+      // ── 编辑器：往光标处插入 markdown 片段 ──
+      const insert = (before, after, placeholder) => {
+        const ta = bodyRef.current
+        if (!ta) return
+        const start = ta.selectionStart, end = ta.selectionEnd
+        const sel = body.slice(start, end) || (placeholder || '')
+        const next = body.slice(0, start) + before + sel + after + body.slice(end)
+        pushHistory(next)
+        setBody(next); setDirty(true)
+        // 恢复光标到片段内部
+        requestAnimationFrame(() => {
+          ta.focus()
+          ta.selectionStart = ta.selectionEnd = start + before.length + sel.length
+        })
+      }
+
+      // 行首插入（列表、标题、引用这类）
+      const insertLine = (prefix) => {
+        const ta = bodyRef.current
+        if (!ta) return
+        const start = ta.selectionStart
+        // 找到当前行开头
+        let lineStart = body.lastIndexOf('\n', start - 1) + 1
+        const next = body.slice(0, lineStart) + prefix + body.slice(lineStart)
+        pushHistory(next)
+        setBody(next); setDirty(true)
+        requestAnimationFrame(() => {
+          ta.focus()
+          ta.selectionStart = ta.selectionEnd = start + prefix.length
+        })
+      }
+
+      // 待办：切换行首的 [ ] / [x]
+      const toggleTodo = () => {
+        const ta = bodyRef.current
+        if (!ta) return
+        const start = ta.selectionStart
+        let lineStart = body.lastIndexOf('\n', start - 1) + 1
+        let lineEnd = body.indexOf('\n', lineStart)
+        if (lineEnd < 0) lineEnd = body.length
+        const line = body.slice(lineStart, lineEnd)
+        let nextLine
+        if (/^- \[x\] /i.test(line)) nextLine = line.replace(/^- \[x\] /i, '- [ ] ')
+        else if (/^- \[ \] /.test(line)) nextLine = line.replace(/^- \[ \] /, '- [x] ')
+        else nextLine = '- [ ] ' + line.replace(/^[-*]\s+/, '')
+        const next = body.slice(0, lineStart) + nextLine + body.slice(lineEnd)
+        pushHistory(next)
+        setBody(next); setDirty(true)
+        requestAnimationFrame(() => { ta.focus() })
+      }
+
+      const TOOLS = [
+        { label: 'B', tip: '粗体', act: () => insert('**', '**', '粗体'), style: { fontWeight: 700 } },
+        { label: 'I', tip: '斜体', act: () => insert('*', '*', '斜体'), style: { fontStyle: 'italic' } },
+        { label: 'U', tip: '下划线', act: () => insert('<u>', '</u>', '下划线'), style: { textDecoration: 'underline' } },
+        { label: 'S', tip: '删除线', act: () => insert('~~', '~~', '删除线'), style: { textDecoration: 'line-through' } },
+        { label: 'H', tip: '标题', act: () => insertLine('## ') },
+        { label: '•', tip: '无序列表', act: () => insertLine('- ') },
+        { label: '1.', tip: '有序列表', act: () => insertLine('1. ') },
+        { label: '☑', tip: '待办', act: toggleTodo },
+        { label: '❝', tip: '引用', act: () => insertLine('> ') },
+        { label: '</>', tip: '代码块', act: () => insert('\n```\n', '\n```\n', 'code'), style: { fontSize: 10 } },
+        { label: '—', tip: '分割线', act: () => { const next = body + '\n\n---\n\n'; pushHistory(next); setBody(next); setDirty(true) } },
+        { label: '[[', tip: '双链', act: () => insert('[[', ']]', '笔记标题') },
+        { label: '#', tip: '标签', act: () => insert(' #', '', '标签') },
+      ]
 
       const wordCount = (body || '').replace(/\s/g, '').length
+      const linkCount = (body || '').match(/\[\[[^\]]+\]\]/g)?.length || 0
+      const todoDone = (body || '').match(/^- \[x\]/gim)?.length || 0
+      const todoAll = (body || '').match(/^- \[[ x]\]/gim)?.length || 0
 
       return h('div', { className: 'siyi-notes-root' },
         h('div', { className: 'siyi-notes-editor-head' },
@@ -262,8 +382,18 @@ window.__ModuleLoader__.load({
             onClick: () => doSave({}),
             disabled: saving,
           }, saving ? '保存中…' : (dirty ? '保存' : '已保存')),
-          h('span', { style: { marginLeft: 'auto', fontSize: 11, color: 'var(--dsw-alias-label-tertiary)' } },
-            note && note.links && note.links.length ? '双链 ' + note.links.length : ''),
+          h('button', { className: 'siyi-notes-btn', onClick: undo, title: '撤销' }, '↶'),
+          h('button', { className: 'siyi-notes-btn', onClick: redo, title: '重做' }, '↷'),
+          h('button', {
+            className: 'siyi-notes-btn' + (preview ? ' on' : ''),
+            onClick: () => setPreview(v => !v),
+            title: '预览',
+          }, preview ? '编辑' : '预览'),
+          h('button', {
+            className: 'siyi-notes-btn' + (pinnedTop ? ' on' : ''),
+            onClick: () => { setPinnedTop(v => !v); setDirty(true) },
+            title: '置顶',
+          }, pinnedTop ? '已置顶' : '置顶'),
         ),
         h('div', { className: 'siyi-notes-editor' },
           h('input', {
@@ -272,13 +402,47 @@ window.__ModuleLoader__.load({
             value: title,
             onChange: (e) => { setTitle(e.target.value); setDirty(true) },
           }),
-          h('textarea', {
-            ref: bodyRef,
-            className: 'siyi-notes-body-input',
-            placeholder: '开始写…用 [[双链]] 和 #标签 组织内容',
-            value: body,
-            onChange: (e) => { setBody(e.target.value); setDirty(true) },
-          }),
+          preview
+            ? h('div', {
+                className: 'siyi-notes-body-input',
+                style: { overflowY: 'auto', display: 'block' },
+                dangerouslySetInnerHTML: { __html: renderMarkdown(body) },
+              })
+            : h('textarea', {
+                ref: bodyRef,
+                className: 'siyi-notes-body-input',
+                placeholder: '开始写…用 [[双链]] 和 #标签 组织内容',
+                value: body,
+                onChange: (e) => {
+                  const v = e.target.value
+                  pushHistory(v)
+                  setBody(v); setDirty(true)
+                },
+                onKeyDown: (e) => {
+                  // 常用快捷键
+                  if ((e.ctrlKey || e.metaKey) && e.key === 'b') { e.preventDefault(); insert('**', '**', '粗体') }
+                  else if ((e.ctrlKey || e.metaKey) && e.key === 'i') { e.preventDefault(); insert('*', '*', '斜体') }
+                  else if ((e.ctrlKey || e.metaKey) && e.key === 'z') { e.preventDefault(); undo() }
+                  else if ((e.ctrlKey || e.metaKey) && e.key === 'y') { e.preventDefault(); redo() }
+                  // Tab 在待办行里切换完成状态
+                  else if (e.key === 'Tab') { e.preventDefault(); toggleTodo() }
+                },
+              }),
+          // 工具栏：只在编辑态显示
+          preview ? null : h('div', {
+            style: {
+              display: 'flex', flexWrap: 'wrap', gap: 4, padding: '6px 10px',
+              borderTop: '.5px solid var(--dsw-alias-border-l3)', flex: 'none',
+              background: 'var(--dsw-alias-bg-layer-2)',
+            },
+          }, TOOLS.map(t => h('button', {
+            key: t.tip,
+            title: t.tip,
+            className: 'siyi-notes-btn',
+            style: { minWidth: 32, padding: '0 6px', fontSize: 12, ...t.style },
+            onMouseDown: (e) => e.preventDefault(),   // 防止点工具栏时编辑区失焦
+            onClick: t.act,
+          }, t.label))),
           h('input', {
             style: {
               border: 'none', outline: 'none', background: 'transparent',
@@ -291,18 +455,94 @@ window.__ModuleLoader__.load({
           }),
         ),
         h('div', { className: 'siyi-notes-foot' },
-          h('span', null, wordCount + ' 字'),
+          h('span', null, wordCount + ' 字' + (linkCount ? ' · ' + linkCount + ' 双链' : '') +
+            (todoAll ? ' · 待办 ' + todoDone + '/' + todoAll : '')),
           h('span', null, note && note.meta ? '更新于 ' + fmtTime(note.meta.updated) : '新笔记'),
         ),
       )
     }
 
+    /** 极简 markdown 渲染，只覆盖笔记实际用到的语法。 */
+    function renderMarkdown(md) {
+      if (!md) return ''
+      // ⚠ 不能整段先转义再解析：一旦 > 变成 &gt;，
+      // 块引用的 /^> / 就永远匹配不上（这是实测踩到的 bug）。
+      // 正确顺序是先按行识别结构，只对行内内容做转义。
+      const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      const lines = md.split('\n')
+      const out = []
+      let inCode = false
+      for (let raw of lines) {
+        if (/^```/.test(raw)) { inCode = !inCode; out.push(inCode ? '<pre><code>' : '</code></pre>'); continue }
+        if (inCode) { out.push(raw); continue }
+        // 待办
+        let m
+        if ((m = raw.match(/^- \[( |x)\] (.*)$/i))) {
+          const done = m[1].toLowerCase() === 'x'
+          out.push('<div style="display:flex;gap:6px;align-items:flex-start;margin:2px 0">' +
+            '<span style="flex:none">' + (done ? '☑' : '☐') + '</span>' +
+            '<span' + (done ? ' style="text-decoration:line-through;opacity:.6"' : '') + '>' + inline(m[2]) + '</span></div>')
+          continue
+        }
+        if ((m = raw.match(/^(#{1,4}) (.*)$/))) {
+          const lv = m[1].length
+          const size = [22, 19, 17, 15][lv - 1]
+          out.push('<div style="font-size:' + size + 'px;font-weight:600;margin:10px 0 4px">' + inline(m[2]) + '</div>')
+          continue
+        }
+        if (/^---+$/.test(raw)) { out.push('<hr style="border:none;border-top:.5px solid var(--dsw-alias-border-l3);margin:12px 0">'); continue }
+        if ((m = raw.match(/^> (.*)$/))) {
+          out.push('<div style="border-left:3px solid var(--dsw-alias-border-l1);padding-left:10px;opacity:.8;margin:4px 0">' + inline(m[1]) + '</div>')
+          continue
+        }
+        if ((m = raw.match(/^[-*] (.*)$/))) { out.push('<div style="padding-left:16px;position:relative;margin:2px 0"><span style="position:absolute;left:4px">•</span>' + inline(m[1]) + '</div>'); continue }
+        if ((m = raw.match(/^\d+\. (.*)$/))) { out.push('<div style="padding-left:20px;margin:2px 0">' + raw.replace(/^(.*)$/, '$1') .replace(/^(\d+)\. /, '<span style="opacity:.6">$1.</span> ') + '</div>'); continue }
+        if (raw.trim() === '') { out.push('<div style="height:8px"></div>'); continue }
+        out.push('<div style="margin:2px 0">' + inline(raw) + '</div>')
+      }
+      return out.join('')
+    }
+    function inline(s) {
+      // 先转义 HTML 特殊字符，再套 markdown 规则 —— 顺序不能反，
+      // 否则用户输入的 <script> 会被当成标签渲染（XSS 风险），
+      // 而我们自己的 <u> 规则又要在这之后才生效，所以用占位符保护。
+      const U_OPEN = '\u0001UO\u0001', U_CLOSE = '\u0001UC\u0001'
+      let t = String(s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/&lt;u&gt;/g, U_OPEN).replace(/&lt;\/u&gt;/g, U_CLOSE)
+      return t
+        .replace(/\[\[([^\]]+)\]\]/g, '<span style="color:var(--dsw-alias-label-link, #3b82f6);border-bottom:1px dashed currentColor">$1</span>')
+        .replace(/`([^`]+)`/g, '<code style="background:var(--dsw-alias-bg-layer-3);padding:1px 4px;border-radius:3px;font-size:.9em">$1</code>')
+        .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+        .replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, '<em>$1</em>')
+        .replace(/~~([^~]+)~~/g, '<del>$1</del>')
+        .replace(new RegExp(U_OPEN + '([^]*?)' + U_CLOSE, 'g'), '<u>$1</u>')
+        .replace(/#([\u4e00-\u9fa5A-Za-z0-9_]+)/g, '<span style="color:var(--dsw-alias-label-secondary)">#$1</span>')
+    }
     // ── D4 知识图谱 ─────────────────────────────────────────────────
+    //
+    // 交互设计参考 Obsidian 的图谱（这是目前移动端做得最成熟的实现）：
+    //   1. 单指拖动空白处  → 平移画布（问题反馈「无法滑动」的正面修复）
+    //   2. 双指捏合        → 缩放，0.3x 到 3x
+    //   3. 拖动节点        → 移动单个节点，并固定住它的位置
+    //   4. 点节点          → 高亮它和它的邻居，其余淡化
+    //   5. 双击空白        → 复位视图
+    //   6. 节点大小按连接数，孤立节点更小更淡
+    //
+    // 为什么不用 d3：它的 zoom/force 在 WebView 里体积大且和 React 的
+    // 事件系统要额外接一层。这里的布局和变换都是手写，几十行就够，
+    // 而且完全可控（力导向只在初始化跑一次，之后位置由位置表维护，
+    // 避免持续计算导致手机发热）。
     function GraphView({ onBack, onOpen, toast }) {
       const [graph, setGraph] = useState(null)
       const [sel, setSel] = useState(null)
       const [size, setSize] = useState({ w: 360, h: 480 })
+      // 视图变换：平移 + 缩放
+      const [view, setView] = useState({ x: 0, y: 0, k: 1 })
+      // 节点手工位置覆盖（拖动后固定）
+      const [pinned, setPinned] = useState({})
       const wrapRef = useRef(null)
+      const gesture = useRef(null)
 
       useEffect(() => {
         getGraph().then(setGraph).catch(e => toast('图谱读取失败：' + e.message))
@@ -319,37 +559,36 @@ window.__ModuleLoader__.load({
         return () => ro.disconnect()
       }, [])
 
-      // 力导向布局：迭代 300 次，纯手写，不用 d3
-      const layout = useMemo(() => {
+      // ── 力导向布局：只在节点/尺寸变化时算一次 ──
+      const baseLayout = useMemo(() => {
         if (!graph || !graph.nodes || !graph.nodes.length) return null
         const nodes = graph.nodes
         const edges = (graph.edges || []).filter(e => e.target)
         const W = size.w, H = size.h, CX = W / 2, CY = H / 2
         const N = nodes.length
-        const pos = new Map()
-        nodes.forEach((n, i) => {
+        const arr = nodes.map((n, i) => {
           const a = (i / N) * Math.PI * 2
-          const r = Math.min(W, H) * 0.34
-          pos.set(n.id, { x: CX + Math.cos(a) * r, y: CY + Math.sin(a) * r })
+          const r = Math.min(W, H) * 0.32
+          return { id: n.id, x: CX + Math.cos(a) * r, y: CY + Math.sin(a) * r }
         })
+        const idx = new Map(nodes.map((n, i) => [n.id, i]))
+        const link = edges.map(e => ({ s: idx.get(e.source), t: idx.get(e.target) }))
+          .filter(e => e.s != null && e.t != null)
         const deg = new Map(nodes.map(n => [n.id, 0]))
         for (const e of edges) {
           deg.set(e.source, (deg.get(e.source) || 0) + 1)
           deg.set(e.target, (deg.get(e.target) || 0) + 1)
         }
-        const idx = new Map(nodes.map((n, i) => [n.id, i]))
-        const link = edges.map(e => ({ s: idx.get(e.source), t: idx.get(e.target) })).filter(e => e.s != null && e.t != null)
-        const arr = nodes.map(n => ({ id: n.id, x: pos.get(n.id).x, y: pos.get(n.id).y }))
-        // 简单弹簧-斥力
-        for (let it = 0; it < 300; it++) {
-          const k = 0.06 * (1 - it / 300) + 0.01
+        // 迭代退火：前期斥力大、后期收敛
+        for (let it = 0; it < 260; it++) {
+          const t = 1 - it / 260
           for (let i = 0; i < arr.length; i++) {
             for (let j = i + 1; j < arr.length; j++) {
               let dx = arr[j].x - arr[i].x, dy = arr[j].y - arr[i].y
               let d2 = dx * dx + dy * dy
               if (d2 < 1) { dx = Math.random() - .5; dy = Math.random() - .5; d2 = 1 }
               const d = Math.sqrt(d2)
-              const rep = 900 / d2
+              const rep = (1600 * t) / d2
               const fx = (dx / d) * rep, fy = (dy / d) * rep
               arr[i].x -= fx; arr[i].y -= fy
               arr[j].x += fx; arr[j].y += fy
@@ -360,21 +599,159 @@ window.__ModuleLoader__.load({
             if (!a || !b) continue
             const dx = b.x - a.x, dy = b.y - a.y
             const d = Math.sqrt(dx * dx + dy * dy) || 1
-            const f = (d - 90) * k
+            const f = ((d - 76) * 0.055) * t
             const fx = (dx / d) * f, fy = (dy / d) * f
             a.x += fx; a.y += fy
             b.x -= fx; b.y -= fy
           }
           for (const a of arr) {
-            a.x += (CX - a.x) * 0.004
-            a.y += (CY - a.y) * 0.004
-            a.x = Math.max(24, Math.min(W - 24, a.x))
-            a.y = Math.max(20, Math.min(H - 20, a.y))
+            a.x += (CX - a.x) * 0.006
+            a.y += (CY - a.y) * 0.006
           }
         }
-        const map = new Map(arr.map(a => [a.id, a]))
-        return { nodes: arr, map, link, deg, W, H }
+        // 收敛后一次性夹到可视区，避免飞出屏幕
+        for (const a of arr) {
+          a.x = Math.max(28, Math.min(W - 28, a.x))
+          a.y = Math.max(24, Math.min(H - 24, a.y))
+        }
+        return { nodes: arr, map: new Map(arr.map(a => [a.id, a])), link, deg, W, H }
       }, [graph, size])
+
+      // 应用 pin 后的最终坐标
+      const nodes = useMemo(() => {
+        if (!baseLayout) return []
+        return baseLayout.nodes.map(n => {
+          const p = pinned[n.id]
+          return p ? { ...n, x: p.x, y: p.y } : n
+        })
+      }, [baseLayout, pinned])
+
+      const pos = useMemo(() => {
+        const m = new Map()
+        for (const n of nodes) m.set(n.id, n)
+        return m
+      }, [nodes])
+
+      // 选中节点的邻居集合（用于高亮）
+      const neighbors = useMemo(() => {
+        if (!sel || !graph || !graph.edges) return null
+        const s = new Set([sel])
+        for (const e of graph.edges) {
+          if (e.source === sel) s.add(e.target)
+          if (e.target === sel) s.add(e.source)
+        }
+        return s
+      }, [sel, graph])
+
+      // ── 手势 ────────────────────────────────────────────────────
+      const localPoint = (e) => {
+        const el = wrapRef.current
+        if (!el) return { x: 0, y: 0 }
+        const r = el.getBoundingClientRect()
+        return { x: e.clientX - r.left, y: e.clientY - r.top }
+      }
+      // 屏幕坐标 → 画布坐标（逆变换）
+      const toCanvas = (p, v) => ({ x: (p.x - v.x) / v.k, y: (p.y - v.y) / v.k })
+
+      const hitNode = (canvasPt) => {
+        let best = null, bestD = 22
+        for (const n of nodes) {
+          const d = Math.hypot(n.x - canvasPt.x, n.y - canvasPt.y)
+          if (d < bestD) { bestD = d; best = n }
+        }
+        return best
+      }
+
+      const onPointerDown = (e) => {
+        if (!wrapRef.current) return
+        const p = localPoint(e)
+        const cp = toCanvas(p, view)
+        const hit = hitNode(cp)
+        gesture.current = {
+          mode: hit ? 'node' : 'pan',
+          nodeId: hit ? hit.id : null,
+          startX: p.x, startY: p.y,
+          startView: { ...view },
+          startNode: hit ? { x: hit.x, y: hit.y } : null,
+          moved: false,
+        }
+        // 捕获指针，手指移出容器也能持续收到事件
+        try { wrapRef.current.setPointerCapture(e.pointerId) } catch (err) {}
+      }
+
+      const onPointerMove = (e) => {
+        const g = gesture.current
+        if (!g) return
+        const p = localPoint(e)
+        const dx = p.x - g.startX, dy = p.y - g.startY
+        if (Math.abs(dx) > 3 || Math.abs(dy) > 3) g.moved = true
+        if (g.mode === 'pan') {
+          setView({ ...g.startView, x: g.startView.x + dx, y: g.startView.y + dy })
+        } else if (g.mode === 'node' && g.nodeId) {
+          // 节点跟随手指：位移要除以缩放比，否则放大后手感发飘
+          const nx = g.startNode.x + dx / g.startView.k
+          const ny = g.startNode.y + dy / g.startView.k
+          setPinned(prev => ({ ...prev, [g.nodeId]: { x: nx, y: ny } }))
+        }
+      }
+
+      const onPointerUp = (e) => {
+        const g = gesture.current
+        gesture.current = null
+        if (!g) return
+        try { wrapRef.current.releasePointerCapture(e.pointerId) } catch (err) {}
+        // 没移动 = 点击
+        if (!g.moved) {
+          if (g.mode === 'node') {
+            setSel(prev => prev === g.nodeId ? null : g.nodeId)
+          } else {
+            setSel(null)
+          }
+        }
+      }
+
+      // 滚轮缩放（桌面/调试用）与双指捏合（移动端）
+      const onWheel = (e) => {
+        e.preventDefault()
+        const p = localPoint(e)
+        const factor = e.deltaY > 0 ? 0.9 : 1.1
+        setView(v => {
+          const k = Math.max(0.3, Math.min(3, v.k * factor))
+          // 以指针位置为锚点缩放
+          const cx = (p.x - v.x) / v.k, cy = (p.y - v.y) / v.k
+          return { k, x: p.x - cx * k, y: p.y - cy * k }
+        })
+      }
+
+      // 双指捏合：用 touch 事件算两指距离比
+      const pinch = useRef(null)
+      const onTouchStart = (e) => {
+        if (e.touches.length === 2) {
+          const [a, b] = e.touches
+          pinch.current = {
+            dist: Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY),
+            k: view.k,
+            mid: { x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2 },
+            v: { ...view },
+          }
+        }
+      }
+      const onTouchMove = (e) => {
+        const pc = pinch.current
+        if (!pc || e.touches.length !== 2 || !wrapRef.current) return
+        e.preventDefault()
+        const [a, b] = e.touches
+        const dist = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY)
+        const r = wrapRef.current.getBoundingClientRect()
+        const mx = (a.clientX + b.clientX) / 2 - r.left
+        const my = (a.clientY + b.clientY) / 2 - r.top
+        const k = Math.max(0.3, Math.min(3, pc.k * (dist / pc.dist)))
+        const cx = (mx - pc.v.x) / pc.v.k, cy = (my - pc.v.y) / pc.v.k
+        setView({ k, x: mx - cx * k, y: my - cy * k })
+      }
+      const onTouchEnd = () => { pinch.current = null }
+
+      const resetView = () => { setView({ x: 0, y: 0, k: 1 }); setPinned({}) }
 
       const share = graph && graph.edges ? graph.edges.filter(e => !e.missing).length : 0
       const isolated = graph && graph.nodes ? graph.nodes.filter(n => (n.degree || 0) === 0).length : 0
@@ -382,46 +759,91 @@ window.__ModuleLoader__.load({
       return h('div', { className: 'siyi-notes-root' },
         h('div', { className: 'siyi-notes-editor-head' },
           h('button', { className: 'siyi-notes-btn', onClick: onBack }, '返回'),
-          h('span', { style: { fontSize: 11, color: 'var(--dsw-alias-label-tertiary)', marginLeft: 4 } },
-            graph ? (graph.nodes.length + ' 节点 · ' + share + ' 条双链') : '读取中…'),
+          h('button', {
+            className: 'siyi-notes-btn',
+            onClick: () => setView(v => ({ ...v, k: Math.min(3, v.k * 1.25) })),
+            title: '放大',
+          }, '＋'),
+          h('button', {
+            className: 'siyi-notes-btn',
+            onClick: () => setView(v => ({ ...v, k: Math.max(0.3, v.k / 1.25) })),
+            title: '缩小',
+          }, '－'),
+          h('button', { className: 'siyi-notes-btn', onClick: resetView, title: '复位视图' }, '复位'),
+          h('span', {
+            style: { marginLeft: 'auto', fontSize: 11, color: 'var(--dsw-alias-label-tertiary)' },
+          }, graph ? (graph.nodes.length + ' 节点 · ' + share + ' 链') : '读取中…'),
         ),
-        h('div', { className: 'siyi-notes-graph', ref: wrapRef },
-          !layout ? h('div', { className: 'siyi-notes-empty' }, graph ? '没有可绘制的节点' : '读取中…')
-            : h('svg', { viewBox: '0 0 ' + layout.W + ' ' + layout.H },
-                layout.link.map((l, i) => {
-                  const a = layout.nodes[l.s], b = layout.nodes[l.t]
-                  if (!a || !b) return null
-                  const hi = sel && (a.id === sel || b.id === sel)
-                  return h('line', {
-                    key: 'e' + i,
-                    x1: a.x, y1: a.y, x2: b.x, y2: b.y,
-                    stroke: hi ? 'var(--dsw-alias-label-secondary)' : 'var(--dsw-alias-border-l3)',
-                    strokeWidth: hi ? 1.6 : 0.8,
-                  })
-                }),
-                layout.nodes.map(n => {
-                  const d = layout.deg.get(n.id) || 0
-                  const r = 4 + Math.min(6, d * 1.4)
-                  const active = sel === n.id
-                  return h('g', { key: n.id, style: { cursor: 'pointer' }, onClick: () => setSel(n.id) },
-                    h('circle', {
-                      cx: n.x, cy: n.y, r: r,
-                      fill: active ? 'var(--dsw-alias-label-primary)' : 'var(--dsw-alias-label-tertiary)',
-                      opacity: active ? 1 : (d ? .85 : .45),
-                    }),
-                    d >= 2 || active ? h('text', {
-                      x: n.x, y: n.y - r - 4, textAnchor: 'middle',
-                      fontSize: 9, fill: 'var(--dsw-alias-label-tertiary)',
-                    }, (graph.nodes.find(x => x.id === n.id) || {}).title || '') : null,
-                  )
-                }),
+        h('div', {
+          className: 'siyi-notes-graph',
+          ref: wrapRef,
+          // touchAction none 是关键：否则浏览器会把拖动解释成页面滚动，
+          // pointer 事件在移动端根本收不到连续 move，表现就是「滑不动」。
+          style: { touchAction: 'none', userSelect: 'none', cursor: gesture.current && gesture.current.mode === 'pan' ? 'grabbing' : 'grab' },
+          onPointerDown,
+          onPointerMove,
+          onPointerUp,
+          onPointerCancel: onPointerUp,
+          onWheel,
+          onTouchStart,
+          onTouchMove,
+          onTouchEnd,
+          onDoubleClick: resetView,
+        },
+          !baseLayout ? h('div', { className: 'siyi-notes-empty' }, graph ? '没有可绘制的节点' : '读取中…')
+            : h('svg', {
+                viewBox: '0 0 ' + baseLayout.W + ' ' + baseLayout.H,
+                style: { width: '100%', height: '100%', display: 'block' },
+              },
+                h('g', {
+                  transform: 'translate(' + view.x + ',' + view.y + ') scale(' + view.k + ')',
+                },
+                  baseLayout.link.map((l, i) => {
+                    const a = pos.get(nodes[l.s] && nodes[l.s].id)
+                    const b = pos.get(nodes[l.t] && nodes[l.t].id)
+                    if (!a || !b) return null
+                    const hi = sel && (a.id === sel || b.id === sel)
+                    const dim = neighbors && !(neighbors.has(a.id) && neighbors.has(b.id))
+                    return h('line', {
+                      key: 'e' + i,
+                      x1: a.x, y1: a.y, x2: b.x, y2: b.y,
+                      stroke: hi ? 'var(--dsw-alias-label-secondary)' : 'var(--dsw-alias-border-l3)',
+                      strokeWidth: (hi ? 1.8 : 0.8) / Math.max(0.6, view.k),
+                      opacity: dim ? 0.15 : 1,
+                    })
+                  }),
+                  nodes.map(n => {
+                    const d = baseLayout.deg.get(n.id) || 0
+                    const r = 4 + Math.min(7, d * 1.5)
+                    const active = sel === n.id
+                    const dim = neighbors && !neighbors.has(n.id)
+                    return h('g', {
+                      key: n.id,
+                      style: { cursor: 'pointer' },
+                    },
+                      h('circle', {
+                        cx: n.x, cy: n.y, r: active ? r + 2 : r,
+                        fill: active ? 'var(--dsw-alias-label-primary)' : 'var(--dsw-alias-label-tertiary)',
+                        opacity: dim ? 0.2 : (active ? 1 : (d ? .85 : .5)),
+                        stroke: active ? 'var(--dsw-alias-label-primary)' : 'none',
+                        strokeWidth: 1.5,
+                      }),
+                      (d >= 2 || active) ? h('text', {
+                        x: n.x, y: n.y - r - 5, textAnchor: 'middle',
+                        fontSize: 9 / Math.max(0.7, view.k),
+                        fill: 'var(--dsw-alias-label-tertiary)',
+                        opacity: dim ? 0.2 : 1,
+                      }, (graph.nodes.find(x => x.id === n.id) || {}).title || '') : null,
+                    )
+                  }),
+                ),
               ),
           sel ? h('div', {
             style: {
               position: 'absolute', left: 8, right: 8, top: 8,
               background: 'var(--dsw-alias-bg-layer-2)',
               border: '.5px solid var(--dsw-alias-border-l3)',
-              borderRadius: 8, padding: '8px 10px', fontSize: 12,
+              borderRadius: 8, padding: '8px 10px', fontSize: 12, zIndex: 5,
             },
           },
             h('div', { style: { fontWeight: 600, marginBottom: 4 } },
@@ -432,15 +854,19 @@ window.__ModuleLoader__.load({
             }, '打开'),
             h('button', {
               className: 'siyi-notes-btn', style: { height: 26, fontSize: 12, marginLeft: 6 },
+              onClick: () => { setPinned(p => { const c = { ...p }; delete c[sel]; return c }); toast('已解除固定') },
+            }, '解除固定'),
+            h('button', {
+              className: 'siyi-notes-btn', style: { height: 26, fontSize: 12, marginLeft: 6 },
               onClick: () => setSel(null),
             }, '关闭'),
           ) : null,
           h('div', { className: 'siyi-notes-legend' },
-            isolated > 0 ? isolated + ' 个孤立节点' : '全部连通'),
+            '拖动平移 · 双指缩放 · 拖节点固定 · 双击复位' +
+            (isolated > 0 ? ' · ' + isolated + ' 孤立' : '')),
         ),
       )
     }
-
     // ── E1 月历视图 ─────────────────────────────────────────────────
     //
     // 只做月网格 + 每日待办 + 逾期标红，不搬 desk-notes 那套

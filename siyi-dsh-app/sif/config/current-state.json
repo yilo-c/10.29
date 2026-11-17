@@ -1,6 +1,6 @@
 {
   "schema": "siyi.current-state/v1",
-  "generatedAt": "2026-11-18T07:52:00+08:00",
+  "generatedAt": "2026-11-18T08:05:00+08:00",
   "runbook": "思忆集-DeepSeek-v4.1-Flash-全流程执行手册-20261118.md",
   "track": "A-android",
   "phases": {
@@ -72,6 +72,12 @@
       "evidenceLevel": "E4",
       "evidence": "core/paths.mjs + tests/contract/paths.test.mjs (12 项，含换设备模拟) + 运行实例验证",
       "note": "绝对路径 import 改为运行时注入；4 个 SIYI_* 环境变量；显式覆盖无条件优先"
+    },
+    "P13-schema-migration": {
+      "status": "PASS",
+      "evidenceLevel": "E4",
+      "evidence": "core/vault/schema-migrate.mjs + scripts/schema-tool.mjs + 34 项测试（18+16）",
+      "note": "补齐 L1 数据层唯一缺口；普查/演练/备份/执行/回滚全流程实测通过"
     }
   },
   "testMatrix": {
@@ -143,8 +149,8 @@
     }
   },
   "suiteResult": {
-    "total": 182,
-    "pass": 182,
+    "total": 216,
+    "pass": 216,
     "fail": 0,
     "command": "node tests/contract/run-all.mjs"
   },
@@ -155,14 +161,14 @@
     "note": "只读解析兼容性验证，未写入正式 vault"
   },
   "knownGaps": [
-    "schema 版本迁移脚本未实现（当前 schema:1，无升级路径）",
+    "迁移无事务性：逐文件处理，中途失败需整库恢复",
     "MCP 适配未实现（规范已定义）",
     "本机其他进程仍可访问 127.0.0.1:3180（需进程级认证）",
     "补丁发布管线与自动 secret scan 未固化",
-    "仓库公开且含签名私钥 keystore（已确认指纹 83a7e514...）",
+    "仓库公开且含签名私钥 keystore（指纹 83a7e514...）",
     "Windows/Linux 宿主按决定不做"
   ],
-  "nextAction": "推送本轮路径改造与迁移文档到仓库；或补 schema 版本迁移脚本",
+  "nextAction": "推送本轮 schema 迁移到仓库",
   "livePluginPatch": {
     "target": "/storage/emulated/0/思忆集/plugins/siyi-vault.js",
     "backup": "sif/backups/siyi-vault.before-pathfix-20261118.js",
@@ -367,5 +373,36 @@
     ],
     "tests": 12,
     "migrationDrill": "复制 core 到临时目录后仍能解析核心模块"
+  },
+  "schemaMigration": {
+    "currentSchema": 1,
+    "vaultSurvey": {
+      "total": 58,
+      "byVersion": {
+        "1": 58
+      },
+      "missing": 0,
+      "newer": 0,
+      "blocked": 0,
+      "status": "健康"
+    },
+    "commands": {
+      "survey": "node scripts/schema-tool.mjs survey",
+      "normalizeDry": "node scripts/schema-tool.mjs normalize --dry",
+      "normalize": "node scripts/schema-tool.mjs normalize",
+      "migrateDry": "node scripts/schema-tool.mjs migrate --dry",
+      "migrate": "node scripts/schema-tool.mjs migrate"
+    },
+    "backupPath": "sif/backups/schema/",
+    "limitations": [
+      "迁移失败需手工从备份恢复，不自动回滚",
+      "无事务性：逐文件处理，中途失败会状态不一致",
+      "无并发保护"
+    ],
+    "bugsFixed": [
+      "list() 不返回 schema 字段，导致普查显示全部缺失",
+      "migrateMeta 对最新版本误报 changed:true（空 steps 未判空）",
+      "普查未排除 .siyi 与 README，统计出 69 而非 57"
+    ]
   }
 }

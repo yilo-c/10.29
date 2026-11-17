@@ -232,6 +232,8 @@ export function createVaultService({
       const meta = e.meta
       if (!includeSensitive && meta.sensitivity === 'secret') continue
       items.push({
+        // schema 是数据契约版本号，list 必须返回，否则无法做版本普查与迁移
+        schema: meta.schema ?? null,
         // String() 归一：历史脏数据里 title 可能是数字
         id: e.id,
         title: String(meta.title ?? '(无标题)'),

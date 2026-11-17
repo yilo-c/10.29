@@ -2,7 +2,7 @@
   "schema": "siyi.dist/v1",
   "name": "siyi-runtime-bundle",
   "version": "1.0.0",
-  "generatedAt": "2026-11-17T23:51:18.556Z",
+  "generatedAt": "2026-11-17T23:56:24.272Z",
   "sourceDevice": {
     "package": "com.siyi.dshapp",
     "versionCode": 2026112001
@@ -61,9 +61,15 @@
       "markers": []
     },
     {
+      "path": "core/vault/schema-migrate.mjs",
+      "bytes": 7295,
+      "sha256": "93efa24805c5a8198818ef2eb4a328aa858c616f334bc95114acf12f00545f6c",
+      "markers": []
+    },
+    {
       "path": "core/vault/service.mjs",
-      "bytes": 15880,
-      "sha256": "b4728cc6fa69704fd1087a553748288a78a141a45ce1851f5c6dec94855f41f2",
+      "bytes": 16019,
+      "sha256": "f01f53b36396b25c7e8ba9970b667ce5a9d55479b8b36958bbe68389ceda3884",
       "markers": []
     },
     {
@@ -103,8 +109,8 @@
     }
   ],
   "totals": {
-    "files": 14,
-    "bytes": 151024,
+    "files": 15,
+    "bytes": 158458,
     "patched": 1
   }
 }

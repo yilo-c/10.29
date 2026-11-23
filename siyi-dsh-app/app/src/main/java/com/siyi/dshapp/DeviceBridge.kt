@@ -82,11 +82,15 @@ object DeviceBridge {
     fun prepare(): Pair<String, String>? {
         // 已有会话就复用，不要另起一套：另起会让引擎拿着旧名字去连，
         // 设备工具会全部失联（表现为工具调用超时或 unknown tool）。
+        // SIYI-FIX-BRIDGE-20261123：只复用读取循环仍活着的会话；socket 对象在但连接已断时必须重建，
+        // 否则引擎重启后拿到失效 peer，readLine 立即 EOF，capability/list 超时。
         session?.let {
-            if (it.peerSocket != null || it.serverSocket != null) {
+            if (it.running.get() && it.peerSocket != null && it.serverSocket != null) {
                 log("=== prepare 复用已有会话 name=" + it.name + " ===")
                 return "DSH_BRIDGE_SOCK" to it.name
             }
+            log("=== prepare 发现旧会话已失效（running=" + it.running.get() + "），清理后重建 ===")
+            stop()
         }
         log("=== prepare 开始（抽象命名空间 socket）===")
         return try {

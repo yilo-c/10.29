@@ -134,6 +134,17 @@ jobs:
           test -f "$PTY_DST/prebuilds/android-arm64/pty.node" || { echo "pty.node 缺失"; exit 1; }
           echo "已覆盖 engine/node_modules/node-pty"
 
+          # 4b) 思忆集：Android pnpm 执行入口修复
+          #     plugin-manager 用 execa("pnpm")，Android PATH 里没有 pnpm 可执行文件
+          #     （engine 内只有 pnpm/bin/pnpm.mjs）。补丁改为 process.execPath + pnpm.mjs。
+          PNPM_PATCHER=$(readlink -f "$GITHUB_WORKSPACE/$APP_DIR/patches/fix-pnpm-android.mjs")
+          test -f "$PNPM_PATCHER" || { echo "找不到 fix-pnpm-android.mjs"; exit 1; }
+          node "$PNPM_PATCHER" "$W"
+          PM="$W/node_modules/@deepseek-ai/dsh-plugin-manager/lib/index.js"
+          P=$(grep -c "SIYI-PNPM-ANDROID" "$PM" 2>/dev/null || true)
+          echo "补丁校验 plugin-manager pnpm: $P"
+          test "$P" -ge 1 || { echo "pnpm 补丁未生效"; exit 1; }
+
           # 5) 重新打包
           cd "$W"
           rm -f "$ZIP"

@@ -20,6 +20,77 @@ window.__ModuleLoader__.load({
     Object.defineProperty(exports, Symbol.toStringTag, { value: 'Module' })
 
     const react = require('react')
+    // SIYI-OFFICIALICON-20261119：复用 DSH 官方图标组件（factory 白名单）
+    let P = {}
+    try { P = require('@deepseek-ai/dsh-client-ui-primitives') || {} } catch (e) {}
+    const IconClose = P.IconCloseOutlineRegular
+    // SIYI-AIOFFICIAL-20261119：复用官方组件（Button / Checkbox / Input）
+    const OButton = P.Button
+    const OCheckbox = P.Checkbox
+    const OInput = P.Input
+    const OPill = P.Pill
+    const OToast = P.Toast
+    const OModal = P.Modal
+    // SIYI-AIMENU-20261120：官方菜单/流光/提示
+    const OMenu = P.Menu
+    const OMenuItem = P.MenuItemButton
+    const OShimmer = P.TextShimmer
+    const OTooltip = P.Tooltip   // SIYI-OMODAL-20261120：格式/插入菜单   // SIYI-OTOAST-20261119：官方提示
+    const OSeg = P.SegmentedControl   // SIYI-SEGMENTED-20261119：编辑/阅读切换   // SIYI-OBTN-20261119：文件夹 chips 用官方 Pill
+    // SIYI-ICONBATCH-20261119：编辑器/列表用到的官方图标（缺则回落到文字）
+    const I = {
+      edit: P.IconEditOutlineRegular,
+      checklist: P.IconChecklistOutlineRegular,
+      plus: P.IconPlusOutlineRegular,
+      image: P.IconPaperclipOutlineRegular,   // 图片/附件
+      eye: P.IconBrowseOutlineRegular,        // 阅读/浏览
+      more: P.IconEllipsisOutlineRegular,
+      back: P.IconChevronLeftOutlineRegular,
+      search: P.IconSearchOutlineRegular,
+      calendar: P.IconCalendarOutlineRegular,
+      graph: P.IconLinkOutlineRegular,
+      data: P.IconDataOutlineRegular,
+      alarm: P.IconAlarmClockOutlineRegular,
+      list: P.IconFlatListOutlineRegular,
+      clock: P.IconClockOutlineRegular,
+      compare: P.IconCompareSplitOutlineRegular,   // SIYI-MODELICON-20261120：官方模型按钮图标
+      link: P.IconLinkOutlineRegular,
+      download: P.IconDownloadOutlineRegular,
+      sparkle: P.IconSparkleRegular,
+      send: P.IconSendOutlineRegular,
+      stop: P.IconStopFillRegular,
+      trash: P.IconTrashOutlineRegular,
+      pin: P.IconPinOutlineRegular,
+      folder: P.IconFolderOpenOutlineRegular,
+      tag: undefined,     // 官方无 tag 图标，回落文字
+      check: P.IconCheckOutlineRegular,
+      code: P.IconCodeOutlineRegular,
+      copy: P.IconCopyOutlineRegular,
+      refresh: P.IconRefreshOutlineRegular,
+      chevronDown: P.IconChevronDownOutlineRegular,
+      close: P.IconCloseOutlineRegular,
+      loading: P.IconLoadingOutlineRegular,
+      // SIYI-ICONALL-20261119：菜单/状态类图标
+      undo: P.IconChevronLeftOutlineRegular,
+      redo: P.IconChevronRightOutlineRegular,
+      quote: P.IconListPenOutlineRegular,
+      pin: P.IconPinOutlineRegular,
+      pinFill: P.IconPinFillRegular,
+      star: P.IconPinOutlineRegular,
+      check: P.IconCheckOutlineRegular,
+      checkCircle: P.IconCheckCircleOutlineRegular,
+      checkCircleFill: P.IconCheckCircleFillRegular,
+      circle: P.IconCheckCircleOutlineRegular,
+      note: P.IconListPenOutlineRegular,
+      book: P.IconReadOnlyRegular,
+      time: P.IconClockOutlineRegular,
+      info: P.IconInfoOutlineRegular,
+      warning: P.IconWarningTriangleOutlineRegular,
+      question: P.IconQuestionOutlineRegular,
+      data: P.IconDataOutlineRegular,
+      plan: P.IconPlanOutlineRegular,
+      light: P.IconLightOutlineRegular,
+    }
     const h = react.createElement
     const { useState, useEffect, useRef, useCallback, useMemo } = react
 
@@ -48,10 +119,12 @@ window.__ModuleLoader__.load({
     // 流（需登录签名），裸 fetch 页面接不到也不该碰主对话。代理层在引擎内聚合好回复后
     // 一次性返回 {ok, reply}，这里只负责发问题与显示。
     // 请求体固定为 { question, noteText }：noteText 由「引用当前笔记」开关决定传不传。
-    const chatWithAI = (question, noteText) => api('/chat', {
+    // SIYI-AIMENU-20261120：可选 model（仅本次），服务端白名单校验
+    const chatWithAI = (question, noteText, model, signal) => api('/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ question, noteText: noteText || '' }),
+      body: JSON.stringify({ question, noteText: noteText || '', model: model || null }),
+      signal,
     })
 
     // 图片上传：走宿主插件 /siyi-vault/upload 的原始字节协议
@@ -85,9 +158,33 @@ window.__ModuleLoader__.load({
    5. 底部工具栏留 env(safe-area-inset-bottom) —— 避开全面屏手势条。
    6. 正文 15px / 行高 1.75 —— 小四号偏上，长文阅读不累。            */
 .siyi-notes-root{display:flex;flex-direction:column;height:100%;min-height:0;
+  /* SIYI-TOPCLEAR-20261128：作为 main 面板时，顶部要给 DSH 的全局浮层（搜索/侧边栏/新建会话）让位。
+     官方 main 面板用 --dsh-frame-top-clearance，Android 上该变量未定义，兜底 44px。 */
+  padding-top:calc(var(--dsh-frame-top-clearance, 0px) + 44px);box-sizing:border-box;
   background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);
   font-size:14px;line-height:1.6;
   -webkit-tap-highlight-color:transparent}
+/* SIYI-LISTIA-20261119：搜索独占整行，功能按钮移到第二行，新建用浮动按钮 */
+.siyi-notes-tools{display:flex;align-items:center;justify-content:flex-end;gap:6px;padding:0 10px 8px;flex:none;overflow-x:auto}
+/* SIYI-ICONLIST-20261119：带官方图标的按钮，图标与文字水平居中对齐 */
+.siyi-btn-icon{display:inline-flex;align-items:center;justify-content:center;gap:5px}
+.siyi-notes-fab{position:fixed;right:16px;bottom:86px;width:52px;height:52px;border-radius:50%;
+  border:none;background:var(--dsw-alias-state-business-primary,#4a7dff);color:#fff;font-size:28px;
+  display:flex;align-items:center;justify-content:center;box-shadow:0 4px 12px rgba(0,0,0,.25);z-index:4}
+
+/* SIYI-SIMPLE-20261120：顶栏 ⋯ 菜单 */
+
+/* SIYI-SORTBTN-20261120：菜单选中态 */
+.siyi-simple-menu-item.on{color:var(--dsw-alias-state-business-primary);font-weight:600}
+/* SIYI-MENUSTYLE-20261120：照主对话菜单弹窗——透明遮罩、白卡片、分组标题、勾选 */
+.siyi-simple-menu{position:fixed;inset:0;z-index:60;background:transparent;display:flex;align-items:flex-start;justify-content:flex-end;padding:52px 10px 0}
+.siyi-simple-menu-panel{min-width:220px;max-width:min(320px,calc(100vw - 24px));border-radius:14px;background:var(--dsw-specific-input-major,#fff);box-shadow:var(--dsw-elevation-prominent,0 8px 32px rgba(0,0,0,.18));padding:5px;display:flex;flex-direction:column;gap:1px;border:1px solid var(--dsw-alias-border-l3)}
+.siyi-simple-menu-total{font-size:11px;color:var(--dsw-alias-label-tertiary);padding:8px 12px 4px}
+.siyi-simple-menu-item{display:flex;align-items:center;gap:10px;min-height:40px;padding:0 12px;border:none;background:transparent;color:var(--dsw-alias-label-primary);font-size:13px;cursor:pointer;border-radius:9px;text-align:left;white-space:nowrap}
+.siyi-simple-menu-item:active{background:var(--dsw-alias-interactive-bg-hover)}
+.siyi-simple-menu-item.on{background:var(--dsw-alias-bg-layer-2);font-weight:500}
+.siyi-simple-menu-icon{width:18px;flex:none;display:grid;place-items:center;color:var(--dsw-alias-label-secondary)}
+.siyi-simple-menu-check{flex:none;margin-left:auto;color:var(--dsw-alias-state-business-primary);display:grid;place-items:center}
 .siyi-notes-bar{display:flex;align-items:center;gap:8px;padding:8px 10px;flex:none;
   border-bottom:.5px solid var(--dsw-alias-border-l3)}
 .siyi-notes-search{flex:1;min-width:0;height:38px;padding:0 12px;border-radius:10px;
@@ -95,6 +192,8 @@ window.__ModuleLoader__.load({
   color:var(--dsw-alias-label-primary);font-size:14px;outline:none;
   -webkit-appearance:none}
 .siyi-notes-search:focus{border-color:var(--dsw-alias-border-l1)}
+/* SIYI-OINPUT-20261119：官方 Input 外层占满搜索行 */
+.siyi-notes-search-wrap{flex:1;min-width:0;width:100%}
 .siyi-notes-btn{min-height:36px;padding:0 12px;border-radius:10px;flex:none;cursor:pointer;
   display:inline-flex;align-items:center;justify-content:center;
   border:.5px solid var(--dsw-alias-border-l3);background:var(--dsw-alias-bg-layer-2);
@@ -102,11 +201,6 @@ window.__ModuleLoader__.load({
   touch-action:manipulation;-webkit-tap-highlight-color:transparent}
 .siyi-notes-btn:active{background:var(--dsw-alias-bg-layer-3)}
 .siyi-notes-btn.on{background:var(--dsw-alias-bg-layer-3);font-weight:600}
-/* 类型下拉：和按钮同高同风格，选中态靠边框区分 */
-.siyi-notes-kind-select{height:36px;border-radius:10px;padding:0 8px;flex:none;
-  border:.5px solid var(--dsw-alias-border-l3);background:var(--dsw-alias-bg-layer-2);
-  color:var(--dsw-alias-label-primary);font-size:13px;outline:none;
-  -webkit-appearance:none;appearance:none;touch-action:manipulation;max-width:96px}
 .siyi-notes-tabs{display:flex;gap:8px;padding:8px 10px;flex:none;overflow-x:auto;
   border-bottom:.5px solid var(--dsw-alias-border-l3);
   scrollbar-width:none;overscroll-behavior-x:contain;align-items:center}
@@ -126,12 +220,19 @@ window.__ModuleLoader__.load({
 .siyi-notes-folder-input:focus{border-color:var(--dsw-alias-label-primary)}
 .siyi-notes-list{flex:1;overflow-y:auto;min-height:0;padding:4px 0;
   overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
+
+/* SIYI-SIMPLE1-20261120-ITEM：列表项规范 */
+.siyi-notes-item{position:relative}
+.siyi-notes-item-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.siyi-notes-item-more{position:absolute;right:6px;top:50%;transform:translateY(-50%);width:44px;height:44px;border:none;background:transparent;color:var(--dsw-alias-label-tertiary);display:grid;place-items:center;cursor:pointer;border-radius:8px}
+.siyi-notes-item-more:active{background:var(--dsw-alias-interactive-bg-hover)}
+.siyi-notes-item-meta{padding-right:44px}
 .siyi-notes-item{padding:12px;min-height:52px;box-sizing:border-box;cursor:pointer;
   border-bottom:.5px solid var(--dsw-alias-border-l3);touch-action:manipulation}
 .siyi-notes-item:active{background:var(--dsw-alias-bg-layer-2)}
 .siyi-notes-item-title{font-size:15px;font-weight:500;margin-bottom:4px;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.siyi-notes-item-meta{font-size:12px;color:var(--dsw-alias-label-tertiary);
+.siyi-notes-item-meta{font-size:12px;color:var(--dsw-alias-label-secondary);
   display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .siyi-notes-tag{font-size:11px;padding:2px 7px;border-radius:5px;
   background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-secondary)}
@@ -150,7 +251,7 @@ window.__ModuleLoader__.load({
   font-family:inherit;padding:14px 16px 8px;line-height:1.35;
   overflow:hidden;resize:none;white-space:pre-wrap;overflow-wrap:break-word;
   word-break:break-word;min-height:56px;max-height:40vh;-webkit-overflow-scrolling:touch}
-.siyi-notes-body-input{width:100%;flex:1;border:none;outline:none;background:transparent;
+.siyi-notes-body-input{width:100%;box-sizing:border-box;flex:1;border:none;outline:none;background:transparent;
   color:var(--dsw-alias-label-primary);font-size:15px;line-height:1.75;
   padding:8px 16px 20px;resize:none;font-family:inherit;min-height:0;
   overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
@@ -170,6 +271,129 @@ window.__ModuleLoader__.load({
   font-size:13px;padding:8px 16px;border-radius:16px;z-index:9;
   border:.5px solid var(--dsw-alias-border-l3);pointer-events:none;
   max-width:calc(100% - 32px);text-align:center}
+
+/* SIYI-COMPOSERCSS-20261120：照官方 composer（对话输入框）复刻 */
+.siyi-cmp-root{display:flex;flex-direction:column;gap:8px;padding:8px 10px 10px;background:var(--dsw-alias-bg-base);border-top:.5px solid var(--dsw-alias-border-l3);flex:none}
+.siyi-cmp-log{max-height:38vh;overflow-y:auto;display:flex;flex-direction:column;gap:10px;padding:2px 2px 4px;-webkit-overflow-scrolling:touch}
+.siyi-cmp-msg{display:flex;flex-direction:column;gap:4px;align-items:flex-start}
+.siyi-cmp-msg.me{align-items:flex-end}
+.siyi-cmp-bubble{max-width:86%;padding:8px 12px;border-radius:var(--dsw-radius-panel);background:var(--dsw-specific-input-major);box-shadow:var(--dsw-elevation-soft);font-size:var(--dsh-content-font-size,14px);line-height:1.7;white-space:pre-wrap;overflow-wrap:break-word}
+.siyi-cmp-msg.me .siyi-cmp-bubble{background:var(--dsw-alias-state-business-primary);color:#fff}
+.siyi-cmp-msg.err .siyi-cmp-bubble{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-error)}
+.siyi-cmp-insert{align-self:flex-start;font-size:12px;padding:3px 9px;border-radius:8px;border:.5px solid var(--dsw-alias-border-l3);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);cursor:pointer}
+.siyi-cmp-card{box-sizing:border-box;width:100%;border-radius:var(--dsw-radius-panel);background:var(--dsw-specific-input-major);box-shadow:var(--dsw-elevation-soft);font-size:var(--dsh-content-font-size,14px);display:flex;flex-direction:column;gap:12px;padding-top:8px;position:relative}
+.siyi-cmp-editor{box-sizing:border-box;width:100%;border:none;outline:none;background:transparent;color:var(--dsw-alias-label-primary);font-family:inherit;font-size:var(--dsh-content-font-size,14px);line-height:calc(24px + var(--dsh-content-font-delta,0px));padding:0 14px;resize:none;max-height:160px;overflow-y:auto;-webkit-overflow-scrolling:touch}
+.siyi-cmp-editor::placeholder{color:var(--dsw-alias-label-tertiary)}
+.siyi-cmp-row{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:12px;min-width:0;padding:2px 8px 6px}
+.siyi-cmp-tools{display:flex;align-items:center;gap:8px;min-width:0}
+.siyi-cmp-add{corner-shape:round;background:var(--dsw-specific-selector);width:28px;height:28px;color:var(--dsw-alias-label-primary);cursor:pointer;border:none;border-radius:999px;flex:none;display:grid;place-items:center;transition:background .12s}
+
+
+
+
+/* SIYI-MORESMALL-20261120：更多浮层——底部紧凑卡片 */
+/* SIYI-MORETIGHT-20261120：紧贴底栏按钮上方 */
+/* SIYI-MORERIGHT-20261120：靠右 + 变窄 */
+.siyi-more-scrim{align-items:flex-end!important;justify-content:flex-end!important;padding:0 8px 92px!important;background:transparent}
+.siyi-more-panel{min-width:150px!important;max-width:min(180px,calc(100vw - 24px))!important;border-radius:12px!important;padding:3px!important}
+.siyi-more-list{padding:0!important;gap:0!important;width:auto!important;min-width:0!important}
+.siyi-more-item{min-height:0!important;height:auto!important;padding:7px 10px!important;gap:8px!important;font-size:12px!important;line-height:1.3}
+.siyi-more-item svg{width:15px;height:15px}
+/* SIYI-MOREUI-20261120：更多弹窗——干净列表 */
+.siyi-more-list{display:flex;flex-direction:column;gap:2px;min-width:220px;padding:4px}
+.siyi-more-item{display:flex;align-items:center;gap:14px;box-sizing:border-box;width:100%;min-height:48px;padding:0 14px;border:none;border-radius:10px;background:transparent;color:var(--dsw-alias-label-primary);font-size:14px;white-space:nowrap;text-align:left;cursor:pointer;touch-action:manipulation}
+.siyi-more-item span{flex:1;min-width:0}
+.siyi-more-item:active{background:var(--dsw-alias-interactive-bg-hover)}
+.siyi-more-item.danger{color:var(--dsw-alias-label-error)}
+/* SIYI-AX-20261120：尊重系统"减少动态效果"设置 */
+@media (prefers-reduced-motion: reduce){
+  .siyi-notes-root *{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;scroll-behavior:auto!important}
+}
+/* SIYI-AX-20261120：键盘焦点可见（WCAG 2.4.7） */
+.siyi-notes-root button:focus-visible,
+.siyi-notes-root [role="button"]:focus-visible,
+.siyi-notes-root input:focus-visible,
+.siyi-notes-root select:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}
+/* SIYI-MODELICON-20261120：模型按钮——照主对话 trigger */
+.siyi-cmp-model-icon{flex:none;color:var(--dsw-alias-label-secondary)}
+.siyi-cmp-model-name{flex:1;min-width:0;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.siyi-cmp-model-chevron{flex:none;transition:transform .15s ease;color:var(--dsw-alias-label-tertiary)}
+/* SIYI-HIDEMODELNAME-20261120：模型按钮只留图标+箭头 */
+.siyi-cmp-model{min-width:0;padding:0 8px}
+.siyi-cmp-model{display:inline-flex;align-items:center;gap:5px;min-height:28px;padding:0 10px;border-radius:999px;border:none;background:transparent;color:var(--dsw-alias-label-primary);font-size:13px;cursor:pointer}
+.siyi-cmp-model:active{background:var(--dsw-alias-interactive-bg-hover)}
+.siyi-cmp-trailing{display:flex;align-items:center;gap:6px;min-width:0}
+.siyi-cmp-iconbtn{width:32px;height:32px;border:none;border-radius:999px;background:transparent;color:var(--dsw-alias-label-secondary);display:grid;place-items:center;cursor:pointer}
+.siyi-cmp-iconbtn:active{background:var(--dsw-alias-interactive-bg-hover)}
+.siyi-cmp-send{width:34px;height:34px;border:none;border-radius:999px;background:var(--dsw-alias-state-business-primary);color:#fff;display:grid;place-items:center;cursor:pointer;flex:none;transition:opacity .12s}
+.siyi-cmp-send.off{opacity:.45;cursor:not-allowed}
+
+/* SIYI-EDITCSS-20261120：选区改写区 */
+
+/* SIYI-MERGEROW-20261120：展开区占满新行 */
+/* SIYI-CHIPLINE-20261120：展开区纵向 */
+.siyi-cmp-editrow,.siyi-cmp-diff{width:100%}
+/* SIYI-CHIPLINE-20261120：chip 行——明确单行，不换行 */
+.siyi-cmp-chipline{display:flex;flex-direction:row;flex-wrap:nowrap;align-items:center;gap:6px;overflow-x:auto;overflow-y:hidden;padding:4px 2px 0;-webkit-overflow-scrolling:touch}
+.siyi-cmp-editzone{display:flex;flex-direction:column;flex-wrap:nowrap;align-items:center;gap:6px;overflow-x:auto;padding:4px 2px 0}
+.siyi-cmp-editgrab{display:inline-flex;align-items:center;gap:5px;align-self:flex-start;white-space:nowrap;font-size:12px;padding:4px 10px;border-radius:999px;border:.5px solid var(--dsw-alias-border-l3);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);cursor:pointer}
+.siyi-cmp-editsel{font-size:11px;color:var(--dsw-alias-label-tertiary);padding:0 4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.siyi-cmp-editrow{display:flex;gap:6px;align-items:center}
+.siyi-cmp-editinput{flex:1;min-width:0;height:32px;padding:0 10px;border-radius:10px;border:.5px solid var(--dsw-alias-border-l3);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font-size:12px;outline:none;-webkit-appearance:none}
+.siyi-cmp-editgo,.siyi-cmp-editcancel{flex:none;font-size:12px;padding:5px 12px;border-radius:8px;cursor:pointer}
+.siyi-cmp-editgo{border:none;background:var(--dsw-alias-state-business-primary);color:#fff}
+.siyi-cmp-editgo:disabled{opacity:.45;cursor:not-allowed}
+.siyi-cmp-editcancel{border:.5px solid var(--dsw-alias-border-l3);background:transparent;color:var(--dsw-alias-label-secondary)}
+.siyi-cmp-diff{display:flex;flex-direction:column;gap:4px;padding:8px;border-radius:10px;background:var(--dsw-alias-bg-layer-2)}
+.siyi-cmp-diffrow{font-size:12px;line-height:1.5;overflow-wrap:break-word;white-space:pre-wrap}
+.siyi-cmp-diffrow.old{color:var(--dsw-alias-label-error)}
+.siyi-cmp-diffrow.new{color:var(--dsw-alias-state-success-primary,var(--dsw-alias-label-primary))}
+.siyi-cmp-reason{font-size:11px;color:var(--dsw-alias-label-tertiary);margin-top:2px}
+
+/* SIYI-MODELUI-20261120：模型选择弹窗——对齐官方 ModelSelect */
+
+/* SIYI-MODELPOP-CSS-20261120：模型选择浮层——照主对话 popover */
+
+/* SIYI-POPFIT-20261120：改写选中移到快捷指令下方，不动 JSX 结构 */
+.siyi-cmp-root>.siyi-cmp-root>.siyi-cmp-card{order:0}
+.siyi-cmp-root>.siyi-cmp-log{order:0}
+.siyi-pop-scrim{position:fixed;inset:0;z-index:50;background:transparent;display:flex;align-items:flex-end;justify-content:center}
+.siyi-pop-panel{box-sizing:border-box;width:min(420px,calc(100vw - 32px));max-height:min(360px,100vh - 96px);margin-bottom:8px;
+  display:flex;flex-direction:column;border-radius:16px;background:var(--dsw-specific-input-major,#fff);
+  box-shadow:var(--dsw-elevation-soft,0 8px 32px rgba(0,0,0,.16));overflow:hidden;padding-bottom:6px}
+.siyi-pop-search{box-sizing:border-box;flex:none;width:calc(100% - 24px);height:40px;margin:12px 12px 4px;padding:0 14px;
+  border-radius:10px;border:.5px solid var(--dsw-alias-border-l3);background:var(--dsw-alias-bg-layer-2);
+  color:var(--dsw-alias-label-primary);font-size:14px;outline:none;-webkit-appearance:none}
+.siyi-pop-search:focus{border-color:var(--dsw-alias-border-l1)}
+.siyi-pop-list{flex:1;min-height:0;max-height:min(280px,100vh - 220px);overflow-y:auto;padding:4px 8px;-webkit-overflow-scrolling:touch}
+.siyi-pop-group{margin:6px 0 10px}
+.siyi-pop-groupname{font-size:12px;color:var(--dsw-alias-label-tertiary);padding:6px 10px}
+.siyi-pop-item{box-sizing:border-box;width:100%;min-height:40px;display:flex;align-items:center;padding:6px 10px;
+  border:none;background:transparent;color:var(--dsw-alias-label-primary);font-size:14px;text-align:left;
+  cursor:pointer;border-radius:8px;touch-action:manipulation}
+.siyi-pop-item:active{background:var(--dsw-alias-interactive-bg-hover)}
+.siyi-pop-item.on{color:var(--dsw-alias-state-business-primary)}
+.siyi-pop-current{flex:none;display:flex;align-items:center;gap:10px;margin:6px 8px 0;padding:10px 12px;
+  border-radius:10px;background:var(--dsw-alias-bg-layer-2);font-size:14px;color:var(--dsw-alias-label-primary)}
+.siyi-pop-current-val{flex:1;min-width:0;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.siyi-pop-current-check{color:var(--dsw-alias-state-business-primary);display:grid;place-items:center}
+.siyi-model-search{box-sizing:border-box;width:100%;height:36px;padding:0 12px;margin-bottom:10px;border-radius:10px;border:.5px solid var(--dsw-alias-border-l3);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font-size:13px;outline:none;-webkit-appearance:none}
+.siyi-model-search:focus{border-color:var(--dsw-alias-border-l1)}
+.siyi-model-list{max-height:46vh;overflow-y:auto;margin:0 -8px;padding:0 4px;-webkit-overflow-scrolling:touch}
+.siyi-model-group{margin-bottom:10px}
+.siyi-model-groupname{font-size:11px;color:var(--dsw-alias-label-tertiary);padding:6px 10px 4px}
+.siyi-model-item{box-sizing:border-box;width:100%;min-height:38px;display:flex;align-items:center;gap:10px;padding:6px 12px;border:none;border-radius:10px;background:transparent;color:var(--dsw-alias-label-primary);font-size:13px;text-align:left;cursor:pointer;touch-action:manipulation}
+.siyi-model-item:hover,.siyi-model-item:active{background:var(--dsw-alias-interactive-bg-hover)}
+.siyi-model-item.on{background:var(--dsw-alias-interactive-bg-selected,var(--dsw-alias-bg-layer-3))}
+.siyi-model-check{width:18px;flex:none;display:grid;place-items:center;color:var(--dsw-alias-state-business-primary)}
+.siyi-model-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.siyi-cmp-search{box-sizing:border-box;width:100%;height:34px;padding:0 12px;margin-bottom:8px;border-radius:10px;border:.5px solid var(--dsw-alias-border-l3);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font-size:13px;outline:none;-webkit-appearance:none}
+.siyi-cmp-search:focus{border-color:var(--dsw-alias-border-l1)}
+.siyi-cmp-quick{display:flex;flex-wrap:nowrap;gap:6px;overflow-x:auto;overflow-y:hidden;padding:2px;flex:none;-webkit-overflow-scrolling:touch}
+/* SIYI-QUICKCOMPACT-20261120：合并 order 定义，避免两条规则互相覆盖 */
+.siyi-cmp-chip{flex:none;white-space:nowrap;font-size:12px;padding:4px 10px;border-radius:999px;border:.5px solid var(--dsw-alias-border-l3);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);cursor:pointer;touch-action:manipulation}
+.siyi-cmp-chip:active{background:var(--dsw-alias-interactive-bg-hover)}
+
 /* 图片：窄屏防撑破，阅读态/编辑态共用 */
 .siyi-notes-body-input img{max-width:100%;height:auto;display:block;margin:8px 0;
   border-radius:8px}
@@ -238,6 +462,34 @@ window.__ModuleLoader__.load({
   color:var(--dsw-alias-label-primary);font-size:14px;
   touch-action:manipulation;-webkit-tap-highlight-color:transparent}
 .siyi-notes-ai-send:disabled{opacity:.5;cursor:default}
+
+/* SIYI-MENUFINAL-20261120：所有弹出菜单——按文字长度自适应宽高，紧凑 */
+.siyi-simple-menu-panel,.siyi-more-panel{width:max-content!important;min-width:0!important;max-width:min(260px,calc(100vw - 24px))!important;border-radius:10px!important;padding:3px!important}
+.siyi-simple-menu-item,.siyi-more-item{box-sizing:border-box!important;width:100%!important;min-height:0!important;height:auto!important;padding:4px 8px!important;gap:7px!important;font-size:13px!important;line-height:1.3!important;white-space:nowrap!important}
+.siyi-simple-menu-item svg,.siyi-more-item svg{width:15px!important;height:15px!important}
+.siyi-simple-menu:not(.siyi-more-scrim){justify-content:flex-end!important;padding:50px 10px 0!important}
+.siyi-more-scrim{justify-content:flex-end!important;align-items:flex-end!important;padding:0 8px 92px!important}
+
+
+/* SIYI-POPTUNE-20261120：模型浮层紧凑数值（不动定位） */
+.siyi-pop-search{height:32px;margin:6px 8px 2px;padding:0 10px;font-size:13px}
+.siyi-pop-item{min-height:0;padding:5px 8px;font-size:13px;line-height:1.3}
+.siyi-pop-group{margin:4px 0 6px}
+.siyi-pop-groupname{font-size:11px;padding:4px 8px}
+.siyi-pop-current{margin:4px 6px 0;padding:6px 10px;font-size:13px;gap:8px}
+
+
+/* SIYI-POPAUTO-20261120：模型浮层适配文字长宽（与菜单一致） */
+.siyi-pop-panel{width:max-content;max-width:260px;max-height:300px;border-radius:12px;padding:3px}
+.siyi-pop-list{max-height:210px;padding:2px 6px}
+.siyi-pop-search{width:calc(100% - 16px);margin:5px 8px 2px;height:30px;font-size:12px}
+.siyi-pop-item{gap:8px;font-size:12px;line-height:1.25;white-space:nowrap}
+.siyi-pop-groupname{font-size:11px}
+.siyi-pop-current{font-size:12px;line-height:1.25}
+
+
+/* SIYI-T2AUI-20261123 */
+.siyi-task-alarm-btn{margin-left:auto;min-width:30px;height:30px;border:none;border-radius:8px;background:transparent;color:var(--dsw-alias-label-secondary);display:grid;place-items:center;cursor:pointer;touch-action:manipulation}
 `
 
     function ensureCss() {
@@ -267,16 +519,27 @@ window.__ModuleLoader__.load({
     }
 
     // ── D2 列表 ─────────────────────────────────────────────────────
-    function ListView({ onOpen, onGraph, onMonth, onTasks, onNew, toast }) {
+    function ListView({ onOpen, onGraph, onMonth, onTasks, onNew, folder: folderProp, setFolder: setFolderProp, toast }) {
       const [items, setItems] = useState([])
       const [loading, setLoading] = useState(true)
       const [q, setQ] = useState('')
       const [kind, setKind] = useState('')
+      // SIYI-SORT-20261120：排序方式（前端排序，服务端仍按更新时间返回）
+      const [sortBy, setSortBy] = useState('updated-desc')
+      // SIYI-LONGPRESS-20261120：长按弹出的操作菜单
+      const [menuFor, setMenuFor] = useState(null)   // {id, title}
+      const [moreOpen, setMoreOpen] = useState(false)   // SIYI-SIMPLE-20261120：顶栏更多菜单
+      // SIYI-K1UI-20261123：知识收件箱
+      const [inboxOpen, setInboxOpen] = useState(false)
+      const [inboxItems, setInboxItems] = useState([])
+      const [sortOpen, setSortOpen] = useState(false)   // SIYI-SORTBTN-20261120：排序菜单
+      const [listVer, setListVer] = useState(0)      // 操作后刷新列表
       const [stats, setStats] = useState(null)
       // 文件夹栏状态。
       // folder 用 '' 表示「全部」，'__none__' 表示未归类（服务端用这个特殊值区分，
       // 因为空串在服务端表示「不过滤」）。
-      const [folder, setFolder] = useState('')
+      const folder = folderProp || ''   // SIYI-FOLDER-20261126：文件夹状态提升到 NotesApp，新建笔记可继承
+      const setFolder = setFolderProp || (() => {})
       const [folders, setFolders] = useState([])
       const [unfiled, setUnfiled] = useState(0)
       const [newFolder, setNewFolder] = useState(null)   // 非 null 时显示新建输入框
@@ -310,6 +573,18 @@ window.__ModuleLoader__.load({
       }, [q, kind, folder])
 
       useEffect(() => { load() }, [load])
+      useEffect(() => { if (listVer) load() }, [listVer])   // SIYI-LISTMENU-20261120
+
+      // SIYI-SORT-20261120：前端排序
+      const sorted = useMemo(() => {
+        const arr = (items || []).slice()
+        const t = (v) => String(v || '')
+        if (sortBy === 'updated-asc') arr.sort((a, b) => t(a.updated).localeCompare(t(b.updated)))
+        else if (sortBy === 'created-desc') arr.sort((a, b) => t(b.created).localeCompare(t(a.created)))
+        else if (sortBy === 'title-asc') arr.sort((a, b) => t(a.title).localeCompare(t(b.title), 'zh'))
+        else arr.sort((a, b) => t(b.updated).localeCompare(t(a.updated)))
+        return arr
+      }, [items, sortBy])
 
       // 新建文件夹：调服务端接口，成功后刷新列表。
       const createFolder = async (name) => {
@@ -333,30 +608,38 @@ window.__ModuleLoader__.load({
 
       return h('div', { className: 'siyi-notes-root' },
         h('div', { className: 'siyi-notes-bar' },
-          h('input', {
-            className: 'siyi-notes-search', placeholder: '搜索标题或标签…',
-            value: q, onChange: (e) => setQ(e.target.value),
-          }),
-          h('button', { className: 'siyi-notes-btn', onClick: onNew }, '新建'),
-          h('button', { className: 'siyi-notes-btn', onClick: onMonth, title: '月历' }, '日历'),
-          h('button', { className: 'siyi-notes-btn', onClick: onTasks, title: '待办清单' }, '待办'),
-          h('button', { className: 'siyi-notes-btn', onClick: onGraph, title: '知识图谱' }, '图谱'),
-          // 类型筛选改成下拉，挪到顶栏末尾。
-          // 原因：下面的横向空间给了文件夹栏，两个维度都用横排按钮会挤在一起，
-          // 窄屏上根本点不准。类型是次要筛选，下拉更省空间。
-          h('select', {
-            className: 'siyi-notes-kind-select',
-            value: kind,
-            onChange: (e) => setKind(e.target.value),
-          }, [
-            ['', '全部类型'],
-            ['note', '笔记'],
-            ['task', '待办'],
-            ['source', '资料'],
-            ['daily', '日记'],
-            ['moc', '索引'],
-          ].map(([k, label]) => h('option', { key: k || 'all', value: k }, label))),
+          // SIYI-OINPUT-20261119：官方 Input（带搜索图标）
+          OInput
+            ? h(OInput, {
+                icon: I.search ? h(I.search, { size: 16 }) : null,
+                className: 'siyi-notes-search-wrap',
+                placeholder: '搜索标题、正文或标签…',
+                value: q,
+                onChange: (e) => setQ(e.target.value),
+              })
+            : h('input', {
+                className: 'siyi-notes-search', placeholder: '搜索标题、正文或标签…',
+                value: q, onChange: (e) => setQ(e.target.value),
+              }),
+          // SIYI-SORTBTN-20261120：排序按钮（搜索右、更多左）
+          h('button', {
+            className: 'siyi-notes-btn siyi-btn-icon',
+            title: '排序', 'aria-label': '排序',
+            onClick: () => { setSortOpen(v => !v); setMoreOpen(false) },
+          }, I.refresh ? h(I.refresh, { size: 18 }) : '⇅'),
+          // SIYI-SIMPLE-20261120：顶栏更多菜单入口
+          h('button', {
+            className: 'siyi-notes-btn siyi-btn-icon',
+            title: '更多功能', 'aria-label': '更多功能',
+            onClick: () => { setMoreOpen(v => !v); setSortOpen(false) },
+          }, I.more ? h(I.more, { size: 18 }) : '⋯'),
         ),
+        // SIYI-LISTIA-20261119：低频功能移到第二行，不再挤占搜索框
+        h('div', { className: 'siyi-notes-tools' },
+          // SIYI-TODOINMORE-20261120：待办功能已全部收进顶栏 ⋯ 菜单
+          // SIYI-SIMPLE-20261120：日历/待办/图谱已收进顶栏 ⋯ 菜单
+          // SIYI-SORTBTN-20261120：类型/排序已收进顶栏菜单与排序按钮
+                  ),
         // 文件夹栏：替代原来的类型栏（全部/笔记/待办/资料/日记/索引）。
         // 数据来自笔记 frontmatter 的 folder 字段，vault 已有 60 篇笔记、
         // 53 篇带 folder（现有「资讯」「知识」两个真实文件夹）。
@@ -365,11 +648,13 @@ window.__ModuleLoader__.load({
             className: 'siyi-notes-btn' + (folder === '' ? ' on' : ''),
             onClick: () => setFolder(''),
           }, '全部'),
-          folders.map(f => h('button', {
-            key: f.name,
-            className: 'siyi-notes-btn' + (folder === f.name ? ' on' : ''),
-            onClick: () => setFolder(f.name),
-          }, f.name, h('span', { className: 'siyi-notes-folder-count' }, String(f.count)))),
+          folders.map(f => (OPill
+            ? h(OPill, { key: f.name, active: folder === f.name, onClick: () => setFolder(f.name) }, f.name + ' ' + f.count)
+            : h('button', {
+                key: f.name,
+                className: 'siyi-notes-btn' + (folder === f.name ? ' on' : ''),
+                onClick: () => setFolder(f.name),
+              }, f.name, h('span', { className: 'siyi-notes-folder-count' }, String(f.count))))),
           unfiled > 0 ? h('button', {
             className: 'siyi-notes-btn' + (folder === '__none__' ? ' on' : ''),
             onClick: () => setFolder('__none__'),
@@ -380,7 +665,7 @@ window.__ModuleLoader__.load({
                 className: 'siyi-notes-btn siyi-notes-folder-add',
                 onClick: () => setNewFolder(''),
                 title: '新建文件夹',
-              }, '＋')
+              }, I.folder ? h(I.folder, { size: 16 }) : '＋')
             : h('span', { className: 'siyi-notes-folder-new' },
                 h('input', {
                   className: 'siyi-notes-folder-input',
@@ -402,26 +687,153 @@ window.__ModuleLoader__.load({
                   onClick: () => setNewFolder(null),
                 }, '取消'),
               ),
-          stats ? h('span', {
-            className: 'siyi-notes-btn',
-            style: { cursor: 'default', opacity: .7, marginLeft: 'auto', whiteSpace: 'nowrap' },
-          }, '共 ' + stats.total + ' 篇') : null,
+          // SIYI-SIMPLE-20261120：统计数已移入 ⋯ 菜单
         ),
         h('div', { className: 'siyi-notes-list' },
           loading ? h('div', { className: 'siyi-notes-empty' }, '读取中…')
-            : items.length === 0 ? h('div', { className: 'siyi-notes-empty' }, q ? '没有匹配的笔记' : '还没有笔记，点「新建」开始')
-              : items.map(it => h('div', {
-                  key: it.id, className: 'siyi-notes-item', onClick: () => onOpen(it.id),
-                },
-                h('div', { className: 'siyi-notes-item-title' }, it.title || '(无标题)'),
-                h('div', { className: 'siyi-notes-item-meta' },
-                  h('span', null, kindLabel(it.kind)),
-                  it.due ? h('span', { style: { color: 'var(--dsw-alias-label-warning, #d97706)' } }, '截止 ' + it.due) : null,
-                  h('span', null, fmtTime(it.updated)),
-                  (it.tags || []).slice(0, 2).map(t => h('span', { key: t, className: 'siyi-notes-tag' }, '#' + t)),
-                ),
-              )),
+            : sorted.length === 0 ? h('div', { className: 'siyi-notes-empty' }, q ? '没有匹配的笔记' : '还没有笔记，点「新建」开始')
+              : sorted.map(it => {
+                  // SIYI-LONGPRESS-20261120：长按 500ms 弹操作菜单，短按打开
+                  return h('div', {
+                    key: it.id, className: 'siyi-notes-item',
+                    // SIYI-SIMPLE1-20261120-ITEM：无障碍语义 + 键盘可达
+                    role: 'button', tabIndex: 0,
+                    'aria-label': it.title || '(无标题)',
+                    onKeyDown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(it.id) } },
+                    onContextMenu: (e) => { e.preventDefault(); setMenuFor({ id: it.id, title: it.title || '(无标题)' }) },
+                    onPointerDown: (e) => {
+                      if (e.pointerType === 'mouse') return
+                      const t = setTimeout(() => {
+                        setMenuFor({ id: it.id, title: it.title || '(无标题)' })
+                      }, 500)
+                      e.currentTarget.__lp = t
+                    },
+                    onPointerUp: (e) => { if (e.currentTarget.__lp) clearTimeout(e.currentTarget.__lp) },
+                    onPointerLeave: (e) => { if (e.currentTarget.__lp) clearTimeout(e.currentTarget.__lp) },
+                    onPointerCancel: (e) => { if (e.currentTarget.__lp) clearTimeout(e.currentTarget.__lp) },
+                    onClick: () => { if (!menuFor) onOpen(it.id) },
+                  },
+                  h('div', { className: 'siyi-notes-item-title', title: it.title || '' }, it.title || '(无标题)'),
+                  h('div', { className: 'siyi-notes-item-meta' },
+                    // SIYI-SIMPLE1-20261120-ITEM：类型已移除，保留色点语义由 title 承载
+                    it.due ? h('span', { style: { color: 'var(--dsw-alias-label-warning, #d97706)' } }, '截止 ' + it.due) : null,
+                    h('span', null, fmtTime(it.updated)),
+                    (it.tags || []).slice(0, 1).map(t => h('span', { key: t, className: 'siyi-notes-tag' }, '#' + t)),
+                  ),
+                  // SIYI-SIMPLE1-20261120-ITEM：长按的无障碍等价入口
+                  h('button', {
+                    className: 'siyi-notes-item-more',
+                    'aria-label': '更多操作',
+                    onClick: (e) => { e.stopPropagation(); setMenuFor({ id: it.id, title: it.title || '(无标题)' }) },
+                  }, I.more ? h(I.more, { size: 16 }) : '⋯'),
+                  )
+                }),
         ),
+        // SIYI-SIMPLE-20261120：顶栏 ⋯ 菜单（含统计/日历/待办/图谱）
+        moreOpen ? h('div', { className: 'siyi-simple-menu', onClick: () => setMoreOpen(false) },
+          h('div', { className: 'siyi-simple-menu-panel', onClick: (e) => e.stopPropagation() },
+            h('div', { className: 'siyi-simple-menu-total' }, '共 ' + (stats ? stats.total : 0) + ' 篇'),
+            // SIYI-MENUICONS-20261120：图标 + 文字，对齐主对话菜单
+            h('button', { className: 'siyi-simple-menu-item', onClick: () => { setMoreOpen(false); onTasks() } }, I.checklist ? h(I.checklist,{size:16}) : null, h('span',null,'待办清单')),
+            h('button', { className: 'siyi-simple-menu-item', onClick: async () => {
+              setMoreOpen(false)
+              try { const r = await api('/inbox-list'); setInboxItems(r.items || []); setInboxOpen(true) }
+              catch (e) { toast('收件箱读取失败：' + e.message) }
+            } }, I.data ? h(I.data,{size:16}) : null, h('span',null,'知识收件箱')),   // SIYI-K1UI-20261123
+            h('button', { className: 'siyi-simple-menu-item', onClick: () => { setMoreOpen(false); onGraph() } }, I.graph ? h(I.graph,{size:16}) : null, h('span',null,'知识图谱')),
+            h('div', { className: 'siyi-simple-menu-total' }, '类型筛选'),
+            h('button', { className: 'siyi-simple-menu-item' + (kind === '' ? ' on' : ''), onClick: () => { setKind(''); setMoreOpen(false) } }, I.list ? h(I.list,{size:16}) : null, h('span',null,'全部类型'), kind === '' && I.check ? h('span',{className:'siyi-simple-menu-check'},h(I.check,{size:15})) : null),
+            h('button', { className: 'siyi-simple-menu-item' + (kind === 'note' ? ' on' : ''), onClick: () => { setKind('note'); setMoreOpen(false) } }, I.edit ? h(I.edit,{size:16}) : null, h('span',null,'笔记'), kind === 'note' && I.check ? h('span',{className:'siyi-simple-menu-check'},h(I.check,{size:15})) : null),
+            h('button', { className: 'siyi-simple-menu-item' + (kind === 'task' ? ' on' : ''), onClick: () => { setKind('task'); setMoreOpen(false) } }, I.checklist ? h(I.checklist,{size:16}) : null, h('span',null,'待办'), kind === 'task' && I.check ? h('span',{className:'siyi-simple-menu-check'},h(I.check,{size:15})) : null),
+            h('button', { className: 'siyi-simple-menu-item' + (kind === 'source' ? ' on' : ''), onClick: () => { setKind('source'); setMoreOpen(false) } }, I.data ? h(I.data,{size:16}) : null, h('span',null,'资料'), kind === 'source' && I.check ? h('span',{className:'siyi-simple-menu-check'},h(I.check,{size:15})) : null),
+            h('button', { className: 'siyi-simple-menu-item' + (kind === 'daily' ? ' on' : ''), onClick: () => { setKind('daily'); setMoreOpen(false) } }, I.calendar ? h(I.calendar,{size:16}) : null, h('span',null,'日记'), kind === 'daily' && I.check ? h('span',{className:'siyi-simple-menu-check'},h(I.check,{size:15})) : null),
+          )) : null,
+        // SIYI-SORTBTN-20261120：排序菜单（含按字母排序）
+        sortOpen ? h('div', { className: 'siyi-simple-menu', onClick: () => setSortOpen(false) },
+          h('div', { className: 'siyi-simple-menu-panel', onClick: (e) => e.stopPropagation() },
+            [
+              ['updated-desc', '最近更新', 'clock'],
+              ['updated-asc', '最早更新', 'clock'],
+              ['created-desc', '最近创建', 'refresh'],
+              ['title-asc', '按字母排序', 'text'],
+            ].map(([v, label, icon]) => h('button', {
+              key: v,
+              className: 'siyi-simple-menu-item' + (sortBy === v ? ' on' : ''),
+              onClick: () => { setSortBy(v); setSortOpen(false) },
+            },
+              icon === 'clock' && I.clock ? h(I.clock,{size:16}) : null,
+              icon === 'text' && I.code ? h(I.code,{size:16}) : null,
+              icon === 'refresh' && I.refresh ? h(I.refresh,{size:16}) : null,
+              icon === 'sort' && I.compare ? h(I.compare,{size:16}) : null,
+              h('span', null, label),
+              sortBy === v && I.check ? h('span',{className:'siyi-simple-menu-check'},h(I.check,{size:15})) : null)),
+          )) : null,
+        // SIYI-LISTIA-20261119：唯一主按钮——浮动新建
+        // SIYI-ICONLIST-20261119：浮动新建用官方 plus 图标
+        h('button', { className: 'siyi-notes-fab', onClick: onNew, title: '新建笔记' },
+          I.plus ? h(I.plus, { size: 26 }) : '+'),
+        // SIYI-K1UI-20261123：知识收件箱浮层
+        inboxOpen ? h('div', { className: 'siyi-simple-menu', onClick: () => setInboxOpen(false) },
+          h('div', { className: 'siyi-simple-menu-panel', onClick: (e) => e.stopPropagation(), style: { maxHeight: '70vh', overflowY: 'auto' } },
+            h('div', { className: 'siyi-simple-menu-total' }, '知识收件箱 · ' + inboxItems.length + ' 待审'),
+            inboxItems.length === 0
+              ? h('div', { style: { padding: 12, fontSize: 12, color: 'var(--dsw-alias-label-tertiary)' } }, '暂无待审候选')
+              : inboxItems.map(it => h('div', { key: it.id, style: { padding: '8px 0', borderBottom: '.5px solid var(--dsw-alias-border-l3)' } },
+                  h('div', { style: { fontSize: 12, fontWeight: 600 } }, it.title),
+                  h('div', { style: { fontSize: 10, color: 'var(--dsw-alias-label-tertiary)', margin: '2px 0 6px' } }, (it.source && it.source.type) || '手动'),
+                  h('div', { style: { display: 'flex', gap: 6 } },
+                    h('button', { className: 'siyi-notes-btn', onClick: async () => {
+                      try { const r = await api('/inbox-accept', { method: 'POST', body: JSON.stringify({ id: it.id }) }); if (r.ok) { toast('已入库'); setInboxItems(v => v.filter(x => x.id !== it.id)) } else toast(r.error || '采纳失败') }
+                      catch (e) { toast('采纳失败：' + e.message) }
+                    } }, '采纳'),
+                    h('button', { className: 'siyi-notes-btn', onClick: async () => {
+                      try { await api('/inbox-reject', { method: 'POST', body: JSON.stringify({ id: it.id }) }); setInboxItems(v => v.filter(x => x.id !== it.id)) }
+                      catch (e) { toast('忽略失败：' + e.message) }
+                    } }, '忽略'),
+                  ),
+                )),
+          ))
+         : null,
+        // SIYI-LONGPRESS-20261120：长按列表项弹出的操作菜单
+        menuFor
+          ? (OModal
+              ? h(OModal, {
+                  open: true,
+                  onClose: () => setMenuFor(null),
+                  title: menuFor.title,
+                  closeLabel: '关闭',
+                }, h('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(88px, 1fr))', gap: 8 } },
+                  h(OButton, {
+                    variant: 'outline', size: 'sm',
+                    icon: I.edit ? h(I.edit, { size: 15 }) : null,
+                    onClick: () => { const id = menuFor.id; setMenuFor(null); onOpen(id) },
+                  }, '打开'),
+                  h(OButton, {
+                    variant: 'outline', size: 'sm',
+                    icon: I.link ? h(I.link, { size: 15 }) : null,
+                    onClick: async () => {
+                      try { await navigator.clipboard.writeText('[[' + menuFor.title + ']]'); toast('已复制双链') }
+                      catch { toast('复制失败') }
+                      setMenuFor(null)
+                    },
+                  }, '复制双链'),
+                  h(OButton, {
+                    variant: 'outline', size: 'sm',
+                    icon: I.trash ? h(I.trash, { size: 15 }) : null,
+                    onClick: async () => {
+                      const id = menuFor.id
+                      if (!window.confirm('确定删除「' + menuFor.title + '」？会移到回收站。')) return
+                      setMenuFor(null)
+                      try {
+                        const r = await deleteNote(id)
+                        if (r && r.ok) { toast('已移到回收站'); setListVer(v => v + 1) }
+                        else toast('删除失败：' + ((r && r.error) || '未知'))
+                      } catch (e) { toast('删除失败：' + e.message) }
+                    },
+                  }, '删除')
+                ))
+              : null)
+          : null,
       )
     }
 
@@ -438,14 +850,69 @@ window.__ModuleLoader__.load({
 
     // AI 助手面板：独立组件，状态自管。onInsert(reply) 回传正文，由 EditorView 走
     // 已有的 insertRaw 光标处插入逻辑；noteText 由父级按需传入（引用当前笔记）。
-    const AI_QUICK = ['润色这篇笔记', '总结要点', '续写下文', '帮我起个标题']
-    function AIPanel({ noteText, onInsert, onClose }) {
-      const [msgs, setMsgs] = useState([])       // [{role:'me'|'ai'|'err', text}]
+    const AI_QUICK = ['润色这篇笔记', '总结要点', '帮我起个标题']
+    // SIYI-COMPOSERCLONE-20261120：照官方 composer（对话输入框）结构复刻
+    // 结构取自 dsh-client-ui-conversation 的 InputBar：
+    //   root > notice? > card > [editor, row[tools(+,模型), trailing(右侧操作)]]
+    // CSS 值也照抄官方 InputBar_module 的关键规则，保证视觉一致。
+    // SIYI-AITOAST-SCOPE-20261120：AIPanel 在 NotesApp 外部，toast 必须作为参数传入，否则作用域未定义导致白屏
+    function AIPanel({ noteText, onInsert, onClose, bodyRef, onApplyEdit, noteId, revision, toast }) {
+      // SIYI-EDITUI-20261120：选区改写状态
+      const [editSel, setEditSel] = useState('')
+      const [editInstr, setEditInstr] = useState('')
+      const [editProposal, setEditProposal] = useState(null)
+      const [editBusy, setEditBusy] = useState(false)
+      const [msgs, setMsgs] = useState([])
       const [input, setInput] = useState('')
-      const [quote, setQuote] = useState(true)    // 默认引用当前笔记
+      const [quote, setQuote] = useState(true)
       const [busy, setBusy] = useState(false)
       const listRef = useRef(null)
       const inputRef = useRef(null)
+      // SIYI-AIREALMODELS-20261120：模型目录从服务端拉取，与主对话模型选择保持一致
+      const [modelGroups, setModelGroups] = useState([])
+      const [modelSel, setModelSel] = useState(null)   // {provider, model, name}
+      const [modelMenuOpen, setModelMenuOpen] = useState(false)
+      const [modelQuery, setModelQuery] = useState('')
+      // SIYI-AIBUTTONS-20261120：中止当前请求
+      const abortRef = useRef(null)
+
+      useEffect(() => {
+        let alive = true
+        fetch('/siyi-vault/models').then(r => r.json()).then(j => {
+          if (!alive || !j || !j.ok) return
+          const groups = Array.isArray(j.groups) ? j.groups : []
+          setModelGroups(groups)
+          // 默认选服务端给的 default（已优先免费可用模型），否则第一个
+          const pick = (prov, mid) => {
+            const g = groups.find(x => x.id === prov)
+            const m = g && g.models.find(x => x.id === mid)
+            return m ? { provider: prov, model: mid, name: m.name || mid } : null
+          }
+          const d = j.default && j.default.provider ? pick(j.default.provider, j.default.model) : null
+          if (d) setModelSel(d)
+          else {
+            for (const g of groups) {
+              if (g.models.length) { setModelSel({ provider: g.id, model: g.models[0].id, name: g.models[0].name }); break }
+            }
+          }
+        }).catch(() => {})
+        return () => { alive = false }
+      }, [])
+
+      // 按查询过滤分组（官方同款：>4 个模型才显示搜索）
+      const visibleGroups = useMemo(() => {
+        const q = modelQuery.trim().toLowerCase()
+        return modelGroups.map(g => ({
+          ...g,
+          models: q ? g.models.filter(m =>
+            String(m.name || '').toLowerCase().includes(q) ||
+            String(m.id || '').toLowerCase().includes(q)) : g.models,
+        })).filter(g => g.models.length > 0)
+      }, [modelGroups, modelQuery])
+      const modelChoices = useMemo(
+        () => visibleGroups.flatMap(g => g.models.map(m => ({ group: g, model: m }))),
+        [visibleGroups]
+      )
 
       useEffect(() => {
         const el = listRef.current
@@ -459,71 +926,261 @@ window.__ModuleLoader__.load({
         setInput('')
         setBusy(true)
         try {
-          // 只有打开「引用笔记」且有正文时才把 noteText 发给代理；纯提问不夹带正文。
           const ctxText = quote && noteText && noteText.trim() ? noteText : ''
-          const r = await chatWithAI(q, ctxText)
+          const chosen = modelSel
+          if (!chosen) throw new Error('模型目录尚未就绪')
+          const ac = new AbortController()
+          abortRef.current = ac
+          const r = await chatWithAI(q, ctxText, { provider: chosen.provider, model: chosen.model }, ac.signal)
           if (!r || !r.ok) throw new Error((r && r.error) || 'AI 回复失败')
           setMsgs(m => [...m, { role: 'ai', text: String(r.reply || '') }])
         } catch (e) {
           setMsgs(m => [...m, { role: 'err', text: '请求失败：' + (e && e.message ? e.message : String(e)) }])
         } finally {
+          abortRef.current = null
           setBusy(false)
           if (inputRef.current) try { inputRef.current.focus() } catch {}
         }
-      }, [busy, quote, noteText])
+      }, [busy, quote, noteText, modelSel])
 
-      return h('div', { className: 'siyi-notes-ai' },
-        h('div', { className: 'siyi-notes-ai-head' },
-          h('span', { className: 'siyi-notes-ai-title' }, 'AI 助手'),
-          h('button', {
-            className: 'siyi-notes-ai-quote' + (quote ? ' on' : ''),
-            title: '把当前笔记正文作为上下文一并发给 AI',
-            onClick: () => setQuote(v => !v),
-          }, (quote ? '✓ ' : '') + '引用当前笔记'),
-          h('button', { className: 'siyi-notes-ai-close', title: '收起 AI 助手', onClick: onClose }, '✕'),
-        ),
-        h('div', { className: 'siyi-notes-ai-list', ref: listRef },
-          msgs.length === 0
-            ? h('div', { style: { color: 'var(--dsw-alias-label-tertiary)', fontSize: 12, padding: '6px 2px' } },
-                '可向 AI 提问，或点下方快捷指令。打开「引用当前笔记」时，AI 会参考正文。')
-            : msgs.map((m, i) => h('div', { key: i, className: 'siyi-notes-ai-msg ' + m.role },
-                m.text,
-                m.role === 'ai' && m.text ? h('button', {
-                  className: 'siyi-notes-ai-insert',
-                  title: '插入到笔记光标处',
-                  onClick: () => onInsert(m.text),
-                }, '插入到笔记') : null,
+      // SIYI-EDITUI-20261120：读取正文选区
+      const grabSelection = () => {
+        const ta = bodyRef && bodyRef.current
+        if (!ta) { toast('正文未就绪'); return }
+        const sel = String(ta.value || '').slice(ta.selectionStart, ta.selectionEnd)
+        if (!sel.trim()) { toast('请先在正文中选中要改写的文字'); return }
+        setEditSel(sel)
+        setEditProposal(null)
+        setEditInstr('')
+      }
+
+      // SIYI-EDITUI-20261120：请求 AI 生成改稿提案
+      const requestEdit = useCallback(async () => {
+        if (!editInstr.trim() || !editSel || editBusy) return
+        setEditBusy(true)
+        try {
+          const r = await fetch('/siyi-vault/chat-edit', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              noteId: noteId || '',
+              revision: revision || '',
+              selection: editSel,
+              instruction: editInstr.trim(),
+              body: String((bodyRef && bodyRef.current && bodyRef.current.value) || ''),
+            }),
+          }).then(x => x.json())
+          if (!r || !r.ok) { toast('改稿失败：' + ((r && r.error) || '未知')); return }
+          setEditProposal(r.proposal)
+        } catch (e) { toast('改稿失败：' + e.message) }
+        finally { setEditBusy(false) }
+      }, [editInstr, editSel, editBusy, noteId, revision, bodyRef])
+
+      // SIYI-EDITUI-20261120：应用改稿（写回服务端 + 更新编辑器）
+      const applyEdit = useCallback(async () => {
+        if (!editProposal) return
+        setEditBusy(true)
+        try {
+          const r = await fetch('/siyi-vault/apply-edit', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: noteId, proposal: editProposal }),
+          }).then(x => x.json())
+          if (!r || !r.ok) {
+            if (r && r.code === 'CONFLICT') toast('笔记已被修改，请重新生成改稿')
+            else toast('应用失败：' + ((r && r.error) || '未知'))
+            return
+          }
+          // 回写编辑器正文（用 proposal.replacement 替换选区）
+          if (onApplyEdit) onApplyEdit(editProposal.selection, editProposal.replacement)
+          toast('已应用改写')
+          setEditProposal(null)
+          setEditInstr('')
+          setEditSel('')
+        } catch (e) { toast('应用失败：' + e.message) }
+        finally { setEditBusy(false) }
+      }, [editProposal, noteId, onApplyEdit])
+
+      const canSend = !!input.trim() && !busy
+      // SIYI-AIREALMODELS-20261120：模型选择（官方 Modal + 分组列表，同主对话的结构）
+      // SIYI-MODELUI-20261120：模型选择弹窗——照官方 ModelSelect 结构与语义
+      // 原生元素 + 官方 CSS token，避免官方 Menu/Button 在独立面板里崩溃。
+      // 官方用 role="menuitemradio" + aria-checked，左对齐行，灰色分组标题。
+      // SIYI-MODELPOP-20261120：模型选择浮层（popover，锚在按钮上方）——照主对话的样式。
+      // 用原生元素 + 官方 CSS token，不用官方 Menu（独立面板里会白屏）。
+      const modelMenu = modelMenuOpen
+        ? h('div', { className: 'siyi-pop-scrim', onClick: () => setModelMenuOpen(false) },
+            h('div', { className: 'siyi-pop-panel', onClick: (e) => e.stopPropagation() },
+              // 搜索框
+              h('input', {
+                className: 'siyi-pop-search',
+                placeholder: '搜索模型…',
+                value: modelQuery,
+                autoFocus: true,
+                onChange: (e) => setModelQuery(e.target.value),
+              }),
+              h('div', { className: 'siyi-pop-list', role: 'menu' },
+                visibleGroups.map(g => h('div', { key: g.id, className: 'siyi-pop-group' },
+                  h('div', { className: 'siyi-pop-groupname' }, g.name),
+                  g.models.map(m => {
+                    const on = modelSel && modelSel.provider === g.id && modelSel.model === m.id
+                    return h('button', {
+                      key: g.id + '/' + m.id,
+                      type: 'button',
+                      role: 'menuitemradio',
+                      'aria-checked': on ? 'true' : 'false',
+                      className: 'siyi-pop-item' + (on ? ' on' : ''),
+                      onClick: () => {
+                        setModelSel({ provider: g.id, model: m.id, name: m.name })
+                        setModelMenuOpen(false)
+                        setModelQuery('')
+                      },
+                    }, m.name || m.id)
+                  })
+                ))
+              ),
+              // 底部固定当前模型（照主对话底部栏）
+              h('div', { className: 'siyi-pop-current' },
+                h('span', null, '模型'),
+                h('span', { className: 'siyi-pop-current-val' },
+                  modelSel ? (modelSel.name || modelSel.model) : '加载模型…'),
+                h('span', { className: 'siyi-pop-current-check' }, I.check ? h(I.check, { size: 16 }) : '✓'),
+              ),
+            ),
+          )
+        : null
+
+      return h('div', { className: 'siyi-cmp-root' },
+        modelMenu,
+        // 对话记录（官方 composer 本身不含历史，这里单独放在卡片上方）
+        msgs.length || busy
+          ? h('div', { className: 'siyi-cmp-log', ref: listRef },
+              msgs.map((m, i) => h('div', { key: i, className: 'siyi-cmp-msg ' + m.role },
+                h('div', { className: 'siyi-cmp-bubble' }, m.text),
+                m.role === 'ai' && m.text
+                  ? h('button', {
+                      className: 'siyi-cmp-insert',
+                      onClick: () => onInsert(m.text),
+                    }, '插入到笔记')
+                  : null,
               )),
-          busy ? h('div', { className: 'siyi-notes-ai-msg err' }, 'AI 思考中…') : null,
-        ),
-        h('div', { className: 'siyi-notes-ai-quick' },
-          AI_QUICK.map(q => h('button', {
-            key: q, disabled: busy,
-            onClick: () => send(q),
-          }, q)),
-        ),
-        h('div', { className: 'siyi-notes-ai-inputbar' },
+              busy
+                ? h('div', { className: 'siyi-cmp-msg ai' },
+                    h('div', { className: 'siyi-cmp-bubble' },
+                      OShimmer ? h(OShimmer, { active: true }, '正在思考…') : '正在思考…'))
+                : null,
+            )
+          : null,
+        // 官方 composer 卡片
+        h('div', { className: 'siyi-cmp-card' },
           h('textarea', {
             ref: inputRef,
-            className: 'siyi-notes-ai-input',
+            className: 'siyi-cmp-editor',
             rows: 1,
-            placeholder: '输入问题，Enter 发送…',
+            placeholder: '发消息或创建任务，/ 调用指令，@ 文件或对话',
             value: input,
-            onChange: (e) => setInput(e.target.value),
+            onChange: (e) => {
+              setInput(e.target.value)
+              const el = e.target
+              el.style.height = 'auto'
+              el.style.height = Math.min(el.scrollHeight, 160) + 'px'
+            },
             onKeyDown: (e) => {
-              if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(input) }
+              if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (canSend) send(input) }
             },
           }),
-          h('button', {
-            className: 'siyi-notes-ai-send',
-            disabled: busy || !input.trim(),
-            onClick: () => send(input),
-          }, busy ? '…' : '发送'),
+          h('div', { className: 'siyi-cmp-row' },
+            h('div', { className: 'siyi-cmp-tools' },
+              // 「+」按钮（对齐官方 add）
+              h('button', {
+                className: 'siyi-cmp-add',
+                title: '引用当前笔记',
+                onClick: () => setQuote(v => !v),
+                style: quote ? { background: 'var(--dsw-alias-state-business-primary)', color: '#fff' } : {},
+              }, I.plus ? h(I.plus, { size: 14 }) : '+'),
+              // SIYI-MODELICON-20261120：与主对话模型按钮一致（左 IconData + 名称 + 下箭头）
+              h('button', {
+                className: 'siyi-cmp-model',
+                title: '模型：' + (modelSel ? (modelSel.name || modelSel.model) : '加载中…') + '（仅本次）',
+                onClick: () => setModelMenuOpen(v => !v),
+              },
+                I.data ? h(I.data, { size: 15, className: 'siyi-cmp-model-icon' }) : null,
+                // SIYI-HIDEMODELNAME-20261120：隐藏名称，只留图标+箭头；完整模型名放 title
+                I.chevronDown ? h(I.chevronDown, { size: 14, className: 'siyi-cmp-model-chevron' }) : h('span', null, '⌄'),
+              ),
+            ),
+            h('div', { className: 'siyi-cmp-trailing' },
+              // SIYI-AIBUTTONS-20261120：收起（对应官方关闭）
+              h('button', {
+                className: 'siyi-cmp-iconbtn',
+                title: '收起 AI',
+                onClick: onClose,
+              }, I.close ? h(I.close, { size: 18 }) : '✕'),
+              // SIYI-AIBUTTONS-20261120：停止（忙碌时显示，对齐官方 interruptible 停止按钮）
+              busy
+                ? h('button', {
+                    className: 'siyi-cmp-iconbtn',
+                    title: '停止生成',
+                    onClick: () => { setMsgs(m => m); abortRef.current && abortRef.current() },
+                  }, I.stop ? h(I.stop, { size: 18 }) : '■')
+                : null,
+              // 发送（官方圆形主色按钮）
+              h('button', {
+                className: 'siyi-cmp-send' + (canSend ? '' : ' off'),
+                disabled: !canSend,
+                onClick: () => send(input),
+                title: '发送',
+              }, busy
+                  ? (I.loading ? h(I.loading, { size: 18 }) : '…')
+                  : (I.send ? h(I.send, { size: 18 }) : '↑')),
+            ),
+          ),
         ),
+        // SIYI-CHIPLINE-20261120：chip 行（改写选中作为第4个chip，必然单行）
+        h('div', { className: 'siyi-cmp-chipline' },
+          AI_QUICK.map(q => h('button', {
+            key: q,
+            className: 'siyi-cmp-chip',
+            disabled: busy,
+            onClick: () => send(q),
+          }, q)),
+          h('button', {
+            key: '__edit__',
+            className: 'siyi-cmp-chip',
+            title: '先选中正文文字，再点这里',
+            onClick: grabSelection,
+          }, I.edit ? h(I.edit, { size: 14 }) : null, '改写选中'),
+        ),
+        // SIYI-CHIPLINE-20261120：展开区（仅在改写时显示，占独立一行）
+        (editSel || editProposal) ? h('div', { className: 'siyi-cmp-editzone' },
+          editSel ? h('div', { className: 'siyi-cmp-editsel' }, '已选：' + editSel.slice(0, 60) + (editSel.length > 60 ? '…' : '')) : null,
+          editSel && !editProposal ? h('div', { className: 'siyi-cmp-editrow' },
+            h('input', {
+              className: 'siyi-cmp-editinput',
+              placeholder: '要求：如「改得更简洁」「换成正式语气」',
+              value: editInstr,
+              onChange: (e) => setEditInstr(e.target.value),
+            }),
+            h('button', {
+              className: 'siyi-cmp-editgo',
+              disabled: !editInstr.trim() || editBusy,
+              onClick: requestEdit,
+            }, '生成'),
+          ) : null,
+          editProposal ? h('div', { className: 'siyi-cmp-diff' },
+            h('div', { className: 'siyi-cmp-diffrow old' }, '− ' + editProposal.selection.slice(0, 100)),
+            h('div', { className: 'siyi-cmp-diffrow new' }, '+ ' + editProposal.replacement.slice(0, 100)),
+            editProposal.reason ? h('div', { className: 'siyi-cmp-reason' }, editProposal.reason) : null,
+            h('div', { className: 'siyi-cmp-editrow' },
+              h('button', { className: 'siyi-cmp-editgo', disabled: editBusy, onClick: applyEdit }, '应用'),
+              h('button', { className: 'siyi-cmp-editcancel', onClick: () => { setEditProposal(null); setEditInstr('') } }, '拒绝'),
+            ),
+          ) : null,
+        ) : null,
       )
     }
 
-    function EditorView({ id, onBack, toast }) {
+    function EditorView({ id, onBack, toast, folder: folderProp }) {
       const [note, setNote] = useState(null)
       const [title, setTitle] = useState('')
       const [body, setBody] = useState('')
@@ -534,10 +1191,31 @@ window.__ModuleLoader__.load({
       const [pinnedTop, setPinnedTop] = useState(false)
       const [fmtMenu, setFmtMenu] = useState(false)  // 格式二级菜单
       const [insMenu, setInsMenu] = useState(false)  // 插入二级菜单
+      const [moreMenu, setMoreMenu] = useState(false)  // SIYI-MORE-20261120：更多菜单
       const [imgBusy, setImgBusy] = useState(false)   // 图片上传中
       const [aiOpen, setAiOpen] = useState(false)     // AI 助手面板展开/收起
+      const [folder, setFolder] = useState(folderProp || '')   // SIYI-FOLDER-20261126
+      const [folderMenu, setFolderMenu] = useState(false)   // SIYI-FOLDER-20261126
+      const [folders, setFolders] = useState([])   // SIYI-FOLDER-20261126
+      useEffect(() => {
+        fetch('/siyi-vault/folders').then(r => r.json()).then(f => { if (f && f.ok) setFolders(f.folders || []) }).catch(() => {})
+      }, [])
       const bodyRef = useRef(null)
       const titleRef = useRef(null)                   // 标题 textarea，用来自动增高
+      // SIYI-S0-SAVE-20261119：服务端 revision 基线。更新必须带它，否则后端拒绝（CONFLICT 保护）。
+      const revisionRef = useRef(null)                // 当前已保存内容的 revision
+      const savingRef = useRef(false)                 // 保存中标记（避免闭包 stale）
+      // SIYI-DRAFT-20261119：本地草稿（断网/切后台/杀进程可恢复）
+      const draftKey = 'siyi-draft:' + (id || '__new__')
+      const readDraft = () => {
+        try { return JSON.parse(localStorage.getItem(draftKey) || 'null') } catch { return null }
+      }
+      const writeDraft = (data) => {
+        try { localStorage.setItem(draftKey, JSON.stringify(data)) } catch {}
+      }
+      const clearDraft = () => {
+        try { localStorage.removeItem(draftKey) } catch {}
+      }
       // 标题随内容自动增高：先压回单行高度再按 scrollHeight 撑开，
       // 这样删除文字时也能正确收缩，不会只长不缩。
       const autoSizeTitle = (el) => {
@@ -560,6 +1238,8 @@ window.__ModuleLoader__.load({
         let alive = true
         if (!id) {
           setNote(null); setTitle(''); setBody(''); setTags('')
+          setFolder(folderProp || '')   // SIYI-FOLDER-20261126：新建笔记继承传入的文件夹
+          revisionRef.current = null                  // SIYI-S0-SAVE-20261119
           setDirty(false); setMode('edit'); setPinnedTop(false)
           historyRef.current = { stack: [''], index: 0 }
           return
@@ -568,45 +1248,109 @@ window.__ModuleLoader__.load({
           if (!alive) return
           if (!g.ok) { toast('笔记不存在'); onBack(); return }
           setNote(g)
+          revisionRef.current = g.revision || null   // SIYI-S0-SAVE-20261119
           setTitle(g.meta.title || '')
           setBody(g.body || '')
           setTags((g.meta.tags || []).join(', '))
+          setFolder(g.meta.folder || '')   // SIYI-FOLDER-20261126
           setPinnedTop(g.meta.status === 'pinned')
           // 阅读型笔记默认进阅读态，避免一进来就看到满屏 HTML 源码
           setMode(isSourceLike(g.meta, g.body) ? 'read' : 'edit')
           setDirty(false)
           historyRef.current = { stack: [g.body || ''], index: 0 }
+          // SIYI-DRAFT-20261119：若有本地草稿，恢复内容并提示（草稿优先于服务端版本）
+          try {
+            const d = readDraft()
+            if (d && (d.title !== undefined || d.body !== undefined)) {
+              if (d.title !== undefined) setTitle(d.title)
+              if (d.body !== undefined) setBody(d.body)
+              if (d.tags !== undefined) setTags(d.tags)
+              setDirty(true)
+              toast('已恢复未保存的本地草稿')
+            }
+          } catch {}
         }).catch(e => alive && toast('读取失败：' + e.message))
         return () => { alive = false }
       }, [id])
 
+      // SIYI-S0-SAVE-20261119：保存时带 revision，响应按版本隔离，失败/冲突保留 dirty 供重试。
       const doSave = useCallback(async (opts) => {
         const silent = opts && opts.silent
-        if (saving) return
+        if (savingRef.current) return
+        savingRef.current = true
         setSaving(true)
+        // 发起时快照：响应回来时若内容已变，说明保存期间又有编辑，不清 dirty
+        const snapshot = [body, title, tags].join(String.fromCharCode(0))
+        const payload = {
+          id: note ? note.id : undefined,
+          title: title.trim() || '未命名',
+          body: body,
+          tags: tags.split(/[,，]/).map(s => s.trim()).filter(Boolean),
+          kind: note ? note.meta.kind : 'note',
+        }
+        if (folder) payload.folder = folder   // SIYI-FOLDER-20261126：保存时带文件夹（新建默认归属 / 移动笔记）
+        // SIYI-T0-20261121：任务状态由待办页管理，通用编辑器不得覆盖 done/open/archived
+        if (note && note.meta && note.meta.kind === 'task') {
+          payload.status = note.meta.status || 'open'
+        } else {
+          payload.status = pinnedTop ? 'pinned' : 'active'
+        }
+        // 更新必须带 expectedRevision；新建不带
+        if (note && revisionRef.current) payload.expectedRevision = revisionRef.current
         try {
-          const payload = {
-            id: note ? note.id : undefined,
-            title: title.trim() || '未命名',
-            body: body,
-            tags: tags.split(/[,，]/).map(s => s.trim()).filter(Boolean),
-            kind: note ? note.meta.kind : 'note',
-          }
-          if (pinnedTop) payload.status = 'pinned'
           const r = await saveNote(payload)
-          if (!r.ok) throw new Error(r.error || '保存失败')
-          setDirty(false)
+          if (!r.ok) {
+            // CONFLICT：保留本地编辑和 dirty，提示用户，绝不自动覆盖
+            if (r.code === 'CONFLICT') toast('笔记已被其他端修改，请手动处理冲突')
+            else throw new Error(r.error || '保存失败')
+            return
+          }
+          // 只有内容未变（保存期间没再输入）才清 dirty，避免旧响应覆盖新编辑
+          const current = [body, title, tags].join(String.fromCharCode(0))
+          if (current === snapshot) { setDirty(false); clearDraft() }
+          revisionRef.current = r.revision || revisionRef.current
           if (!note) setNote({ id: r.id, meta: { title: payload.title, kind: payload.kind } })
           if (!silent) toast('已保存')
-        } catch (e) { toast('保存失败：' + e.message) }
-        finally { setSaving(false) }
-      }, [note, title, body, tags, pinnedTop, saving])
+        } catch (e) {
+          // 失败保留 dirty，不清除，供下次定时/手动重试
+          toast('保存失败：' + e.message)
+        } finally {
+          savingRef.current = false
+          setSaving(false)
+        }
+      }, [note, title, body, tags, pinnedTop])
 
       useEffect(() => {
         if (!dirty) return
+        // SIYI-DRAFT-20261119：每次编辑都写本地草稿（防杀进程/断网）
+        writeDraft({ title, body, tags, at: Date.now() })
         const t = setTimeout(() => doSave({ silent: true }), 1500)
         return () => clearTimeout(t)
       }, [dirty, title, body, tags, pinnedTop])
+
+      // SIYI-DRAFT-20261119：页面隐藏/离开时立即尝试保存；失败也保留本地草稿供下次恢复。
+      useEffect(() => {
+        const flush = () => {
+          if (!dirtyRef.current) return
+          // 写草稿始终执行（同步、可靠）
+          writeDraft({ title, body, tags, at: Date.now() })
+          // 尽力触发一次保存（异步，不阻塞离开）
+          try { doSaveRef.current && doSaveRef.current({ silent: true }) } catch {}
+        }
+        const onHide = () => { if (document.visibilityState === 'hidden') flush() }
+        document.addEventListener('visibilitychange', onHide)
+        window.addEventListener('pagehide', flush)
+        return () => {
+          document.removeEventListener('visibilitychange', onHide)
+          window.removeEventListener('pagehide', flush)
+        }
+      }, [title, body, tags])
+
+      // 供离开监听读取最新状态，避免闭包拿到旧值
+      const dirtyRef = useRef(false)
+      const doSaveRef = useRef(null)
+      useEffect(() => { dirtyRef.current = dirty }, [dirty])
+      useEffect(() => { doSaveRef.current = doSave }, [doSave])
 
       const pushHistory = useCallback((next) => {
         if (skipHistory.current) { skipHistory.current = false; return }
@@ -730,20 +1474,30 @@ window.__ModuleLoader__.load({
       }
 
       // 底栏图标按钮：文字用通用符号，触控区 44px
-      const IconBtn = ({ label, glyph, title, onClick, active }) => h('button', {
+      // SIYI-A11Y-20261120：底栏按钮补齐无障碍语义与触控反馈
+      const IconBtn = ({ label, glyph, icon, title, onClick, active, disabled }) => h('button', {
+        type: 'button',
         title: title || label,
+        'aria-label': title || label,
+        'aria-pressed': active === undefined ? undefined : !!active,
+        disabled: !!disabled,
         onClick,
         style: {
           minWidth: 44, minHeight: 44, flex: '1 1 0',
           display: 'flex', flexDirection: 'column', alignItems: 'center',
           justifyContent: 'center', gap: 2,
-          border: 'none', borderRadius: 10, cursor: 'pointer',
+          border: 'none', borderRadius: 10, cursor: disabled ? 'not-allowed' : 'pointer',
+          opacity: disabled ? 0.4 : 1,
           background: active ? 'var(--dsw-alias-bg-layer-3)' : 'transparent',
           color: active ? 'var(--dsw-alias-label-primary)' : 'var(--dsw-alias-label-secondary)',
           fontSize: 20, lineHeight: 1,
+          touchAction: 'manipulation',
+          WebkitTapHighlightColor: 'transparent',
+          transition: 'background .12s ease',
         },
       },
-        h('span', { style: { fontSize: 20 } }, glyph),
+        // SIYI-ICONBATCH-20261119：优先官方图标，缺则回落文字
+        icon ? h(icon, { size: 20 }) : h('span', { style: { fontSize: 20 } }, glyph),
         label ? h('span', { style: { fontSize: 10 } }, label) : null,
       )
 
@@ -757,12 +1511,12 @@ window.__ModuleLoader__.load({
         { g: 'U', t: '下划线', a: () => insert('<u>', '</u>', '下划线') },
         { g: 'S', t: '删除线', a: () => insert('~~', '~~', '删除线') },
         { g: 'H', t: '标题', a: () => insertLine('## ') },
-        { g: '❝', t: '引用', a: () => insertLine('> ') },
-        { g: '↶', t: '撤销', a: undo },
-        { g: '↷', t: '重做', a: redo },
+        { g: '❝', icon: 'quote', t: '引用', a: () => insertLine('> ') },
+        { g: '↶', icon: 'undo', t: '撤销', a: undo },
+        { g: '↷', icon: 'redo', t: '重做', a: redo },
       ]
       const insItems = [
-        { g: '☑', t: '待办', a: toggleTodo },
+        { g: '☑', icon: 'checklist', t: '待办', a: toggleTodo },
         { g: '•', t: '列表', a: () => insertLine('- ') },
         { g: '1.', t: '编号', a: () => insertLine('1. ') },
         { g: '[[', t: '双链', a: () => insert('[[', ']]', '笔记标题') },
@@ -774,25 +1528,44 @@ window.__ModuleLoader__.load({
       return h('div', { className: 'siyi-notes-root' },
         // 顶部：返回 / 标题状态 / 阅读编辑切换
         h('div', { className: 'siyi-notes-editor-head' },
-          h('button', { className: 'siyi-notes-btn', onClick: onBack }, '‹ 返回'),
+          // SIYI-OBTN-20261119：顶栏返回用官方 Button
+          OButton
+            ? h(OButton, { variant: 'ghost', size: 'sm', icon: I.back || null, onClick: onBack }, '返回')
+            : h('button', { className: 'siyi-notes-btn siyi-btn-icon', onClick: onBack }, I.back ? h(I.back, { size: 16 }) : null, h('span', null, '返回')),
           h('span', {
             style: { flex: 1, fontSize: 11, color: 'var(--dsw-alias-label-tertiary)', textAlign: 'center' },
           }, saving ? '保存中…' : (dirty ? '未保存' : '已保存')),
-          h('button', {
-            className: 'siyi-notes-btn' + (mode === 'read' ? ' on' : ''),
-            onClick: () => setMode(m => m === 'read' ? 'edit' : 'read'),
-          }, mode === 'read' ? '编辑' : '阅读'),
-          h('button', {
-            className: 'siyi-notes-btn' + (pinnedTop ? ' on' : ''),
-            onClick: () => { setPinnedTop(v => !v); setDirty(true) },
-            title: '置顶',
-          }, pinnedTop ? '★' : '☆'),
-          h('button', {
-            className: 'siyi-notes-btn' + (aiOpen ? ' on' : ''),
-            onClick: () => setAiOpen(v => !v),
-            title: 'AI 助手',
-          }, 'AI'),
+          // SIYI-NODUPMODE-20261119：编辑/阅读切换已在底栏（IconBtn「阅读/编辑」），顶栏不再重复
+          // SIYI-NOPIN-20261120：手机端不需要置顶，移除图钉按钮
+          OButton
+            ? h(OButton, {
+                variant: aiOpen ? 'primary' : 'ghost',
+                size: 'sm',
+                title: 'AI 助手',
+                onClick: () => setAiOpen(v => !v),
+                icon: I.sparkle ? h(I.sparkle, { size: 14 }) : null,
+              }, 'AI')
+            : h('button', {
+                className: 'siyi-notes-btn' + (aiOpen ? ' on' : ''),
+                onClick: () => setAiOpen(v => !v),
+                title: 'AI 助手',
+              }, 'AI'),
+            // SIYI-FOLDER-20261126：所属文件夹按钮（可移动笔记 / 新建默认归属）
+            h('button', {
+              className: 'siyi-notes-btn' + (folderMenu ? ' on' : ''),
+              onClick: () => setFolderMenu(v => !v),
+              title: '所属文件夹',
+              style: { marginLeft: 6 },
+            }, folder ? folder : '文件夹'),
         ),
+        folderMenu
+          ? h('div', { className: 'siyi-simple-menu siyi-more-scrim', onClick: () => setFolderMenu(false) },
+              h('div', { className: 'siyi-simple-menu-panel siyi-more-panel', onClick: (e) => e.stopPropagation() },
+                h('div', { className: 'siyi-simple-menu-total' }, '移动到文件夹'),
+                h('div', { className: 'siyi-simple-menu-item' + (folder === '' ? ' on' : ''), onClick: () => { setFolder(''); setFolderMenu(false); toast('已设为未归类') } }, '未归类'),
+                ...folders.map(f => h('div', { key: f.name, className: 'siyi-simple-menu-item' + (folder === f.name ? ' on' : ''), onClick: () => { setFolder(f.name); setFolderMenu(false); toast('已移动到「' + f.name + '」') } }, f.name)),
+              )
+            ) : null,
         // 内容区：独立滚动，高度占满
         h('div', { className: 'siyi-notes-editor' },
           h('textarea', {
@@ -840,24 +1613,105 @@ window.__ModuleLoader__.load({
           style: { display: 'none' },
           onChange: onPickImage,
         }),
-        // 二级菜单（在底栏上方弹出）
-        (fmtMenu || insMenu) ? h('div', {
-          style: {
-            display: 'flex', flexWrap: 'wrap', gap: 6, padding: '8px 10px',
-            borderTop: '.5px solid var(--dsw-alias-border-l3)',
-            background: 'var(--dsw-alias-bg-layer-2)', flex: 'none',
-          },
-        }, (fmtMenu ? fmtItems : insItems).map(it => h('button', {
-          key: it.t, title: it.t,
-          onMouseDown: (e) => e.preventDefault(),
-          onClick: it.a,
-          style: {
-            minWidth: 48, minHeight: 44, padding: '0 10px', borderRadius: 10,
-            border: '.5px solid var(--dsw-alias-border-l3)',
-            background: 'var(--dsw-alias-bg-layer-1)',
-            color: 'var(--dsw-alias-label-primary)', fontSize: 14,
-          },
-        }, it.g))) : null,
+        // SIYI-MOREUI-20261120：更多弹窗——去掉标题，纵向列表，图标+文字左对齐不换行
+        // SIYI-MORESMALL-20261120：紧凑底部浮层（不用 OModal，避免大标题栏）
+        moreMenu
+          ? h('div', { className: 'siyi-simple-menu siyi-more-scrim', onClick: () => setMoreMenu(false) },
+              h('div', { className: 'siyi-simple-menu-panel siyi-more-panel', onClick: (e) => e.stopPropagation() },
+                // SIYI-MORETIGHT-20261120：去掉小标题，紧贴文字大小
+                h('div', { className: 'siyi-more-list' },
+              h('button', {
+                className: 'siyi-more-item',
+                onClick: async () => {
+                  try { await navigator.clipboard.writeText(body || ''); toast('已复制全文') } catch { toast('复制失败') }
+                  setMoreMenu(false)
+                },
+              }, I.copy ? h(I.copy, { size: 18 }) : null, h('span', null, '复制全文')),
+              h('button', {
+                className: 'siyi-more-item',
+                onClick: async () => {
+                  try {
+                    const r = await api('/inbox-add', { method: 'POST', body: JSON.stringify({ title: title || '未命名', body: body || '', source: { type: 'note', ref: id || '', excerpt: '' } }) })
+                    setMoreMenu(false)
+                    toast(r.duplicate ? '已存在相同内容，未重复存入' : '已存入收件箱，请去 ⋯ → 知识收件箱查看')
+                  } catch (e) { setMoreMenu(false); toast('存入失败：' + e.message) }
+                },
+              }, I.data ? h(I.data, { size: 18 }) : null, h('span', null, '存入收件箱')),   // SIYI-K1SRC-20261123
+              h('button', {
+                className: 'siyi-more-item',
+                onClick: async () => {
+                  try { await navigator.clipboard.writeText('[[' + (title || '未命名') + ']]'); toast('已复制双链') } catch { toast('复制失败') }
+                  setMoreMenu(false)
+                },
+              }, I.link ? h(I.link, { size: 18 }) : null, h('span', null, '复制双链')),
+              h('button', {
+                className: 'siyi-more-item',
+                onClick: () => {
+                  try {
+                    const md = '---\ntitle: ' + (title || '未命名') + '\nupdated: ' + new Date().toISOString() + '\n---\n\n' + (body || '')
+                    const blob = new Blob([md], { type: 'text/markdown' })
+                    const a = document.createElement('a')
+                    a.href = URL.createObjectURL(blob)
+                    a.download = (title || 'note') + '.md'
+                    a.click()
+                    setTimeout(() => URL.revokeObjectURL(a.href), 1000)
+                    toast('已导出 Markdown')
+                  } catch (e) { toast('导出失败') }
+                  setMoreMenu(false)
+                },
+              }, I.download ? h(I.download, { size: 18 }) : null, h('span', null, '导出 MD')),
+              h('button', {
+                className: 'siyi-more-item danger',
+                onClick: async () => {
+                  setMoreMenu(false)
+                  if (!note) { toast('新笔记无需删除'); return }
+                  if (!window.confirm('确定删除这篇笔记？会移到回收站。')) return
+                  try {
+                    const r = await deleteNote(note.id)
+                    if (r && r.ok) { toast('已移到回收站'); onBack() }
+                    else toast('删除失败：' + ((r && r.error) || '未知'))
+                  } catch (e) { toast('删除失败：' + e.message) }
+                },
+              }, I.trash ? h(I.trash, { size: 18 }) : null, h('span', null, '删除笔记')),
+                ),
+              ),
+            )
+          : null,
+        // SIYI-OMODAL-20261120：格式/插入菜单用官方 Modal
+        (fmtMenu || insMenu)
+          ? (OModal
+              ? h(OModal, {
+                  open: true,
+                  onClose: () => { setFmtMenu(false); setInsMenu(false) },
+                  title: fmtMenu ? '格式' : '插入',
+                  closeLabel: '关闭',
+                }, h('div', {
+                  style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(84px, 1fr))', gap: 8 },
+                }, (fmtMenu ? fmtItems : insItems).map(it => h(OButton, {
+                  key: it.t,
+                  variant: 'outline',
+                  size: 'sm',
+                  onClick: () => { it.a(); setFmtMenu(false); setInsMenu(false) },
+                  icon: it.icon && I[it.icon] ? h(I[it.icon], { size: 15 }) : null,
+                }, it.t))))
+              : h('div', {
+                  style: {
+                    display: 'flex', flexWrap: 'wrap', gap: 6, padding: '8px 10px',
+                    borderTop: '.5px solid var(--dsw-alias-border-l3)',
+                    background: 'var(--dsw-alias-bg-layer-2)', flex: 'none',
+                  },
+                }, (fmtMenu ? fmtItems : insItems).map(it => h('button', {
+                  key: it.t, title: it.t,
+                  onMouseDown: (e) => e.preventDefault(),
+                  onClick: it.a,
+                  style: {
+                    minWidth: 48, minHeight: 44, padding: '0 10px', borderRadius: 10,
+                    border: '.5px solid var(--dsw-alias-border-l3)',
+                    background: 'var(--dsw-alias-bg-layer-1)',
+                    color: 'var(--dsw-alias-label-primary)', fontSize: 14,
+                  },
+                }, it.icon && I[it.icon] ? h(I[it.icon], { size: 16 }) : it.g))))
+          : null,
         // 底部固定工具栏：分类式，参考红米笔记
         h('div', {
           style: {
@@ -867,23 +1721,39 @@ window.__ModuleLoader__.load({
             paddingBottom: 'calc(6px + env(safe-area-inset-bottom, 0px))',
           },
         },
-          h(IconBtn, { glyph: '✎', label: '格式', active: fmtMenu, onClick: () => { setFmtMenu(v => !v); setInsMenu(false) } }),
-          h(IconBtn, { glyph: '☑', label: '待办', onClick: toggleTodo }),
-          h(IconBtn, { glyph: '＋', label: '插入', active: insMenu, onClick: () => { setInsMenu(v => !v); setFmtMenu(false) } }),
-          h(IconBtn, { glyph: '🖼', label: imgBusy ? '上传中' : '图片', active: imgBusy, onClick: () => { if (fileRef.current) fileRef.current.click() } }),
-          h(IconBtn, { glyph: mode === 'read' ? '✎' : '👁', label: mode === 'read' ? '编辑' : '阅读', onClick: () => setMode(m => m === 'read' ? 'edit' : 'read') }),
-          h(IconBtn, { glyph: '⋯', label: '更多', onClick: () => { setFmtMenu(true); setInsMenu(false) } }),
+          h(IconBtn, { icon: I.edit, glyph: '✎', label: '格式', active: fmtMenu, onClick: () => { setFmtMenu(v => !v); setInsMenu(false) } }),
+          // SIYI-SIMPLE2-20261120：待办已并入插入菜单
+          h(IconBtn, { icon: I.plus, glyph: '＋', label: '插入', active: insMenu, onClick: () => { setInsMenu(v => !v); setFmtMenu(false) } }),
+          h(IconBtn, { icon: I.image, glyph: '🖼', label: imgBusy ? '上传中' : '图片', active: imgBusy, onClick: () => { if (fileRef.current) fileRef.current.click() } }),
+          h(IconBtn, { icon: mode === 'read' ? I.edit : I.eye, glyph: mode === 'read' ? '✎' : '👁', label: mode === 'read' ? '编辑' : '阅读', onClick: () => setMode(m => m === 'read' ? 'edit' : 'read') }),
+          h(IconBtn, { icon: I.more, glyph: '⋯', label: '更多', active: moreMenu, onClick: () => { setMoreMenu(v => !v); setFmtMenu(false); setInsMenu(false) } }),
         ),
         // AI 助手半屏面板：展开时占地 50vh，编辑区自动收缩；可收起
         aiOpen ? h(AIPanel, {
           noteText: (title ? '# ' + title + '\n' : '') + (body || ''),
           onInsert: insertAI,
           onClose: () => setAiOpen(false),
+          // SIYI-EDITPROPS-20261120：选区改写所需
+          bodyRef,
+          noteId: note && note.id,
+          revision: revisionRef.current,
+          toast,   // SIYI-AITOAST-SCOPE-20261120
+          onApplyEdit: (sel, replacement) => {
+            const ta = bodyRef && bodyRef.current
+            const cur = String((ta && ta.value) || body || '')
+            const idx = cur.indexOf(sel)
+            if (idx < 0) { toast('选区已变化，请重新改写'); return }
+            const next = cur.slice(0, idx) + replacement + cur.slice(idx + sel.length)
+            setBody(next)
+            setDirty(true)
+            if (ta) ta.value = next
+          },
         }) : null,
         // 底部信息条
         h('div', { className: 'siyi-notes-foot' },
-          h('span', null, wordCount + ' 字' + (linkCount ? ' · ' + linkCount + ' 双链' : '')),
-          h('span', null, note && note.meta ? '更新于 ' + fmtTime(note.meta.updated) : '新笔记'),
+          // SIYI-SIMPLE2-20261120：只留字数，更新时间不再常驻
+          h('span', null, wordCount + ' 字'),
+          h('span', null, linkCount ? linkCount + ' 双链' : ''),
         ),
       )
     }
@@ -1018,6 +1888,7 @@ window.__ModuleLoader__.load({
     //   - 拖空白平移、双指捏合缩放、拖节点固定、双击复位
     function GraphView({ onBack, onOpen, toast }) {
       const [graph, setGraph] = useState(null)
+      const [semantic, setSemantic] = useState(false)   // SIYI-K2UI-20261123
       const [sel, setSel] = useState(null)
       const [size, setSize] = useState({ w: 360, h: 480 })
       const [view, setView] = useState({ x: 0, y: 0, k: 1 })
@@ -1026,9 +1897,11 @@ window.__ModuleLoader__.load({
       const gesture = useRef(null)
       const pinch = useRef(null)
 
+      // SIYI-K2UI-20261123：结构图 / 语义图切换加载
       useEffect(() => {
-        getGraph().then(setGraph).catch(e => toast('图谱读取失败：' + e.message))
-      }, [])
+        const p = semantic ? api('/semantic-graph') : getGraph()
+        p.then(g => { setGraph(g); setSel(null) }).catch(e => toast('图谱读取失败：' + e.message))
+      }, [semantic])
 
       useEffect(() => {
         const el = wrapRef.current
@@ -1231,9 +2104,14 @@ window.__ModuleLoader__.load({
         h('div', { className: 'siyi-notes-editor-head' },
           h('button', { className: 'siyi-notes-btn', onClick: onBack }, '‹ 返回'),
           h('button', {
+            className: 'siyi-notes-btn' + (semantic ? ' on' : ''),
+            title: '切换结构/语义图谱',
+            onClick: () => setSemantic(v => !v),
+          }, semantic ? '语义' : '结构'),   // SIYI-K2UI-20261123
+          h('button', {
             className: 'siyi-notes-btn',
             onClick: () => setView(v => ({ ...v, k: Math.min(3, v.k * 1.25) })),
-          }, '＋'),
+          }, I.plus ? h(I.plus, { size: 16 }) : '＋'),
           h('button', {
             className: 'siyi-notes-btn',
             onClick: () => setView(v => ({ ...v, k: Math.max(0.3, v.k / 1.25) })),
@@ -1407,7 +2285,8 @@ window.__ModuleLoader__.load({
 
       return h('div', { className: 'siyi-notes-root' },
         h('div', { className: 'siyi-notes-editor-head' },
-          h('button', { className: 'siyi-notes-btn', onClick: onBack }, '返回'),
+          h('button', { className: 'siyi-notes-btn siyi-btn-icon', onClick: onBack },
+          I.back ? h(I.back, { size: 16 }) : null, h('span', null, '返回')),
           h('button', { className: 'siyi-notes-btn', onClick: prevMonth }, '‹'),
           h('span', { style: { fontSize: 13, fontWeight: 600, minWidth: 76, textAlign: 'center' } },
             ym.y + ' 年 ' + (ym.m + 1) + ' 月'),
@@ -1506,6 +2385,10 @@ window.__ModuleLoader__.load({
       const [showDone, setShowDone] = useState(false)
       const [draft, setDraft] = useState(null)   // { title, due }
       const [busy, setBusy] = useState(false)
+      // SIYI-CALMERGE-20261122：月历状态（组件内，不新建子组件）
+      const __today = new Date()
+      const [calYm, setCalYm] = useState({ y: __today.getFullYear(), m: __today.getMonth() })
+      const [selKey, setSelKey] = useState(null)
 
       const load = useCallback(async () => {
         setLoading(true)
@@ -1523,10 +2406,34 @@ window.__ModuleLoader__.load({
         setBusy(true)
         try {
           const r = await saveNote(payload)
-          if (!r.ok) throw new Error(r.error || '保存失败')
+          if (!r.ok) {
+            if (r.code === 'CONFLICT') toast('任务已被其他端修改，请刷新后重试')
+            else toast(r.error || '保存失败')
+            return false   // SIYI-T0-20261121：失败不清除草稿
+          }
           toast(payload.status === 'done' ? '已完成' : '已保存')
           await load()
-        } catch (e) { toast('保存失败：' + e.message) }
+          return true
+        } catch (e) { toast('保存失败：' + e.message); return false }
+        finally { setBusy(false) }
+      }
+
+
+      // SIYI-T2AUI-20261123：待办设真闹钟（due日期+用户输入时间，走设备桥）
+      const setAlarm = async (t) => {
+        if (!t.due) { toast('该待办没有截止日期，无法设闹钟'); return }
+        const time = window.prompt('闹钟时间（24小时制 HH:mm）', '09:00')
+        if (!time || !/^\d{1,2}:\d{2}$/.test(time)) { toast('时间格式应为 HH:mm'); return }
+        const [hh, mm] = time.split(':')
+        const ms = new Date(t.due + 'T' + String(hh).padStart(2,'0') + ':' + mm + ':00').getTime()
+        if (!Number.isFinite(ms) || ms <= Date.now()) { toast('时间已过，请选未来时间'); return }
+        if (busy) return
+        setBusy(true)
+        try {
+          const r = await api('/alarm-set', { method: 'POST', body: JSON.stringify({ triggerAtMs: ms, title: t.title, text: '待办提醒：' + t.title }) })
+          if (r && r.ok) toast('闹钟已设置：' + t.due + ' ' + time)
+          else toast('设置失败：' + ((r && r.error) || '未知错误'))
+        } catch (e) { toast('设置失败：' + e.message) }
         finally { setBusy(false) }
       }
 
@@ -1537,19 +2444,21 @@ window.__ModuleLoader__.load({
 
       const submitDraft = async () => {
         if (!draft || !draft.title.trim()) return
-        await save({
+        // SIYI-T0-20261121：save 返回成功与否，失败保留草稿供重试
+        const ok = await save({
           kind: 'task',
           title: draft.title.trim(),
           status: 'open',
           due: draft.due || null,
           body: draft.title.trim(),
         })
-        setDraft(null)
+        if (ok) setDraft(null)
       }
 
       return h('div', { className: 'siyi-notes-root' },
         h('div', { className: 'siyi-notes-editor-head' },
-          h('button', { className: 'siyi-notes-btn', onClick: onBack }, '返回'),
+          h('button', { className: 'siyi-notes-btn siyi-btn-icon', onClick: onBack },
+          I.back ? h(I.back, { size: 16 }) : null, h('span', null, '返回')),
           h('button', {
             className: 'siyi-notes-btn' + (showDone ? ' on' : ''),
             onClick: () => setShowDone(v => !v),
@@ -1557,9 +2466,52 @@ window.__ModuleLoader__.load({
           h('button', {
             className: 'siyi-notes-btn',
             style: { marginLeft: 'auto' },
-            onClick: () => setDraft({ title: '', due: '' }),
-          }, '＋ 待办'),
+            onClick: () => setDraft({ title: '', due: selKey || '' }),   // SIYI-CALMERGE-20261122
+          }, I.plus ? h(I.plus, { size: 15 }) : null, '待办'),
         ),
+        // SIYI-CALMERGE-20261122：内嵌月历
+        (() => {
+          const first = new Date(calYm.y, calYm.m, 1)
+          const cells = []
+          for (let i = 0; i < first.getDay(); i++) cells.push(null)
+          const dn = new Date(calYm.y, calYm.m + 1, 0).getDate()
+          const cnt = {}
+          for (const t of items) { if (t.due) { const k = String(t.due).slice(0, 10); cnt[k] = (cnt[k] || 0) + 1 } }
+          for (let d = 1; d <= dn; d++) {
+            const key = calYm.y + '-' + String(calYm.m + 1).padStart(2, '0') + '-' + String(d).padStart(2, '0')
+            cells.push({ d, key })
+          }
+          while (cells.length % 7 !== 0) cells.push(null)
+          const tk = __today.getFullYear() + '-' + String(__today.getMonth() + 1).padStart(2, '0') + '-' + String(__today.getDate()).padStart(2, '0')
+          const W = ['日', '一', '二', '三', '四', '五', '六']
+          return h('div', { style: { flex: 'none', borderBottom: '.5px solid var(--dsw-alias-border-l3)', padding: '4px 6px' } },
+            h('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, padding: '2px 0 4px' } },
+              h('button', { className: 'siyi-notes-btn', onClick: () => setCalYm(v => v.m === 0 ? { y: v.y - 1, m: 11 } : { y: v.y, m: v.m - 1 }) }, '‹'),
+              h('span', { style: { fontSize: 12, fontWeight: 600, minWidth: 84, textAlign: 'center' } }, calYm.y + '-' + String(calYm.m + 1).padStart(2, '0')),
+              h('button', { className: 'siyi-notes-btn', onClick: () => setCalYm(v => v.m === 11 ? { y: v.y + 1, m: 0 } : { y: v.y, m: v.m + 1 }) }, '›'),
+            ),
+            h('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', textAlign: 'center' } },
+              W.map(w => h('div', { key: w, style: { fontSize: 9, color: 'var(--dsw-alias-label-tertiary)', padding: '1px 0' } }, w)),
+            ),
+            h('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(7,1fr)' } },
+              cells.map((c, i) => {
+                if (!c) return h('div', { key: 'e' + i })
+                const sel = selKey === c.key
+                const today = c.key === tk
+                return h('button', {
+                  key: c.key,
+                  onClick: () => setSelKey(sel ? null : c.key),
+                  style: {
+                    minHeight: 28, border: 'none', cursor: 'pointer', fontSize: 11, padding: 0,
+                    background: sel ? 'var(--dsw-alias-bg-layer-3)' : 'transparent',
+                    color: today ? 'var(--dsw-alias-text-link)' : 'var(--dsw-alias-label-primary)',
+                    fontWeight: today ? 700 : 400, borderRadius: sel ? 6 : 0, position: 'relative',
+                  },
+                }, c.d, cnt[c.key] ? h('span', { style: { position: 'absolute', bottom: 1, left: '50%', transform: 'translateX(-50%)', width: 3, height: 3, borderRadius: '50%', background: 'var(--dsw-alias-label-secondary)' } }) : null)
+              }),
+            ),
+          )
+        })(),
         draft ? h('div', {
           style: {
             padding: '8px 10px', flex: 'none',
@@ -1589,13 +2541,15 @@ window.__ModuleLoader__.load({
         h('div', { className: 'siyi-notes-list' },
           loading ? h('div', { className: 'siyi-notes-empty' }, '读取中…')
             : items.length === 0 ? h('div', { className: 'siyi-notes-empty' }, '没有待办')
-              : items.map(t => {
+              : (selKey ? items.filter(t => (t.due || '').slice(0, 10) === selKey) : items).length === 0
+                ? h('div', { className: 'siyi-notes-empty' }, '当天没有待办')
+              : (selKey ? items.filter(t => (t.due || '').slice(0, 10) === selKey) : items).map(t => {
                 const done = t.status === 'done'
                 const overdue = !done && t.due && String(t.due).slice(0, 10) < todayKey
                 return h('div', { key: t.id, className: 'siyi-notes-item' },
                   h('div', { style: { display: 'flex', alignItems: 'flex-start', gap: 8 } },
                     h('button', {
-                      onClick: () => save({ id: t.id, status: done ? 'open' : 'done' }),
+                      onClick: () => save({ id: t.id, status: done ? 'open' : 'done', expectedRevision: t.revision }),   // SIYI-T0-20261121
                       disabled: busy,
                       style: {
                         flex: 'none', width: 30, height: 30, marginTop: 0,
@@ -1616,6 +2570,7 @@ window.__ModuleLoader__.load({
                           style: overdue ? { color: '#dc2626' } : null,
                         }, (overdue ? '逾期 ' : '') + t.due) : h('span', null, '无截止'),
                         (t.tags || []).slice(0, 2).map(x => h('span', { key: x, className: 'siyi-notes-tag' }, '#' + x)),
+                        !done && t.due ? h('button', { className: 'siyi-task-alarm-btn', title: '设闹钟', 'aria-label': '设闹钟', onClick: (e) => { e.stopPropagation(); setAlarm(t) } }, I.alarm ? h(I.alarm, { size: 14 }) : '⏰') : null,   // SIYI-T2AUI-20261123
                       ),
                     ),
                   ),
@@ -1645,6 +2600,7 @@ window.__ModuleLoader__.load({
       const graph = () => setView('graph')
       const month = () => setView('month')
       const tasks = () => setView('tasks')
+      const [folder, setFolder] = useState('')   // SIYI-FOLDER-20261126：当前文件夹（新建笔记继承）
 
       let body
       if (view === 'list') {
@@ -1654,6 +2610,7 @@ window.__ModuleLoader__.load({
           onMonth: month,
           onTasks: tasks,
           onNew: () => { setId(null); setView('edit') },
+          folder, setFolder,
           toast,
         })
       } else if (view === 'graph') {
@@ -1663,12 +2620,22 @@ window.__ModuleLoader__.load({
       } else if (view === 'tasks') {
         body = h(TaskView, { onBack: back, onOpen: open, toast })
       } else {
-        body = h(EditorView, { id, onBack: back, toast })
+        body = h(EditorView, { id, onBack: back, toast, folder })   // SIYI-FOLDER-20261126
       }
 
       return h('div', { style: { position: 'relative', height: '100%', minHeight: 0 } },
         body,
-        toastMsg ? h('div', { className: 'siyi-notes-toast' }, toastMsg) : null,
+        // SIYI-OTOAST-20261119：官方 Toast（受控，onDone 时清除）
+        toastMsg
+          ? (OToast
+              ? h(OToast, {
+                  key: toastMsg + Date.now(),
+                  text: toastMsg,
+                  holdMs: 2200,
+                  onDone: () => setToastMsg(''),
+                })
+              : h('div', { className: 'siyi-notes-toast' }, toastMsg))
+          : null,
       )
     }
 
@@ -1684,7 +2651,7 @@ window.__ModuleLoader__.load({
           textAlign: 'left', color: 'var(--dsw-alias-label-primary)',
         },
       },
-        h('span', { style: { fontSize: 22 } }, '📝'),
+        I.note ? h(I.note, { size: 22 }) : h('span', { style: { fontSize: 22 } }, '📝'),
         h('span', { style: { display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 } },
           h('span', { style: { fontSize: 14, lineHeight: 1.4 } }, '我的笔记'),
           h('span', { style: { fontSize: 11, lineHeight: 1.4, color: 'var(--dsw-alias-label-tertiary)' } },
@@ -1696,55 +2663,37 @@ window.__ModuleLoader__.load({
     const TAB_ID = 'siyi-notes'
 
     // ── 插件入口 ────────────────────────────────────────────────────
-    const inject = ['slots', 'sidebarRight', 'sidebarRightTabs']
+    const inject = ['slots', 'layout']   // SIYI-MAINPANEL-20261128 + SIYI-PLANB-20261128
 
     function apply(ctx) {
-      // 注册页面类型
-      ctx.effect(() => ctx.sidebarRightTabs.register({
-        id: TAB_ID,
-        kind: TAB_ID,
-        multiple: false,
-        title: () => '我的笔记',
-        guide: [{
-          id: 'open',
-          order: 30,
-          title: () => '我的笔记',
-          description: () => '列表、编辑、知识图谱',
-        }],
-      }), 'siyi-notes.type')
+      // SIYI-MAINPANEL-20261128：作为全局主面板注册（不依赖会话），左侧栏有独立按钮 + "更多"菜单条目
 
-      // 入口卡片。
-      //
-      // ⚠ 打开 tab 的正确方式是 tab.actions.openTab(kind, opts)，
-      // 它来自 useTabInfo() 这个 hook，不是组件 props 上的 openTab。
-      // 这一点照 dsh-client-ui-sidebar-terminal 的 TerminalGuide 抄的
-      // （那边第 94 行就是 tab.actions.openTab("terminal", { replaceTab: true })）。
-      ctx.effect(() => ctx.slots.inject('sidebar.right.tab.guide.entry', () => ctx.slots.register({
-        name: 'sidebar.right.tab.guide.entry',
+      // 主面板内容：NotesApp 直接作为 main 面板渲染
+      ctx.effect(() => ctx.slots.inject('main', () => ctx.slots.register({
+        name: 'main',
         key: TAB_ID,
-        inject: () => ({ hooks: {} }),
-      }, ({ useTabInfo }) => {
-        const { tab } = useTabInfo()
-        return h(GuideCard, {
-          onOpen: () => {
-            try { tab.actions.openTab(TAB_ID, { replaceTab: true }) } catch (e) {}
-          },
-        })
-      })), 'siyi-notes.guide')
-
-      // 页面正文
-      ctx.effect(() => ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({
-        name: 'sidebar.right.pane.tab',
-        key: TAB_ID,
+        
         inject: () => ({}),
-      }, NotesApp)), 'siyi-notes.body')
+      }, NotesApp)), 'siyi-notes.main')
 
-      // 页面标题
-      ctx.effect(() => ctx.slots.inject('sidebar.right.pane.tab.title', () => ctx.slots.register({
-        name: 'sidebar.right.pane.tab.title',
-        key: TAB_ID,
+      // SIYI-PLANB-20261128：只在"更多"菜单加入口，不占常驻区（不影响会话列表）
+      let P
+      try { P = require('@deepseek-ai/dsh-client-ui-primitives') || {} } catch {}
+      const MenuItem = P.MenuItemButton
+      const IconFolder = P.IconFolderOpenOutlineRegular
+      ctx.effect(() => ctx.slots.inject('sidebar.panellist.actions', () => ctx.slots.register({
+        name: 'sidebar.panellist.actions',
+        id: TAB_ID + '-menu',
         inject: () => ({}),
-      }, () => '我的笔记')), 'siyi-notes.title')
+      }, ({ onDismiss }) => {
+        if (!MenuItem) return null
+        return h(MenuItem, {
+          icon: IconFolder ? h(IconFolder, { size: 16 }) : null,
+          onSelect: () => { onDismiss && onDismiss(); try { ctx.layout.selectPanel(TAB_ID) } catch {} },
+        }, '我的笔记')
+      })), 'siyi-notes.menu')
+
+
     }
 
     exports.apply = apply

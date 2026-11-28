@@ -289,3 +289,10 @@
     - id: siyi-notes
       name: 'dsh-client-ui-siyi-notes'
       config: {}
+
+# ── 插件：思忆集 PC 入口（2026-11-28）─────────────────────
+# 浏览器半身，宿主侧不注册服务（数据走 /sdcard/思忆集/plugins/siyi-pc-bridge.js）。
+- insert:
+    - id: siyi-pc
+      name: 'dsh-client-ui-siyi-pc'
+      config: {}

@@ -1,0 +1,19 @@
+{
+  "name": "dsh-client-ui-siyi-pc",
+  "version": "0.1.0",
+  "description": "思忆集 PC 入口：全局主面板，显示通过 Tailscale 连接的 PC 端 DSH 会话列表。数据走本机 /siyi-pc 接口。",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": { "default": "./lib/index.js" },
+    "./client": { "default": "./lib/client.js" },
+    "./package.json": { "default": "./package.json" }
+  },
+  "dsh": {
+    "client": { "platform": "web", "inject": [], "immediately": true },
+    "bundle": { "patch": "./cordis.patch.yml" }
+  },
+  "engines": { "node": "^22.19.0 || >=24.0.0" },
+  "files": ["lib", "cordis.patch.yml"],
+  "license": "MIT"
+}

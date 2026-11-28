@@ -244,11 +244,11 @@ jobs:
           test -f "node_modules/dsh-client-ui-siyi-notes/lib/index.js" || { echo "siyi-notes index.js 缺失"; exit 1; }
           echo "siyi-notes installed: $(ls node_modules/dsh-client-ui-siyi-notes/lib)"
 
-# ── PC 入口客户端面板（2026-11-28 固化）──
-rm -rf "node_modules/dsh-client-ui-siyi-pc"
-cp -r "$WS/$APP_DIR/plugins/dsh-client-ui-siyi-pc" "node_modules/dsh-client-ui-siyi-pc"
-test -f "node_modules/dsh-client-ui-siyi-pc/lib/client.js" || { echo "siyi-pc client.js 缺失"; exit 1; }
-echo "siyi-pc installed: $(ls node_modules/dsh-client-ui-siyi-pc/lib)"
+          # ── PC 入口客户端面板（2026-11-28 固化）──
+          rm -rf "node_modules/dsh-client-ui-siyi-pc"
+          cp -r "$WS/$APP_DIR/plugins/dsh-client-ui-siyi-pc" "node_modules/dsh-client-ui-siyi-pc"
+          test -f "node_modules/dsh-client-ui-siyi-pc/lib/client.js" || { echo "siyi-pc client.js 缺失"; exit 1; }
+          echo "siyi-pc installed: $(ls node_modules/dsh-client-ui-siyi-pc/lib)"
           # 用户插件动态加载器：让 App 免 CI 自己加能力
           rm -rf "node_modules/dsh-user-plugins"
           cp -r "$WS/$APP_DIR/plugins/dsh-user-plugins" "node_modules/dsh-user-plugins"
